@@ -10,9 +10,10 @@ bun run typecheck      # tsc --noEmit
 bun run lint           # biome check
 bun test               # bun:test, all tests in tests/
 bun test tests/pipeline.test.ts  # single file
+bun run examples/playground.ts   # live integration test (needs DB + embedding API)
 ```
 
-No test database needed — tests use mocks for all DB and embedding calls.
+No test database needed — tests use mocks for all DB and embedding calls. The playground example creates and drops an isolated database automatically.
 
 ## Architecture
 
@@ -23,11 +24,11 @@ Three-way hybrid search fused via RRF:
 
 ### Core flow
 
-**Search** (`RagPipeline.search`): strip punctuation → normalize query → remove stop words → embed → run 3 parallel DB queries → RRF fusion → optional relevance cutoff → optional cross-encoder reranking
+**Search** (`RagPipeline.search`): strip punctuation → normalize query → remove stop words → embed → run 3 parallel DB queries (with optional `languages` filter) → RRF fusion → optional relevance cutoff → optional cross-encoder reranking
 
 **Index** (`RagIndexer.index`): embed chunks → delete old chunks for source → insert into `rag_documents` (Postgres tsvector trigger handles stemming)
 
-**Chunk** (`Chunker.chunk`): split by paragraphs → sentences → fixed-size, with 75-char word-boundary overlap. Auto-prefixes chunks with `[Name | Brand]` from metadata.
+**Chunk** (`Chunker.chunk`): split by paragraphs → sentences → fixed-size, with 75-char word-boundary overlap. Auto-prefixes chunks with `[Name | Brand]` from metadata. Supports token-limit mode (`new Chunker({ tokenLimit: 512 })`) with language-aware char-per-token heuristics for denser chunks.
 
 ### Key files
 
@@ -42,10 +43,10 @@ Three-way hybrid search fused via RRF:
 | `src/rrf.ts` | Reciprocal Rank Fusion |
 | `src/stopWords.ts` | Stop word removal |
 | `src/types.ts` | All type definitions |
-| `src/interfaces.ts` | Provider interfaces (SqlClient, EmbeddingProvider, RagDatabase, etc.) |
+| `src/interfaces.ts` | Provider interfaces (SqlClient, EmbeddingProvider, RagDatabase, ChunkingProvider, etc.) |
 | `src/migrate.ts` | SQL migration runner |
 | `src/adapters/PostgresRagDatabase.ts` | Postgres adapter — 3-way search SQL, insert, delete, optional CJK |
-| `src/adapters/OpenAiCompatibleEmbedder.ts` | Fetch-based OpenAI-compatible embedding client |
+| `src/adapters/OpenAiCompatibleEmbedder.ts` | Fetch-based OpenAI-compatible embedding client with batched requests (`batchSize`, `concurrency`) |
 | `src/adapters/CachingStopWordsLoader.ts` | 30s TTL per-tenant stop words cache |
 | `src/adapters/CachingSynonymLoader.ts` | 30s TTL per-tenant synonym cache |
 | `sql/001-009_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK) |
@@ -61,6 +62,9 @@ Three-way hybrid search fused via RRF:
 - **Optional CJK support** — pg_bigm for keyword search on Chinese/Japanese/Korean. Enabled via `{ cjk: true }` in migration and adapter constructor.
 - **Optional language scoping** — `languages` filter restricts all 3 search legs to specific document languages via `WHERE language = ANY(...)`. Omit for cross-language search (default). Uses `string_to_array($N::text, ',')` for driver-agnostic array parameter binding.
 - **Parallel search** — PostgresRagDatabase runs all 3 search legs concurrently via separate connections.
+- **Batched embedding** — OpenAiCompatibleEmbedder splits texts into configurable batches (`batchSize`, default 32) with configurable concurrency (default 1, sequential).
+- **Token-limit chunking** — Chunker accepts `{ tokenLimit }` and computes per-language char limits using heuristic chars-per-token ratios (0.8 safety margin). Produces denser chunks for Latin scripts (~3x vs flat char limit).
+- **Pluggable chunker** — `ChunkingProvider` interface lets consumers swap in alternative chunking libraries (e.g. chonkie).
 - **Batch inserts** — PostgresRagDatabase inserts all chunks in a single INSERT statement.
 - **Punctuation handling** — trailing punctuation stripped before matching (Latin, Hindi, Arabic, CJK).
 
