@@ -2,6 +2,12 @@
 
 Hybrid RAG search pipeline with vector + trigram + full-text search, fused via Reciprocal Rank Fusion (RRF). Postgres-native multilingual stemming, per-tenant stop words, synonym expansion, and optional CJK support via pg_bigm. Zero npm dependencies.
 
+## Why pg-hybrid-rag?
+
+Most RAG implementations rely on vector search alone. That works for semantic queries ("comfortable running shoes") but fails on exact matches ("Nike Air Max 270"), product codes, and keyword-heavy searches. pg-hybrid-rag runs three search strategies in parallel — vector similarity, trigram matching, and full-text search — then fuses them with RRF so you get the best of all three without tuning each one independently.
+
+Everything runs inside Postgres. No Elasticsearch, no Redis, no external search engine. If you already have Postgres with pgvector, you can add hybrid search without new infrastructure. Stemming, stop words, synonyms, and language detection are all handled natively — 14 languages supported out of the box, with CJK support via pg_bigm. The library has zero npm dependencies and injects all I/O through interfaces, so it works with any database driver, any embedding provider, and any framework.
+
 ## Installation
 
 ```bash
@@ -372,3 +378,7 @@ Stemming is handled by the `rag_fts_config()` SQL function which maps language c
 - No CRUD routes — admin APIs for stop words/synonyms are consumer concerns
 - No config loading — tenant settings, feature flags, etc. are consumer concerns
 - No NLP dependencies — stemming is fully delegated to Postgres
+
+---
+
+Built entirely by AI using [Claude Code](https://claude.ai/claude-code).

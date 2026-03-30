@@ -3,7 +3,7 @@
  *
  * Demonstrates:
  * - Multi-language search (English, French, Hindi, CJK)
- * - Filtering by source type and source ID
+ * - Filtering by source type, source ID, and document language
  * - Cross-encoder reranking
  * - Relevance cutoff
  *
@@ -81,6 +81,19 @@ class SearchService {
     });
   }
 
+  /** Search only within specific document languages (e.g. English + Hindi). */
+  async searchInLanguages(
+    query: string,
+    language: string,
+    languages: string[],
+  ): Promise<RagResult[]> {
+    return this.pipeline.search(query, {
+      language,
+      languages,
+      topK: 10,
+    });
+  }
+
   /**
    * High-quality search with reranking and relevance cutoff.
    * The cross-encoder reranker reorders results by query-document relevance,
@@ -148,3 +161,9 @@ export { SearchService, createReranker };
 //
 // // With reranking for higher quality
 // const reranked = await search.searchWithReranking("return policy for electronics", "en");
+//
+// // Language-scoped — only search English documents
+// const enOnly = await search.searchInLanguages("battery life", "en", ["en"]);
+//
+// // Language-scoped — search across English and Hindi documents
+// const enHi = await search.searchInLanguages("wireless headphones", "en", ["en", "hi"]);
