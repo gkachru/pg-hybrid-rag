@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Chunker } from "../src/Chunker.js";
 
-describe("Chunker", () => {
+describe("Chunker (character-based)", () => {
   const chunker = new Chunker(100, 20);
 
   it("should return empty array for empty text", () => {
@@ -102,5 +102,75 @@ describe("Chunker", () => {
       expect(chunks).toHaveLength(1);
       expect(chunks[0].content).toBe("Short text that fits in one chunk.");
     });
+  });
+});
+
+describe("Chunker (token-limit mode)", () => {
+  const chunker = new Chunker({ tokenLimit: 512, overlap: 20 });
+
+  it("produces larger chunks for English than character-based default", () => {
+    // 512 tokens × 3.2 chars/token = 1638 char limit
+    const text = "The quick brown fox. ".repeat(80); // ~1600 chars
+    const charChunker = new Chunker(512, 20);
+
+    const tokenChunks = chunker.chunk(text, { language: "en" });
+    const charChunks = charChunker.chunk(text);
+
+    expect(tokenChunks.length).toBeLessThan(charChunks.length);
+  });
+
+  it("uses ~1638 char limit for Latin languages", () => {
+    // Each sentence is ~50 chars, so 30 sentences ≈ 1500 chars fits in 1 chunk
+    const text = "This is a sentence with some words in it. ".repeat(30);
+    const chunks = chunker.chunk(text, { language: "en" });
+    expect(chunks).toHaveLength(1);
+  });
+
+  it("uses smaller limit for CJK languages", () => {
+    // 512 tokens × 1.2 chars/token = 614 char limit
+    // 700 CJK chars should split into 2 chunks
+    const text = "这是一个测试句子。".repeat(78); // ~702 chars
+    const chunks = chunker.chunk(text, { language: "zh" });
+    expect(chunks.length).toBeGreaterThan(1);
+  });
+
+  it("falls back to tokenLimit as char limit for unknown languages", () => {
+    // Unknown language → 512 char limit (same as old default)
+    const text = "A".repeat(600);
+    const chunks = chunker.chunk(text, { language: "xx" });
+    expect(chunks.length).toBeGreaterThan(1);
+  });
+
+  it("normalizes BCP-47 codes to base language", () => {
+    const text = "This is a sentence with some words in it. ".repeat(30);
+    const chunksEn = chunker.chunk(text, { language: "en" });
+    const chunksEnUs = chunker.chunk(text, { language: "en-US" });
+    expect(chunksEn.length).toBe(chunksEnUs.length);
+  });
+
+  it("handles Hindi with intermediate char limit", () => {
+    // 512 × 2.4 = 1228 chars
+    const text = "यह एक परीक्षण वाक्य है। ".repeat(55); // ~1320 chars
+    const chunks = chunker.chunk(text, { language: "hi" });
+    expect(chunks.length).toBeGreaterThan(1);
+  });
+
+  it("handles Arabic with intermediate char limit", () => {
+    // 512 × 2.4 = 1228 chars
+    const text = "هذه جملة اختبار طويلة. ".repeat(55); // ~1265 chars
+    const chunks = chunker.chunk(text, { language: "ar" });
+    expect(chunks.length).toBeGreaterThan(1);
+  });
+
+  it("works without language in metadata (falls back to tokenLimit)", () => {
+    const text = "A".repeat(600);
+    const chunks = chunker.chunk(text);
+    expect(chunks.length).toBeGreaterThan(1);
+  });
+
+  it("still supports metadata fields alongside language", () => {
+    const chunks = chunker.chunk("Short text.", { language: "en", name: "Test Product" });
+    expect(chunks[0].metadata.language).toBe("en");
+    expect(chunks[0].metadata.name).toBe("Test Product");
   });
 });

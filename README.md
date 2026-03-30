@@ -179,14 +179,41 @@ Indexing is upsert-style: calling `index` for an existing `sourceType + sourceId
 ### Chunk
 
 ```typescript
+// Character-based (original API, backwards compatible)
 const chunker = new Chunker(maxSize?, overlap?);
 const chunks = chunker.chunk(text, metadata?);
+
+// Token-limit mode (recommended) — computes char limit per language
+const chunker = new Chunker({ tokenLimit: 512, overlap: 75 });
+const chunks = chunker.chunk(text, { language: "en", name: "Product" });
 ```
+
+#### Character-based mode
 
 | Parameter | Default | What it does |
 |-----------|---------|-------------|
-| `maxSize` | `512` | Maximum chunk size in characters. The chunker splits by paragraphs first, then sentences, then fixed-size. Keep this under your embedding model's token limit (512 chars is well within the 512-token limit of e5-small). |
-| `overlap` | `75` | Number of characters from the end of one chunk prepended to the next, aligned to the nearest word boundary. Provides context continuity across chunk boundaries so information at split points isn't lost. |
+| `maxSize` | `512` | Maximum chunk size in characters. The chunker splits by paragraphs first, then sentences, then fixed-size. |
+| `overlap` | `75` | Characters from the end of one chunk prepended to the next, aligned to the nearest word boundary. Provides context continuity across chunk boundaries. |
+
+#### Token-limit mode
+
+When constructed with `{ tokenLimit }`, the chunker computes an effective character limit per language using heuristic chars-per-token ratios with a 0.8 safety margin. This produces denser chunks that better utilize the embedding model's context window while staying safely under the token limit.
+
+| Parameter | Default | What it does |
+|-----------|---------|-------------|
+| `tokenLimit` | — | Max tokens per chunk. The effective character limit is `tokenLimit × charsPerToken × 0.8`, varying by language. |
+| `overlap` | `75` | Same as character-based mode — overlap is always in characters. |
+
+Pass `language` in the metadata to activate language-aware sizing:
+
+| Language | Codes | Chars/token | Effective limit (512 tokens) |
+|----------|-------|-------------|------------------------------|
+| English, Spanish, French, German, Italian, Portuguese, Romanian, Malay | `en`, `es`, `fr`, `de`, `it`, `pt`, `ro`, `ms` + BCP-47 | ~4 | 1638 chars |
+| Hindi | `hi` + BCP-47 | ~3 | 1228 chars |
+| Arabic | `ar` + BCP-47 | ~3 | 1228 chars |
+| Sinhalese | `si` + BCP-47 | ~3 | 1228 chars |
+| Chinese, Japanese, Korean | `zh`, `ja`, `ko` + BCP-47 | ~1.5 | 614 chars |
+| Unknown | any other | 1 | 512 chars |
 
 If `metadata` contains a `name` field (and optionally `brand`), each chunk is automatically prefixed with `[Name | Brand]` so the embedding model knows which entity the chunk belongs to.
 

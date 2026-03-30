@@ -9,7 +9,7 @@ export type { PostgresRagDatabaseOptions } from "./adapters/PostgresRagDatabase.
 export { PostgresRagDatabase } from "./adapters/PostgresRagDatabase.js";
 
 // Core
-export { Chunker } from "./Chunker.js";
+export { Chunker, type ChunkerConfig } from "./Chunker.js";
 // Interfaces
 export type {
   EmbeddingProvider,
