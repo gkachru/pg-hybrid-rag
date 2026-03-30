@@ -10,32 +10,28 @@ Everything runs inside Postgres. No Elasticsearch, no Redis, no external search 
 
 ## Installation
 
-This package is not yet published to npm. Install directly from GitHub:
-
 ```bash
-npm install github:gkachru/pg-hybrid-rag
+npm install pg-hybrid-rag
 # or
-pnpm add github:gkachru/pg-hybrid-rag
+pnpm add pg-hybrid-rag
 # or
-bun add github:gkachru/pg-hybrid-rag
+bun add pg-hybrid-rag
 ```
 
-Or add it to your `package.json` manually:
-
-```json
-{
-  "dependencies": {
-    "pg-hybrid-rag": "github:gkachru/pg-hybrid-rag"
-  }
-}
-```
-
-If using in a monorepo, you can reference the local path instead:
+In a monorepo, if this package lives alongside your consumer (e.g. `packages/rag` and `packages/api`), you can reference it locally instead. With pnpm/bun workspaces configured, use `workspace:*`. Without workspaces, use a relative path:
 
 ```json
 {
   "dependencies": {
     "pg-hybrid-rag": "workspace:*"
+  }
+}
+```
+
+```json
+{
+  "dependencies": {
+    "pg-hybrid-rag": "file:../rag"
   }
 }
 ```
