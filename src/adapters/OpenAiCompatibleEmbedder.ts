@@ -8,6 +8,10 @@ export interface OpenAiCompatibleEmbedderConfig {
   queryPrefix?: string;
   /** Prefix for documents (default: "passage") */
   documentPrefix?: string;
+  /** Max texts per embedding API call (default: 32) */
+  batchSize?: number;
+  /** Max parallel embedding API calls (default: 1) */
+  concurrency?: number;
 }
 
 /**
@@ -21,6 +25,8 @@ export class OpenAiCompatibleEmbedder implements EmbeddingProvider {
   private model: string;
   private queryPrefix: string;
   private documentPrefix: string;
+  private batchSize: number;
+  private concurrency: number;
 
   constructor(config: OpenAiCompatibleEmbedderConfig) {
     this.baseUrl = config.baseUrl;
@@ -28,6 +34,8 @@ export class OpenAiCompatibleEmbedder implements EmbeddingProvider {
     this.model = config.model;
     this.queryPrefix = config.queryPrefix ?? "query";
     this.documentPrefix = config.documentPrefix ?? "passage";
+    this.batchSize = config.batchSize ?? 32;
+    this.concurrency = config.concurrency ?? 1;
   }
 
   async embedQuery(text: string): Promise<number[]> {
@@ -38,7 +46,20 @@ export class OpenAiCompatibleEmbedder implements EmbeddingProvider {
 
   async embedDocuments(texts: string[]): Promise<number[][]> {
     const prefixed = texts.map((t) => `${this.documentPrefix}: ${t}`);
-    return this.callApi(prefixed);
+
+    const batches: string[][] = [];
+    for (let i = 0; i < prefixed.length; i += this.batchSize) {
+      batches.push(prefixed.slice(i, i + this.batchSize));
+    }
+
+    const results: number[][][] = [];
+    for (let i = 0; i < batches.length; i += this.concurrency) {
+      const slice = batches.slice(i, i + this.concurrency);
+      const batchResults = await Promise.all(slice.map((b) => this.callApi(b)));
+      results.push(...batchResults);
+    }
+
+    return results.flat();
   }
 
   private async callApi(input: string[]): Promise<number[][]> {
