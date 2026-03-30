@@ -1,6 +1,6 @@
 {
   "name": "pg-hybrid-rag",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Hybrid RAG search pipeline (vector + trigram + FTS) with Postgres-native stemming and RRF fusion",
   "type": "module",
   "main": "dist/index.cjs",
