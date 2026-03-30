@@ -37,7 +37,7 @@ In a monorepo, if this package lives alongside your consumer (e.g. `packages/rag
 ```
 
 **Prerequisites:**
-- **Node.js 18+** or **Bun 1.0+** (Node 21.2+ required for auto-detected migration paths; pass `sqlDir` explicitly on older Node versions)
+- **Node.js 18+** or **Bun 1.0+**
 - PostgreSQL with `pgvector` and `pg_trgm` extensions
 - Optional: `pg_bigm` extension for CJK keyword search
 - For non-Bun runtimes, add `@types/node` as a dev dependency for type checking
