@@ -1,0 +1,41 @@
+# Self-hosted embedding API using HuggingFace Text Embeddings Inference (TEI).
+# Sized for a dev laptop (CPU, no GPU). Starts on port 3333.
+#
+# Usage:
+#   EMBEDDING_API_KEY=your-key docker compose up
+#
+# TEI downloads the model from HuggingFace on first start.
+# The hf-cache volume persists it across restarts.
+#
+# Production note:
+#   For production, use a GPU image (ghcr.io/huggingface/text-embeddings-inference:1.9)
+#   or a quantized ONNX model (e.g. onnx/model_qint8_avx512_vnni.onnx from
+#   https://huggingface.co/intfloat/multilingual-e5-small) on appropriate Intel
+#   CPUs with AVX-512 VNNI support.
+
+services:
+  embedding:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    ports:
+      - "3333:3333"
+    volumes:
+      - hf-cache:/data
+    restart: unless-stopped
+    environment:
+      - API_KEY=${EMBEDDING_API_KEY}
+    command:
+      [
+        "--model-id", "intfloat/multilingual-e5-small",
+        "--max-batch-tokens", "4096",
+        "--max-client-batch-size", "8",
+        "--port", "3333",
+      ]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  hf-cache:

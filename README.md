@@ -215,7 +215,7 @@ const txProvider: TransactionProvider = {
 ## Default Adapters
 
 - **PostgresRagDatabase** — parameterized SQL for 3-way hybrid search + CRUD; runs all 3 search legs in parallel; optional `{ cjk: true }` for pg_bigm keyword search on CJK languages
-- **OpenAiCompatibleEmbedder** — fetch-based, works in Node + Bun
+- **OpenAiCompatibleEmbedder** — fetch-based, works in Node + Bun; supports `batchSize` and `concurrency` for batched embedding. See [`examples/docker-compose.yml`](examples/docker-compose.yml) for running a self-hosted embedding API with HuggingFace TEI.
 - **CachingStopWordsLoader** — 30s TTL, queries `rag_stop_words`; `loadMerged()` caches flattened Set across languages
 - **CachingSynonymLoader** — 30s TTL, queries `rag_synonyms`, two-way direction
 
