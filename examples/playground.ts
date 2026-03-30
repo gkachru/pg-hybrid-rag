@@ -30,16 +30,10 @@ import {
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const EMBEDDING_BASE_URL = process.env.EMBEDDING_BASE_URL;
-const EMBEDDING_API_KEY =
-  process.env.EMBEDDING_API_KEY ?? process.env.LLM_API_KEY;
+const EMBEDDING_API_KEY = process.env.EMBEDDING_API_KEY ?? process.env.LLM_API_KEY;
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL;
 
-if (
-  !DATABASE_URL ||
-  !EMBEDDING_BASE_URL ||
-  !EMBEDDING_API_KEY ||
-  !EMBEDDING_MODEL
-) {
+if (!DATABASE_URL || !EMBEDDING_BASE_URL || !EMBEDDING_API_KEY || !EMBEDDING_MODEL) {
   console.error(
     "Missing required env vars: DATABASE_URL, EMBEDDING_BASE_URL, EMBEDDING_API_KEY (or LLM_API_KEY), EMBEDDING_MODEL",
   );
@@ -81,10 +75,7 @@ async function dropPlaygroundDb() {
 
 function createAdapter(sql: postgres.Sql) {
   const sqlClient: SqlClient = {
-    async query<T = Record<string, unknown>>(
-      text: string,
-      params: unknown[],
-    ): Promise<T[]> {
+    async query<T = Record<string, unknown>>(text: string, params: unknown[]): Promise<T[]> {
       const result = await sql.unsafe(text, params as postgres.MaybeRow[]);
       return result as T[];
     },
@@ -110,12 +101,9 @@ const embedder = new OpenAiCompatibleEmbedder({
 // ── Logger (simple console) ─────────────────────────────────────────────────
 
 const logger = {
-  debug: (obj: Record<string, unknown>, msg: string) =>
-    console.log("  [debug]", msg, obj),
-  info: (obj: Record<string, unknown>, msg: string) =>
-    console.log("  [info]", msg, obj),
-  warn: (obj: Record<string, unknown>, msg: string) =>
-    console.warn("  [warn]", msg, obj),
+  debug: (obj: Record<string, unknown>, msg: string) => console.log("  [debug]", msg, obj),
+  info: (obj: Record<string, unknown>, msg: string) => console.log("  [info]", msg, obj),
+  warn: (obj: Record<string, unknown>, msg: string) => console.warn("  [warn]", msg, obj),
 };
 
 // ── Sample data ─────────────────────────────────────────────────────────────
@@ -295,6 +283,46 @@ const FAQ_ES = [
   },
 ];
 
+// ── Chinese products & FAQs (CJK — falls back to pg_trgm without pg_bigm) ──
+
+const PRODUCTS_ZH = [
+  {
+    id: "00000000-0000-0000-0000-000000000041",
+    name: "小米14 Ultra",
+    brand: "小米",
+    text: `小米14 Ultra旗舰手机。搭载高通骁龙8 Gen 3处理器，6.73英寸2K AMOLED屏幕，峰值亮度3000nit。与徕卡联合研发的专业影像系统，5000万像素主摄配备1英寸大底传感器。
+
+电池：5300mAh，支持90W有线快充和50W无线快充。内存：16GB LPDDR5X。存储：512GB/1TB UFS 4.0。IP68防水防尘。
+
+影像系统：5000万像素徕卡Summilux主摄（f/1.63）、5000万像素超广角、5000万像素长焦（3.2x光学变焦）、5000万像素潜望长焦（5x光学变焦）。支持杜比视界HDR视频录制。
+
+价格：¥6,499起（512GB版本）。颜色：黑色、白色、龙晶蓝。`,
+  },
+  {
+    id: "00000000-0000-0000-0000-000000000042",
+    name: "大疆Mini 4 Pro",
+    brand: "大疆",
+    text: `大疆Mini 4 Pro无人机。249克超轻机身，无需注册即可飞行。搭载1/1.3英寸CMOS传感器，支持4K/60fps HDR视频拍摄和4800万像素照片。
+
+续航：34分钟最长飞行时间。图传：OcuSync 4.0，最远20公里传输距离。避障：全向感知避障系统，APAS 5.0智能避障。
+
+智能功能：焦点跟随、兴趣点环绕、延时摄影、一键短片（渐远、环绕、螺旋、小行星）。支持D-Log M和HLG色彩模式。
+
+价格：¥4,788（标准版）、¥6,188（畅飞套装）。赠送128GB MicroSD卡。`,
+  },
+];
+
+const FAQ_ZH = [
+  {
+    id: "00000000-0000-0000-0000-f00000000041",
+    text: `退货政策是什么？自签收之日起7天内可无理由退货，15天内可换货。商品必须保持原包装完好，附件齐全。电子产品激活后不支持退货，但可享受官方保修服务。退货运费由买家承担，质量问题除外。`,
+  },
+  {
+    id: "00000000-0000-0000-0000-f00000000042",
+    text: `支持哪些付款方式？支持支付宝、微信支付、银联云闪付、信用卡（Visa、Mastercard）和货到付款。满3000元可享6期免息分期，满6000元可享12期免息分期。花呗分期同样适用。`,
+  },
+];
+
 // ── English FAQs ────────────────────────────────────────────────────────────
 
 const FAQ_ENTRIES = [
@@ -323,9 +351,7 @@ async function main() {
   console.log("   Created.\n");
 
   const playgroundUrl = withDatabase(DATABASE_URL, PLAYGROUND_DB);
-  const { sqlClient, txProvider, sql } = createAdapter(
-    postgres(playgroundUrl, { max: 5 }),
-  );
+  const { sqlClient, txProvider, sql } = createAdapter(postgres(playgroundUrl, { max: 5 }));
 
   try {
     // Step 2: Run migrations (creates tables, indexes, triggers)
@@ -363,6 +389,7 @@ async function main() {
       ...PRODUCTS_HI.map((p) => ({ ...p, lang: "hi" })),
       ...PRODUCTS_AR.map((p) => ({ ...p, lang: "ar" })),
       ...PRODUCTS_ES.map((p) => ({ ...p, lang: "es" })),
+      ...PRODUCTS_ZH.map((p) => ({ ...p, lang: "zh" })),
     ];
 
     for (const product of allProducts) {
@@ -371,15 +398,8 @@ async function main() {
         brand: product.brand,
         language: product.lang,
       });
-      const count = await indexer.index(
-        "product",
-        product.id,
-        chunks,
-        product.lang,
-      );
-      console.log(
-        `   [${product.lang}] Indexed "${product.name}" → ${count} chunks`,
-      );
+      const count = await indexer.index("product", product.id, chunks, product.lang);
+      console.log(`   [${product.lang}] Indexed "${product.name}" → ${count} chunks`);
     }
 
     // Step 5: Index FAQs (all languages)
@@ -389,6 +409,7 @@ async function main() {
       ...FAQ_HI.map((f) => ({ ...f, lang: "hi" })),
       ...FAQ_AR.map((f) => ({ ...f, lang: "ar" })),
       ...FAQ_ES.map((f) => ({ ...f, lang: "es" })),
+      ...FAQ_ZH.map((f) => ({ ...f, lang: "zh" })),
     ];
 
     for (const faq of allFaqs) {
@@ -446,10 +467,16 @@ async function main() {
       { q: "hamaca artesanal tejida", lang: "es", desc: "ES keyword" },
       { q: "cuánto tarda el envío", lang: "es", desc: "ES FAQ" },
       { q: "pago en cuotas sin interés", lang: "es", desc: "ES FAQ semantic" },
+      // Chinese (CJK — pg_trgm fallback without pg_bigm)
+      { q: "小米手机拍照", lang: "zh", desc: "ZH product search" },
+      { q: "无人机续航时间", lang: "zh", desc: "ZH keyword" },
+      { q: "退货政策", lang: "zh", desc: "ZH FAQ" },
+      { q: "支持微信支付吗", lang: "zh", desc: "ZH FAQ semantic" },
       // Cross-language (multilingual e5 should handle these)
       { q: "wireless earphones", lang: "en", desc: "EN→HI cross-lang" },
       { q: "coffee beans", lang: "en", desc: "EN→ES cross-lang" },
       { q: "perfume", lang: "en", desc: "EN→AR cross-lang" },
+      { q: "drone camera", lang: "en", desc: "EN→ZH cross-lang" },
       // Language-scoped (filter by language)
       {
         q: "battery life",
@@ -492,9 +519,7 @@ async function main() {
       } else {
         for (const r of results) {
           const snippet = r.content.slice(0, 100).replace(/\n/g, " ");
-          console.log(
-            `  [${r.score.toFixed(3)}] ${r.sourceType}/${r.sourceId} — ${snippet}...`,
-          );
+          console.log(`  [${r.score.toFixed(3)}] ${r.sourceType}/${r.sourceId} — ${snippet}...`);
         }
         console.log(`  (${results.length} results in ${elapsed}ms)`);
       }
@@ -620,6 +645,32 @@ async function seedStopWords(sql: postgres.Sql) {
       "التي",
       "الذي",
     ],
+    zh: [
+      "的",
+      "了",
+      "在",
+      "是",
+      "我",
+      "有",
+      "和",
+      "就",
+      "不",
+      "人",
+      "都",
+      "一",
+      "这",
+      "中",
+      "大",
+      "为",
+      "上",
+      "个",
+      "到",
+      "说",
+      "们",
+      "吗",
+      "什么",
+      "怎么",
+    ],
     es: [
       "el",
       "la",
@@ -655,17 +706,11 @@ async function seedStopWords(sql: postgres.Sql) {
 
   let total = 0;
   for (const [lang, words] of Object.entries(stopWords)) {
-    const values = words
-      .map((w) => `('${TENANT_ID}', '${lang}', '${w}')`)
-      .join(", ");
-    await sql.unsafe(
-      `INSERT INTO rag_stop_words (tenant_id, language, word) VALUES ${values}`,
-    );
+    const values = words.map((w) => `('${TENANT_ID}', '${lang}', '${w}')`).join(", ");
+    await sql.unsafe(`INSERT INTO rag_stop_words (tenant_id, language, word) VALUES ${values}`);
     total += words.length;
   }
-  console.log(
-    `   Seeded ${total} stop words (${Object.keys(stopWords).join(", ")})`,
-  );
+  console.log(`   Seeded ${total} stop words (${Object.keys(stopWords).join(", ")})`);
 }
 
 async function seedSynonyms(sql: postgres.Sql) {
@@ -742,6 +787,25 @@ async function seedSynonyms(sql: postgres.Sql) {
       lang: "ar",
       term: "هاتف",
       synonyms: ["جوال", "موبايل", "تلفون"],
+      direction: "two_way",
+    },
+    // Chinese
+    {
+      lang: "zh",
+      term: "手机",
+      synonyms: ["智能手机", "移动电话", "手提电话"],
+      direction: "two_way",
+    },
+    {
+      lang: "zh",
+      term: "无人机",
+      synonyms: ["航拍器", "飞行器"],
+      direction: "two_way",
+    },
+    {
+      lang: "zh",
+      term: "价格",
+      synonyms: ["售价", "定价", "多少钱"],
       direction: "two_way",
     },
     // Spanish
