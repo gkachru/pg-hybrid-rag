@@ -30,10 +30,16 @@ import {
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const EMBEDDING_BASE_URL = process.env.EMBEDDING_BASE_URL;
-const EMBEDDING_API_KEY = process.env.EMBEDDING_API_KEY ?? process.env.LLM_API_KEY;
+const EMBEDDING_API_KEY =
+  process.env.EMBEDDING_API_KEY ?? process.env.LLM_API_KEY;
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL;
 
-if (!DATABASE_URL || !EMBEDDING_BASE_URL || !EMBEDDING_API_KEY || !EMBEDDING_MODEL) {
+if (
+  !DATABASE_URL ||
+  !EMBEDDING_BASE_URL ||
+  !EMBEDDING_API_KEY ||
+  !EMBEDDING_MODEL
+) {
   console.error(
     "Missing required env vars: DATABASE_URL, EMBEDDING_BASE_URL, EMBEDDING_API_KEY (or LLM_API_KEY), EMBEDDING_MODEL",
   );
@@ -75,7 +81,10 @@ async function dropPlaygroundDb() {
 
 function createAdapter(sql: postgres.Sql) {
   const sqlClient: SqlClient = {
-    async query<T = Record<string, unknown>>(text: string, params: unknown[]): Promise<T[]> {
+    async query<T = Record<string, unknown>>(
+      text: string,
+      params: unknown[],
+    ): Promise<T[]> {
       const result = await sql.unsafe(text, params as postgres.MaybeRow[]);
       return result as T[];
     },
@@ -101,9 +110,12 @@ const embedder = new OpenAiCompatibleEmbedder({
 // ── Logger (simple console) ─────────────────────────────────────────────────
 
 const logger = {
-  debug: (obj: Record<string, unknown>, msg: string) => console.log("  [debug]", msg, obj),
-  info: (obj: Record<string, unknown>, msg: string) => console.log("  [info]", msg, obj),
-  warn: (obj: Record<string, unknown>, msg: string) => console.warn("  [warn]", msg, obj),
+  debug: (obj: Record<string, unknown>, msg: string) =>
+    console.log("  [debug]", msg, obj),
+  info: (obj: Record<string, unknown>, msg: string) =>
+    console.log("  [info]", msg, obj),
+  warn: (obj: Record<string, unknown>, msg: string) =>
+    console.warn("  [warn]", msg, obj),
 };
 
 // ── Sample data ─────────────────────────────────────────────────────────────
@@ -311,12 +323,16 @@ async function main() {
   console.log("   Created.\n");
 
   const playgroundUrl = withDatabase(DATABASE_URL, PLAYGROUND_DB);
-  const { sqlClient, txProvider, sql } = createAdapter(postgres(playgroundUrl, { max: 5 }));
+  const { sqlClient, txProvider, sql } = createAdapter(
+    postgres(playgroundUrl, { max: 5 }),
+  );
 
   try {
     // Step 2: Run migrations (creates tables, indexes, triggers)
     console.log("2. Running migrations...");
-    await ragMigrate(sqlClient, { sqlDir: new URL("../sql", import.meta.url).pathname });
+    await ragMigrate(sqlClient, {
+      sqlDir: new URL("../sql", import.meta.url).pathname,
+    });
     console.log("   Done.\n");
 
     // Step 3: Seed stop words & synonyms
@@ -329,7 +345,12 @@ async function main() {
     console.log("4. Indexing products...");
     const db = new PostgresRagDatabase(txProvider);
     const chunker = new Chunker({ tokenLimit: 512, overlap: 75 });
-    const indexer = new RagIndexer({ tenantId: TENANT_ID, db, embedder, logger });
+    const indexer = new RagIndexer({
+      tenantId: TENANT_ID,
+      db,
+      embedder,
+      logger,
+    });
 
     const allProducts: Array<{
       id: string;
@@ -350,8 +371,15 @@ async function main() {
         brand: product.brand,
         language: product.lang,
       });
-      const count = await indexer.index("product", product.id, chunks, product.lang);
-      console.log(`   [${product.lang}] Indexed "${product.name}" → ${count} chunks`);
+      const count = await indexer.index(
+        "product",
+        product.id,
+        chunks,
+        product.lang,
+      );
+      console.log(
+        `   [${product.lang}] Indexed "${product.name}" → ${count} chunks`,
+      );
     }
 
     // Step 5: Index FAQs (all languages)
@@ -384,12 +412,25 @@ async function main() {
     console.log("   Ready.\n");
 
     // Step 7: Run test queries (multilingual)
-    const queries: Array<{ q: string; lang: string; desc: string; languages?: string[] }> = [
+    const queries: Array<{
+      q: string;
+      lang: string;
+      desc: string;
+      languages?: string[];
+    }> = [
       // English
-      { q: "best noise cancelling headphones", lang: "en", desc: "EN semantic" },
+      {
+        q: "best noise cancelling headphones",
+        lang: "en",
+        desc: "EN semantic",
+      },
       { q: "Samsung phone price", lang: "en", desc: "EN keyword + semantic" },
       { q: "return policy", lang: "en", desc: "EN FAQ" },
-      { q: "cordless vacuum cleaner with laser", lang: "en", desc: "EN specific feature" },
+      {
+        q: "cordless vacuum cleaner with laser",
+        lang: "en",
+        desc: "EN specific feature",
+      },
       // Hindi
       { q: "वायरलेस नेकबैंड बैटरी", lang: "hi", desc: "HI product search" },
       { q: "इंडक्शन कुकटॉप कीमत", lang: "hi", desc: "HI keyword" },
@@ -410,9 +451,24 @@ async function main() {
       { q: "coffee beans", lang: "en", desc: "EN→ES cross-lang" },
       { q: "perfume", lang: "en", desc: "EN→AR cross-lang" },
       // Language-scoped (filter by language)
-      { q: "battery life", lang: "en", desc: "EN-only scoped", languages: ["en"] },
-      { q: "return policy", lang: "en", desc: "EN-only FAQ scoped", languages: ["en"] },
-      { q: "battery life", lang: "en", desc: "HI-only scoped", languages: ["hi"] },
+      {
+        q: "battery life",
+        lang: "en",
+        desc: "EN-only scoped",
+        languages: ["en"],
+      },
+      {
+        q: "return policy",
+        lang: "en",
+        desc: "EN-only FAQ scoped",
+        languages: ["en"],
+      },
+      {
+        q: "battery life",
+        lang: "en",
+        desc: "HI-only scoped",
+        languages: ["hi"],
+      },
     ];
 
     console.log("7. Running search queries...\n");
@@ -436,7 +492,9 @@ async function main() {
       } else {
         for (const r of results) {
           const snippet = r.content.slice(0, 100).replace(/\n/g, " ");
-          console.log(`  [${r.score.toFixed(3)}] ${r.sourceType}/${r.sourceId} — ${snippet}...`);
+          console.log(
+            `  [${r.score.toFixed(3)}] ${r.sourceType}/${r.sourceId} — ${snippet}...`,
+          );
         }
         console.log(`  (${results.length} results in ${elapsed}ms)`);
       }
@@ -597,15 +655,26 @@ async function seedStopWords(sql: postgres.Sql) {
 
   let total = 0;
   for (const [lang, words] of Object.entries(stopWords)) {
-    const values = words.map((w) => `('${TENANT_ID}', '${lang}', '${w}')`).join(", ");
-    await sql.unsafe(`INSERT INTO rag_stop_words (tenant_id, language, word) VALUES ${values}`);
+    const values = words
+      .map((w) => `('${TENANT_ID}', '${lang}', '${w}')`)
+      .join(", ");
+    await sql.unsafe(
+      `INSERT INTO rag_stop_words (tenant_id, language, word) VALUES ${values}`,
+    );
     total += words.length;
   }
-  console.log(`   Seeded ${total} stop words (${Object.keys(stopWords).join(", ")})`);
+  console.log(
+    `   Seeded ${total} stop words (${Object.keys(stopWords).join(", ")})`,
+  );
 }
 
 async function seedSynonyms(sql: postgres.Sql) {
-  const synonyms: Array<{ lang: string; term: string; synonyms: string[]; direction: string }> = [
+  const synonyms: Array<{
+    lang: string;
+    term: string;
+    synonyms: string[];
+    direction: string;
+  }> = [
     // English
     {
       lang: "en",
@@ -631,24 +700,69 @@ async function seedSynonyms(sql: postgres.Sql) {
       synonyms: ["sneakers", "trainers", "footwear"],
       direction: "two_way",
     },
-    { lang: "en", term: "vacuum", synonyms: ["hoover", "vacuum cleaner"], direction: "two_way" },
+    {
+      lang: "en",
+      term: "vacuum",
+      synonyms: ["hoover", "vacuum cleaner"],
+      direction: "two_way",
+    },
     // Hindi
-    { lang: "hi", term: "हेडफ़ोन", synonyms: ["ईयरफ़ोन", "नेकबैंड", "ईयरबड्स"], direction: "two_way" },
-    { lang: "hi", term: "फ़ोन", synonyms: ["मोबाइल", "स्मार्टफ़ोन"], direction: "two_way" },
-    { lang: "hi", term: "कीमत", synonyms: ["दाम", "मूल्य", "प्राइस"], direction: "two_way" },
+    {
+      lang: "hi",
+      term: "हेडफ़ोन",
+      synonyms: ["ईयरफ़ोन", "नेकबैंड", "ईयरबड्स"],
+      direction: "two_way",
+    },
+    {
+      lang: "hi",
+      term: "फ़ोन",
+      synonyms: ["मोबाइल", "स्मार्टफ़ोन"],
+      direction: "two_way",
+    },
+    {
+      lang: "hi",
+      term: "कीमत",
+      synonyms: ["दाम", "मूल्य", "प्राइस"],
+      direction: "two_way",
+    },
     // Arabic
-    { lang: "ar", term: "عطر", synonyms: ["بخور", "عود", "طيب"], direction: "two_way" },
-    { lang: "ar", term: "قهوة", synonyms: ["كافيه", "بن"], direction: "two_way" },
-    { lang: "ar", term: "هاتف", synonyms: ["جوال", "موبايل", "تلفون"], direction: "two_way" },
+    {
+      lang: "ar",
+      term: "عطر",
+      synonyms: ["بخور", "عود", "طيب"],
+      direction: "two_way",
+    },
+    {
+      lang: "ar",
+      term: "قهوة",
+      synonyms: ["كافيه", "بن"],
+      direction: "two_way",
+    },
+    {
+      lang: "ar",
+      term: "هاتف",
+      synonyms: ["جوال", "موبايل", "تلفون"],
+      direction: "two_way",
+    },
     // Spanish
-    { lang: "es", term: "café", synonyms: ["cafeto", "tinto"], direction: "two_way" },
+    {
+      lang: "es",
+      term: "café",
+      synonyms: ["cafeto", "tinto"],
+      direction: "two_way",
+    },
     {
       lang: "es",
       term: "envío",
       synonyms: ["despacho", "entrega", "transporte"],
       direction: "two_way",
     },
-    { lang: "es", term: "pago", synonyms: ["abono", "cancelación"], direction: "two_way" },
+    {
+      lang: "es",
+      term: "pago",
+      synonyms: ["abono", "cancelación"],
+      direction: "two_way",
+    },
   ];
 
   for (const s of synonyms) {
