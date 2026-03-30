@@ -59,7 +59,7 @@ function createWorker(deps: {
   });
 
   const db = new PostgresRagDatabase(txProvider);
-  const chunker = new Chunker(512, 75);
+  const chunker = new Chunker({ tokenLimit: 512, overlap: 75 });
   const indexer = new RagIndexer({
     tenantId: "default",
     db,
@@ -68,7 +68,7 @@ function createWorker(deps: {
   });
 
   return async (job: ReindexJob): Promise<number> => {
-    const chunks = chunker.chunk(job.content, job.metadata);
+    const chunks = chunker.chunk(job.content, { ...job.metadata, language: job.language });
     return indexer.index(job.sourceType, job.sourceId, chunks, job.language);
   };
 }

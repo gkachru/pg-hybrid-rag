@@ -123,5 +123,6 @@ export function createRagModule(deps: {
 // const resultsFr = await rag.pipeline.search("chemise en coton bleu", { language: "fr" });
 //
 // // Index with language
-// const chunks = new Chunker(512, 75).chunk(productText, { name: "Product Name" });
+// const chunker = new Chunker({ tokenLimit: 512, overlap: 75 });
+// const chunks = chunker.chunk(productText, { name: "Product Name", language: "en" });
 // await rag.indexer.index("product", productId, chunks, "en");

@@ -54,8 +54,8 @@ const results = await pipeline.search("blue cotton shirt", { language: "en" });
 
 // 4. Index
 const indexer = new RagIndexer({ tenantId: "my-tenant", db, embedder });
-const chunker = new Chunker(512, 75);
-const chunks = chunker.chunk(text, { name: "Product Name" });
+const chunker = new Chunker({ tokenLimit: 512, overlap: 75 });
+const chunks = chunker.chunk(text, { name: "Product Name", language: "en" });
 await indexer.index("product", productId, chunks, "en");
 ```
 
