@@ -64,20 +64,31 @@ export async function ragMigrate(client: SqlClient, options: MigrateOptions = {}
     [],
   );
 
-  // Determine SQL directory.
-  // ESM: import.meta.dirname works in Bun and Node 21.2+.
-  // CJS: import.meta is empty, so sqlDir option is required.
-  // The indirect access avoids esbuild's static import.meta warning for CJS builds.
+  // Determine SQL directory via fallback chain:
+  // 1. Explicit sqlDir option (always wins)
+  // 2. import.meta.dirname (ESM — Bun and Node 21.2+)
+  // 3. __dirname (CJS — Node 18+, NestJS default)
+  // Indirect access via new Function avoids esbuild static analysis warnings.
   let defaultDir: string | undefined;
   try {
     const dir = new Function("return import.meta.dirname")() as string | undefined;
     defaultDir = dir ? join(dir, "..", "sql") : undefined;
   } catch {
-    defaultDir = undefined;
+    // Not in ESM or import.meta unavailable
+  }
+  if (!defaultDir) {
+    try {
+      const dir = new Function(
+        "return typeof __dirname !== 'undefined' ? __dirname : undefined",
+      )() as string | undefined;
+      if (dir) defaultDir = join(dir, "..", "sql");
+    } catch {
+      // __dirname not available
+    }
   }
   const sqlDir = options.sqlDir ?? defaultDir;
   if (!sqlDir) {
-    throw new Error("sqlDir option is required when using CJS imports");
+    throw new Error("Could not auto-detect SQL directory. Pass sqlDir option to ragMigrate().");
   }
 
   // Read all SQL files, sorted by name

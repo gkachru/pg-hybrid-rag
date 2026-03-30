@@ -269,6 +269,12 @@ await ragMigrate(sqlClient, { cjk: true });           // also apply CJK (pg_bigm
 await ragMigrate(sqlClient, { rls: true, cjk: true }); // both
 ```
 
+The `sql/` directory is auto-detected on all Node versions (18+) and module formats (ESM and CJS). If auto-detection fails, pass `sqlDir` explicitly:
+
+```typescript
+await ragMigrate(sqlClient, { sqlDir: "/path/to/node_modules/pg-hybrid-rag/sql" });
+```
+
 SQL files are also available at `pg-hybrid-rag/sql/*` for manual migration systems.
 
 ## Adapter Interfaces
