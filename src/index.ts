@@ -12,6 +12,7 @@ export { PostgresRagDatabase } from "./adapters/PostgresRagDatabase.js";
 export { Chunker, type ChunkerConfig } from "./Chunker.js";
 // Interfaces
 export type {
+  ChunkingProvider,
   EmbeddingProvider,
   RagDatabase,
   RagLogger,

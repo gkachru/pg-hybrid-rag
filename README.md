@@ -266,6 +266,38 @@ interface EmbeddingProvider {
 interface RerankerProvider {
   rerank(query: string, results: RagResult[], topN: number): Promise<RagResult[]>;
 }
+
+interface ChunkingProvider {
+  chunk(text: string, metadata?: Record<string, string>): Chunk[];
+}
+```
+
+### Custom Chunker Example (Chonkie)
+
+The built-in `Chunker` implements `ChunkingProvider`. To use a different chunking library, wrap it to match the interface:
+
+```typescript
+import { RecursiveChunker } from "@chonkiejs/core";
+import type { ChunkingProvider } from "pg-hybrid-rag";
+
+// Pre-create the async chunker once
+const chonkie = await RecursiveChunker.create({ chunkSize: 512 });
+
+const chunker: ChunkingProvider = {
+  chunk(text, metadata = {}) {
+    // chonkie returns { text, tokenCount }[] — map to Chunk[]
+    const result = chonkie.chunkSync(text);
+    return result.map((c, i) => ({
+      content: c.text,
+      index: i,
+      metadata,
+    }));
+  },
+};
+
+// Use with the indexer like any other chunker
+const chunks = chunker.chunk(productText, { name: "Product", language: "en" });
+await indexer.index("product", productId, chunks, "en");
 ```
 
 ### Prisma Example

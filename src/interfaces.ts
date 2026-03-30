@@ -1,4 +1,15 @@
-import type { HybridSearchParams, RagResult, RankedCandidate, SynonymLookup } from "./types.js";
+import type {
+  Chunk,
+  HybridSearchParams,
+  RagResult,
+  RankedCandidate,
+  SynonymLookup,
+} from "./types.js";
+
+/** Chunking provider — consumers can swap in chonkie or any other chunking library. */
+export interface ChunkingProvider {
+  chunk(text: string, metadata?: Record<string, string>): Chunk[];
+}
 
 /** SQL execution — consumer provides their DB connection. */
 export interface SqlClient {

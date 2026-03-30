@@ -1,3 +1,4 @@
+import type { ChunkingProvider } from "./interfaces.js";
 import type { Chunk } from "./types.js";
 
 const DEFAULT_CHUNK_SIZE = 512;
@@ -38,7 +39,7 @@ export interface ChunkerConfig {
  * Splits on paragraph boundaries first, then sentences, then fixed size.
  * Overlap prepends the tail of the previous chunk to the next for context continuity.
  */
-export class Chunker {
+export class Chunker implements ChunkingProvider {
   private chunkSize: number | undefined;
   private tokenLimit: number | undefined;
   private overlap: number;
