@@ -121,6 +121,45 @@ const results = await pipeline.search(query, {
 });
 ```
 
+#### Search pipeline flow
+
+The search pipeline processes a query through these stages in order:
+
+1. **Normalize** — lowercase, strip trailing punctuation, optionally expand abbreviations via `normalizer`
+2. **Remove stop words** — drop common words (loaded per-tenant from `rag_stop_words`) so they don't dilute search
+3. **Embed + load synonyms** — run in parallel: embed the cleaned query and load tenant synonyms
+4. **3-way hybrid search** — run vector, keyword (pg_trgm), and FTS (tsvector) searches concurrently against Postgres
+5. **RRF fusion** — merge the three ranked lists into one using Reciprocal Rank Fusion
+6. **Relevance cutoff** — optionally drop results scoring below a fraction of the top result
+7. **Rerank** — optionally re-score with a cross-encoder for final ordering
+
+#### Search options explained
+
+| Option | Default | What it does |
+|--------|---------|-------------|
+| `topK` | `5` | Number of final results to return. Also controls how many candidates each search leg fetches (`topK * candidateMultiplier`). |
+| `vectorMinScore` | `0.8` | Minimum cosine similarity for the vector search leg. Chunks below this threshold are excluded before RRF. Higher values mean stricter semantic matching — raise if you get too many loosely related results, lower if relevant results are being missed. |
+| `keywordMinScore` | `0.35` | Minimum `word_similarity` score for the pg_trgm keyword leg (or `bigm_similarity` for CJK). Controls fuzzy character-overlap matching. Lower than vectorMinScore because trigram similarity scores are naturally lower than cosine similarity. |
+| `vectorWeight` | `1` | Weight multiplier for the vector leg in RRF fusion. Setting to `2` makes semantic matches count twice as much as the other legs. Set to `0` to disable vector search entirely. |
+| `keywordWeight` | `1` | Weight multiplier for the keyword (pg_trgm) leg in RRF fusion. Useful for queries where exact character overlap matters (product names, SKUs, codes). |
+| `ftsWeight` | `1` | Weight multiplier for the full-text search leg in RRF fusion. FTS uses Postgres stemming, so "running shoes" matches "run shoe". Boost this for natural-language queries where morphological matching helps. |
+| `rrfK` | `60` | Smoothing constant in the RRF formula: `score = weight / (rrfK + rank)`. Higher values flatten score differences between ranks (all results score similarly). Lower values amplify the gap between top-ranked and lower-ranked results. `60` is the standard value from the original RRF paper. |
+| `sourceTypes` | — | Filter results to specific source types (e.g. `["product", "article"]`). Applied as a SQL WHERE clause before search, not post-filter. |
+| `sourceIds` | — | Filter results to specific source IDs. Useful for scoping search to a known set of documents. |
+| `minRelevance` | — | Fraction of the top result's RRF score used as a floor (0–1). For example, `0.5` drops any result scoring below 50% of the best result. Applied after RRF fusion but before reranking. |
+| `language` | `"en"` | Language code for FTS stemming (Postgres `regconfig`) and keyword search. Accepts short codes (`en`) or BCP-47 (`en-US`). Determines which Postgres stemmer is used — e.g. `english` stems "running" → "run", while `simple` does lowercase-only tokenization. |
+| `normalizer` | — | Optional pre-processing hook called before stop-word removal. Receives the cleaned query and language. Useful for expanding abbreviations (e.g. "dept" → "department") or domain-specific normalization. |
+| `rerank` | `false` | Enable cross-encoder reranking after RRF fusion. A cross-encoder scores each query-document pair jointly, which is more accurate than the independent scoring of the three search legs, but slower. Requires a `RerankerProvider` on the pipeline. If the reranker throws, results gracefully fall back to RRF order. |
+| `rerankerMinScore` | `0.01` | Absolute score floor for reranked results. Results below this cross-encoder score are dropped. Only applies when reranking is active. |
+
+#### Tuning tips
+
+- **Precision over recall**: raise `vectorMinScore` and `keywordMinScore`, add `minRelevance: 0.5`
+- **Recall over precision**: lower `vectorMinScore` to `0.6`, `keywordMinScore` to `0.2`, increase `topK`
+- **Exact-match heavy** (product search, codes): set `keywordWeight: 2` or `ftsWeight: 2`
+- **Semantic-heavy** (natural language questions): set `vectorWeight: 2`
+- **Disable a leg**: set its weight to `0` (e.g. `ftsWeight: 0` to skip full-text search)
+
 ### Index
 
 ```typescript
@@ -135,12 +174,21 @@ await indexer.index(sourceType, sourceId, chunks, language);
 await indexer.deleteSource(sourceType, sourceId);
 ```
 
+Indexing is upsert-style: calling `index` for an existing `sourceType + sourceId` deletes old chunks before inserting new ones. All chunks are embedded in a single batched call and inserted in a single SQL `INSERT`.
+
 ### Chunk
 
 ```typescript
 const chunker = new Chunker(maxSize?, overlap?);
 const chunks = chunker.chunk(text, metadata?);
 ```
+
+| Parameter | Default | What it does |
+|-----------|---------|-------------|
+| `maxSize` | `512` | Maximum chunk size in characters. The chunker splits by paragraphs first, then sentences, then fixed-size. Keep this under your embedding model's token limit (512 chars is well within the 512-token limit of e5-small). |
+| `overlap` | `75` | Number of characters from the end of one chunk prepended to the next, aligned to the nearest word boundary. Provides context continuity across chunk boundaries so information at split points isn't lost. |
+
+If `metadata` contains a `name` field (and optionally `brand`), each chunk is automatically prefixed with `[Name | Brand]` so the embedding model knows which entity the chunk belongs to.
 
 ### Pure Utilities
 
