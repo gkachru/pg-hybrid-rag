@@ -31,22 +31,31 @@ export class PostgresRagDatabase implements RagDatabase {
     ftsRows: RankedCandidate[];
   }> {
     const sourceTypeClause = params.sourceTypes?.length
-      ? `AND source_type = ANY($SOURCE_TYPES)`
+      ? `AND source_type = ANY(string_to_array($SOURCE_TYPES::text, ','))`
       : "";
-    const sourceIdClause = params.sourceIds?.length ? `AND source_id = ANY($SOURCE_IDS)` : "";
+    const sourceIdClause = params.sourceIds?.length
+      ? `AND source_id::text = ANY(string_to_array($SOURCE_IDS::text, ','))`
+      : "";
+    const languageClause = params.languages?.length
+      ? `AND language = ANY(string_to_array($LANGUAGES::text, ','))`
+      : "";
 
     const buildParams = (baseParams: unknown[]): unknown[] => {
       const p = [...baseParams];
-      if (params.sourceTypes?.length) p.push(params.sourceTypes);
-      if (params.sourceIds?.length) p.push(params.sourceIds);
+      if (params.sourceTypes?.length) p.push(params.sourceTypes.join(","));
+      if (params.sourceIds?.length) p.push(params.sourceIds.join(","));
+      if (params.languages?.length) p.push(params.languages.join(","));
       return p;
     };
 
-    const paramIdx = (baseCount: number): { sourceType: string; sourceId: string } => {
+    const paramIdx = (
+      baseCount: number,
+    ): { sourceType: string; sourceId: string; language: string } => {
       let idx = baseCount + 1;
       const sourceType = params.sourceTypes?.length ? `$${idx++}` : "";
-      const sourceId = params.sourceIds?.length ? `$${idx}` : "";
-      return { sourceType, sourceId };
+      const sourceId = params.sourceIds?.length ? `$${idx++}` : "";
+      const language = params.languages?.length ? `$${idx}` : "";
+      return { sourceType, sourceId, language };
     };
 
     const toCandidate = (row: Record<string, unknown>): RankedCandidate => ({
@@ -77,6 +86,7 @@ export class PostgresRagDatabase implements RagDatabase {
             AND 1 - (embedding <=> $2::vector) >= $3
             ${sourceTypeClause.replace("$SOURCE_TYPES", idx.sourceType)}
             ${sourceIdClause.replace("$SOURCE_IDS", idx.sourceId)}
+            ${languageClause.replace("$LANGUAGES", idx.language)}
           ORDER BY embedding <=> $2::vector
           LIMIT $4
         `;
@@ -103,6 +113,7 @@ export class PostgresRagDatabase implements RagDatabase {
             AND ${similarityFn}($2, content) > $3
             ${sourceTypeClause.replace("$SOURCE_TYPES", idx.sourceType)}
             ${sourceIdClause.replace("$SOURCE_IDS", idx.sourceId)}
+            ${languageClause.replace("$LANGUAGES", idx.language)}
           ORDER BY ${similarityFn}($2, content) DESC
           LIMIT $4
         `;
@@ -130,6 +141,7 @@ export class PostgresRagDatabase implements RagDatabase {
               AND content_tsvector @@ to_tsquery(rag_fts_config($4), $2)
               ${sourceTypeClause.replace("$SOURCE_TYPES", idx.sourceType)}
               ${sourceIdClause.replace("$SOURCE_IDS", idx.sourceId)}
+              ${languageClause.replace("$LANGUAGES", idx.language)}
             ORDER BY ts_rank_cd(content_tsvector, to_tsquery(rag_fts_config($4), $2)) DESC
             LIMIT $3
           `;
@@ -147,6 +159,7 @@ export class PostgresRagDatabase implements RagDatabase {
             AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)
             ${sourceTypeClause.replace("$SOURCE_TYPES", idx.sourceType)}
             ${sourceIdClause.replace("$SOURCE_IDS", idx.sourceId)}
+            ${languageClause.replace("$LANGUAGES", idx.language)}
           ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC
           LIMIT $3
         `;

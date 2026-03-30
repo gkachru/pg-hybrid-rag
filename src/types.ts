@@ -20,6 +20,8 @@ export interface RagSearchOptions {
   sourceTypes?: string[];
   /** Filter results to specific source IDs. */
   sourceIds?: string[];
+  /** Filter results to specific languages (e.g. ['en', 'hi']). Omit for cross-language search. */
+  languages?: string[];
   /** Drop results scoring below this fraction of the top result (0–1). */
   minRelevance?: number;
   /** Language code for FTS stemming and keyword search (e.g. 'en', 'en-US', 'fr-FR'). */
@@ -62,6 +64,7 @@ export interface HybridSearchParams {
   keywordMinScore: number;
   sourceTypes?: string[];
   sourceIds?: string[];
+  languages?: string[];
 }
 
 /** Row from stop_words table. */

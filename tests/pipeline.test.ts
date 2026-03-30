@@ -143,6 +143,16 @@ describe("RagPipeline", () => {
     expect(lastSearchParams.sourceTypes).toEqual(["product", "faq"]);
   });
 
+  it("passes languages to db.hybridSearch", async () => {
+    await pipeline.search("test", { languages: ["en", "hi"] });
+    expect(lastSearchParams.languages).toEqual(["en", "hi"]);
+  });
+
+  it("omits languages when not specified", async () => {
+    await pipeline.search("test", {});
+    expect(lastSearchParams.languages).toBeUndefined();
+  });
+
   it("minRelevance drops results below threshold relative to top score", async () => {
     vectorRows = [
       { content: "Top match", sourceType: "product", sourceId: "1", metadata: "{}" },

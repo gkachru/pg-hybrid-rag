@@ -27,7 +27,7 @@ const DEFAULTS = {
   rerankerMinScore: 0.01,
 } satisfies Omit<
   Required<RagSearchOptions>,
-  "sourceTypes" | "sourceIds" | "minRelevance" | "language" | "normalizer"
+  "sourceTypes" | "sourceIds" | "languages" | "minRelevance" | "language" | "normalizer"
 >;
 
 const noopSpan: RagSpan = {
@@ -154,6 +154,7 @@ export class RagPipeline {
               keywordMinScore: opts.keywordMinScore,
               sourceTypes: opts.sourceTypes,
               sourceIds: opts.sourceIds,
+              languages: opts.languages,
             });
           } finally {
             dbSpan.end();

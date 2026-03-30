@@ -59,6 +59,7 @@ Three-way hybrid search fused via RRF:
 - **No runtime dependencies** — zero npm dependencies. Stemming handled by Postgres via `rag_fts_config()` SQL function.
 - **Postgres-native stemming** — tsvector trigger uses language-specific Postgres FTS configs (english, spanish, french, etc.). Languages without a native config fall back to `'simple'`.
 - **Optional CJK support** — pg_bigm for keyword search on Chinese/Japanese/Korean. Enabled via `{ cjk: true }` in migration and adapter constructor.
+- **Optional language scoping** — `languages` filter restricts all 3 search legs to specific document languages via `WHERE language = ANY(...)`. Omit for cross-language search (default). Uses `string_to_array($N::text, ',')` for driver-agnostic array parameter binding.
 - **Parallel search** — PostgresRagDatabase runs all 3 search legs concurrently via separate connections.
 - **Batch inserts** — PostgresRagDatabase inserts all chunks in a single INSERT statement.
 - **Punctuation handling** — trailing punctuation stripped before matching (Latin, Hindi, Arabic, CJK).
@@ -77,6 +78,8 @@ Three-way hybrid search fused via RRF:
 - Linter: Biome (`bun run lint`)
 - Strict TypeScript, no `any`
 - All SQL uses parameterized queries — never interpolate user input
+- Migration SQL splitter is `$$`-aware — semicolons inside PL/pgSQL function bodies are preserved
+- `CachingSynonymLoader` handles JSONB synonyms as both parsed arrays and raw JSON strings (driver-dependent)
 - Exports barrel: `src/index.ts` — all public API re-exported from here
 - Tests mock `RagDatabase`, `EmbeddingProvider`, and `RerankerProvider` interfaces — no real DB in tests
 - Language detection via Unicode character ranges, not external libraries

@@ -16,6 +16,44 @@ export interface MigrateOptions {
  * Tracks applied migrations in a `_rag_migrations` table.
  * SQL files are read from the `sql/` directory.
  */
+/**
+ * Split SQL text into statements on `;` at end-of-line,
+ * but skip semicolons inside $$-delimited blocks (PL/pgSQL functions).
+ */
+function splitStatements(text: string): string[] {
+  const lines = text.split("\n");
+  const statements: string[] = [];
+  let current = "";
+  let inDollarBlock = false;
+
+  for (const line of lines) {
+    // Track $$ delimiters (toggle on each occurrence)
+    const dollarMatches = line.match(/\$\$/g);
+    if (dollarMatches) {
+      for (const _ of dollarMatches) {
+        inDollarBlock = !inDollarBlock;
+      }
+    }
+
+    current += (current ? "\n" : "") + line;
+
+    // Only split on trailing semicolons when outside $$ blocks
+    if (!inDollarBlock && line.trimEnd().endsWith(";")) {
+      const stmt = current.trim();
+      // Remove trailing semicolons for execution
+      const clean = stmt.replace(/;\s*$/, "").trim();
+      if (clean) statements.push(clean);
+      current = "";
+    }
+  }
+
+  // Flush any remaining text
+  const remaining = current.trim().replace(/;\s*$/, "").trim();
+  if (remaining) statements.push(remaining);
+
+  return statements;
+}
+
 export async function ragMigrate(client: SqlClient, options: MigrateOptions = {}): Promise<void> {
   // Create tracking table if not exists
   await client.query(
@@ -54,11 +92,8 @@ export async function ragMigrate(client: SqlClient, options: MigrateOptions = {}
 
     const sql = readFileSync(join(sqlDir, file), "utf-8");
 
-    // Split on semicolons and execute each statement
-    const statements = sql
-      .split(/;\s*$/m)
-      .map((s: string) => s.trim())
-      .filter(Boolean);
+    // Split on semicolons at end-of-line, but preserve $$-delimited blocks intact
+    const statements = splitStatements(sql);
 
     for (const stmt of statements) {
       await client.query(stmt, []);

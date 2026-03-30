@@ -113,6 +113,7 @@ const results = await pipeline.search(query, {
   rrfK?: number,                   // default: 60
   sourceTypes?: string[],          // filter by source type
   sourceIds?: string[],            // filter by source ID
+  languages?: string[],            // filter by document language (omit for cross-language)
   minRelevance?: number,           // 0-1, drop below top * threshold
   language?: string,               // for FTS stemming + keyword search (default: "en")
   normalizer?: { normalize(text, lang): string },
@@ -146,6 +147,7 @@ The search pipeline processes a query through these stages in order:
 | `rrfK` | `60` | Smoothing constant in the RRF formula: `score = weight / (rrfK + rank)`. Higher values flatten score differences between ranks (all results score similarly). Lower values amplify the gap between top-ranked and lower-ranked results. `60` is the standard value from the original RRF paper. |
 | `sourceTypes` | — | Filter results to specific source types (e.g. `["product", "article"]`). Applied as a SQL WHERE clause before search, not post-filter. |
 | `sourceIds` | — | Filter results to specific source IDs. Useful for scoping search to a known set of documents. |
+| `languages` | — | Filter results to specific document languages (e.g. `["en", "hi"]`). Applied as a SQL WHERE clause in all three search legs. Omit for cross-language search (default). |
 | `minRelevance` | — | Fraction of the top result's RRF score used as a floor (0–1). For example, `0.5` drops any result scoring below 50% of the best result. Applied after RRF fusion but before reranking. |
 | `language` | `"en"` | Language code for FTS stemming (Postgres `regconfig`) and keyword search. Accepts short codes (`en`) or BCP-47 (`en-US`). Determines which Postgres stemmer is used — e.g. `english` stems "running" → "run", while `simple` does lowercase-only tokenization. |
 | `normalizer` | — | Optional pre-processing hook called before stop-word removal. Receives the cleaned query and language. Useful for expanding abbreviations (e.g. "dept" → "department") or domain-specific normalization. |

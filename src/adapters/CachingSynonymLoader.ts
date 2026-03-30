@@ -65,7 +65,9 @@ export class CachingSynonymLoader implements SynonymProvider {
       for (const row of rows) {
         const lang = row.language;
         const term = row.term.toLowerCase();
-        const syns = row.synonyms.map((s) => s.toLowerCase());
+        const rawSyns =
+          typeof row.synonyms === "string" ? (JSON.parse(row.synonyms) as string[]) : row.synonyms;
+        const syns = rawSyns.map((s) => s.toLowerCase());
 
         // Forward: term -> synonyms
         addMapping(lang, term, syns);
