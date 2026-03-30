@@ -1,6 +1,6 @@
 {
   "name": "pg-hybrid-rag",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Hybrid RAG search pipeline (vector + trigram + FTS) with Postgres-native stemming and RRF fusion",
   "type": "module",
   "main": "dist/index.cjs",
@@ -24,7 +24,9 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
-    "lint:fix": "biome check --write ."
+    "lint:fix": "biome check --write .",
+    "prepublishOnly": "bun run typecheck && bun run lint && bun test && bun run build",
+    "release": "bun run prepublishOnly && npm publish"
   },
   "dependencies": {},
   "devDependencies": {
