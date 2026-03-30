@@ -3,6 +3,9 @@
  *
  * Listens for "rag-reindex" jobs and re-indexes products/FAQs.
  * Assumes one-database-per-tenant (tenant_id = "default").
+ *
+ * The language field on each job determines which Postgres FTS stemming
+ * config is used (e.g. "en" → english, "fr" → french, "hi" → simple).
  */
 
 import {
@@ -21,6 +24,7 @@ interface ReindexJob {
   sourceType: "product" | "faq";
   sourceId: string;
   content: string;
+  /** Language code (e.g. "en", "fr-FR", "zh-CN"). Determines Postgres FTS config. */
   language: string;
   metadata: Record<string, string>;
 }

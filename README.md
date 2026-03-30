@@ -61,15 +61,31 @@ await indexer.index("product", productId, chunks, "en");
 
 ## Language Support
 
-Stemming is handled by Postgres via language-specific FTS configurations. The library maps language codes to Postgres configs via the `rag_fts_config()` SQL function:
+Stemming is handled by Postgres via language-specific FTS configurations. The `rag_fts_config()` SQL function maps language codes to Postgres `regconfig` names. Both short codes (`en`) and BCP-47 locale codes (`en-US`, `fr-FR`) are supported.
 
-| Languages | Postgres Config | Keyword Search |
-|-----------|----------------|---------------|
-| en, es, fr, de, it, pt, ro | Native stemming (english, spanish, etc.) | pg_trgm |
-| hi, ar, ms, si | `simple` (no stemming) | pg_trgm |
-| zh, ja, ko | `simple` (no stemming) | pg_bigm (requires `cjk: true`) |
+| Language | Accepted Codes | Postgres FTS Config | Stemming | Keyword Search |
+|----------|---------------|---------------------|----------|---------------|
+| English | `en`, `en-US`, `en-IN` | `english` | Yes | pg_trgm |
+| Spanish | `es`, `es-ES`, `es-MX` | `spanish` | Yes | pg_trgm |
+| French | `fr`, `fr-FR` | `french` | Yes | pg_trgm |
+| German | `de`, `de-DE` | `german` | Yes | pg_trgm |
+| Italian | `it`, `it-IT` | `italian` | Yes | pg_trgm |
+| Portuguese | `pt`, `pt-PT` | `portuguese` | Yes | pg_trgm |
+| Romanian | `ro`, `ro-RO` | `romanian` | Yes | pg_trgm |
+| Hindi | `hi`, `hi-IN` | `simple` | No | pg_trgm |
+| Arabic | `ar`, `ar-SA` | `simple` | No | pg_trgm |
+| Malay | `ms` | `simple` | No | pg_trgm |
+| Sinhalese | `si`, `si-LK` | `simple` | No | pg_trgm |
+| Chinese | `zh`, `zh-CN` | `simple` | No | pg_bigm (requires `cjk: true`) |
+| Japanese | `ja`, `ja-JP` | `simple` | No | pg_bigm (requires `cjk: true`) |
+| Korean | `ko`, `ko-KR` | `simple` | No | pg_bigm (requires `cjk: true`) |
+| Other | any string | `simple` | No | pg_trgm |
 
-Both short codes (`en`) and BCP-47 locale codes (`en-US`, `fr-FR`) are supported.
+**Notes:**
+- Languages with native Postgres stemming get morphological normalization in the FTS leg (e.g. "running" → "run").
+- Languages using `simple` config get word-level tokenization and lowercase matching only. The vector and keyword legs compensate — vector search handles semantics, pg_trgm handles fuzzy character overlap.
+- CJK languages need `pg_bigm` for effective keyword search because they lack whitespace between words. Without `cjk: true`, CJK keyword search falls back to pg_trgm (degraded).
+- To add new language codes, update the `rag_fts_config()` function in `sql/008_postgres_stemming.sql`. Postgres supports additional configs including `dutch`, `danish`, `finnish`, `hungarian`, `norwegian`, `russian`, `swedish`, and `turkish`.
 
 ## API Reference
 
