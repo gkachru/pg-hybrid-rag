@@ -370,7 +370,11 @@ async function main() {
     // Step 4: Index sample products (all languages)
     console.log("4. Indexing products...");
     const db = new PostgresRagDatabase(txProvider);
-    const chunker = new Chunker({ tokenLimit: 512, overlap: 75 });
+    const chunker = new Chunker({
+      tokenLimit: 512,
+      overlap: 75,
+      prefixFn: (m) => (m.brand ? `[${m.name} | ${m.brand}]` : m.name ? `[${m.name}]` : undefined),
+    });
     const indexer = new RagIndexer({
       tenantId: TENANT_ID,
       db,

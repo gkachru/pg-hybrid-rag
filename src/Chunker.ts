@@ -32,6 +32,8 @@ export interface ChunkerConfig {
   tokenLimit: number;
   /** Overlap in characters between chunks (default: 75). */
   overlap?: number;
+  /** Return a prefix string to prepend to each chunk, or undefined/empty to skip. */
+  prefixFn?: (metadata: Record<string, string>) => string | undefined;
 }
 
 /**
@@ -43,6 +45,7 @@ export class Chunker implements ChunkingProvider {
   private chunkSize: number | undefined;
   private tokenLimit: number | undefined;
   private overlap: number;
+  private prefixFn: ((metadata: Record<string, string>) => string | undefined) | undefined;
 
   constructor(config: ChunkerConfig);
   constructor(chunkSize?: number, overlap?: number);
@@ -51,10 +54,12 @@ export class Chunker implements ChunkingProvider {
       this.tokenLimit = configOrSize.tokenLimit;
       this.chunkSize = undefined;
       this.overlap = configOrSize.overlap ?? DEFAULT_OVERLAP;
+      this.prefixFn = configOrSize.prefixFn;
     } else {
       this.chunkSize = (configOrSize as number | undefined) ?? DEFAULT_CHUNK_SIZE;
       this.tokenLimit = undefined;
       this.overlap = overlap ?? DEFAULT_OVERLAP;
+      this.prefixFn = undefined;
     }
   }
 
@@ -127,20 +132,13 @@ export class Chunker implements ChunkingProvider {
     return this.prefixChunks(chunks);
   }
 
-  /**
-   * Prepend `[Name | Brand]` to chunks that don't already start with `Product: <name>`.
-   * Only applies when metadata contains a `name` field (i.e. product chunks).
-   */
   private prefixChunks(chunks: Chunk[]): Chunk[] {
-    const name = chunks[0]?.metadata.name;
-    if (!name) return chunks;
-    const brand = chunks[0]?.metadata.brand;
-    const label = brand ? `[${name} | ${brand}]` : `[${name}]`;
-
-    return chunks.map((c) => {
-      if (c.content.startsWith(name)) return c;
-      return { ...c, content: `${label} ${c.content}` };
-    });
+    if (!this.prefixFn || chunks.length === 0) return chunks;
+    const label = this.prefixFn(chunks[0].metadata);
+    if (!label) return chunks;
+    return chunks.map((c) =>
+      c.content.startsWith(label) ? c : { ...c, content: `${label} ${c.content}` },
+    );
   }
 
   private splitBySentences(

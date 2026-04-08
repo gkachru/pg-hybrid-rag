@@ -174,3 +174,47 @@ describe("Chunker (token-limit mode)", () => {
     expect(chunks[0].metadata.name).toBe("Test Product");
   });
 });
+
+describe("Chunker prefixFn", () => {
+  it("prepends prefix returned by prefixFn", () => {
+    const c = new Chunker({
+      tokenLimit: 512,
+      prefixFn: (m) => (m.name ? `[${m.name}]` : undefined),
+    });
+    const chunks = c.chunk("Some content.", { name: "Widget" });
+    expect(chunks[0].content).toBe("[Widget] Some content.");
+  });
+
+  it("does not prefix when prefixFn returns undefined", () => {
+    const c = new Chunker({
+      tokenLimit: 512,
+      prefixFn: (m) => (m.name ? `[${m.name}]` : undefined),
+    });
+    const chunks = c.chunk("Some content.", { language: "en" });
+    expect(chunks[0].content).toBe("Some content.");
+  });
+
+  it("does not prefix when prefixFn is not set", () => {
+    const c = new Chunker({ tokenLimit: 512 });
+    const chunks = c.chunk("Some content.", { name: "Widget" });
+    expect(chunks[0].content).toBe("Some content.");
+  });
+
+  it("skips prefix when chunk already starts with the label", () => {
+    const c = new Chunker({
+      tokenLimit: 512,
+      prefixFn: () => "[Widget]",
+    });
+    const chunks = c.chunk("[Widget] Already prefixed.", { name: "Widget" });
+    expect(chunks[0].content).toBe("[Widget] Already prefixed.");
+  });
+
+  it("supports name+brand pattern via prefixFn", () => {
+    const c = new Chunker({
+      tokenLimit: 512,
+      prefixFn: (m) => (m.brand ? `[${m.name} | ${m.brand}]` : m.name ? `[${m.name}]` : undefined),
+    });
+    const chunks = c.chunk("Some content.", { name: "Widget", brand: "Acme" });
+    expect(chunks[0].content).toBe("[Widget | Acme] Some content.");
+  });
+});
