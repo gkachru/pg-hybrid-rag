@@ -28,7 +28,7 @@ Three-way hybrid search fused via RRF:
 
 **Index** (`RagIndexer.index`): embed chunks → delete old chunks for source → insert into `rag_documents` (Postgres tsvector trigger handles stemming)
 
-**Chunk** (`Chunker.chunk`): split by paragraphs → sentences → fixed-size, with 75-char word-boundary overlap. Auto-prefixes chunks with `[Name | Brand]` from metadata. Supports token-limit mode (`new Chunker({ tokenLimit: 512 })`) with language-aware char-per-token heuristics for denser chunks.
+**Chunk** (`Chunker.chunk`): split by paragraphs → sentences → fixed-size, with 75-char word-boundary overlap. Optionally prefixes chunks via a pluggable `prefixFn` callback. Supports token-limit mode (`new Chunker({ tokenLimit: 512 })`) with language-aware char-per-token heuristics for denser chunks.
 
 ### Key files
 
@@ -64,6 +64,7 @@ Three-way hybrid search fused via RRF:
 - **Parallel search** — PostgresRagDatabase runs all 3 search legs concurrently via separate connections.
 - **Batched embedding** — OpenAiCompatibleEmbedder splits texts into configurable batches (`batchSize`, default 32) with configurable concurrency (default 1, sequential).
 - **Token-limit chunking** — Chunker accepts `{ tokenLimit }` and computes per-language char limits using heuristic chars-per-token ratios (0.8 safety margin). Produces denser chunks for Latin scripts (~3x vs flat char limit).
+- **Pluggable chunk prefix** — `prefixFn?: (metadata: Record<string, string>) => string | undefined` in `ChunkerConfig`. Called once per chunk batch; return a label (e.g. `[Name | Brand]`) or `undefined` to skip. Replaces the old hardcoded name/brand extraction.
 - **Pluggable chunker** — `ChunkingProvider` interface lets consumers swap in alternative chunking libraries (e.g. chonkie).
 - **Batch inserts** — PostgresRagDatabase inserts all chunks in a single INSERT statement.
 - **Punctuation handling** — trailing punctuation stripped before matching (Latin, Hindi, Arabic, CJK).

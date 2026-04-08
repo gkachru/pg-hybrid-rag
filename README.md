@@ -78,7 +78,11 @@ const results = await pipeline.search("blue cotton shirt", { language: "en" });
 
 // 4. Index
 const indexer = new RagIndexer({ tenantId: "my-tenant", db, embedder });
-const chunker = new Chunker({ tokenLimit: 512, overlap: 75 });
+const chunker = new Chunker({
+  tokenLimit: 512,
+  overlap: 75,
+  prefixFn: (m) => m.brand ? `[${m.name} | ${m.brand}]` : m.name ? `[${m.name}]` : undefined,
+});
 const chunks = chunker.chunk(text, { name: "Product Name", language: "en" });
 await indexer.index("product", productId, chunks, "en");
 ```
@@ -241,7 +245,11 @@ Pass `language` in the metadata to activate language-aware sizing:
 | Chinese, Japanese, Korean | `zh`, `ja`, `ko` + BCP-47 | ~1.5 | 614 chars |
 | Unknown | any other | 1 | 512 chars |
 
-If `metadata` contains a `name` field (and optionally `brand`), each chunk is automatically prefixed with `[Name | Brand]` so the embedding model knows which entity the chunk belongs to.
+To prefix chunks with entity context, pass a `prefixFn` to the constructor. It receives the first chunk's metadata and returns a label string (or `undefined` to skip):
+
+```typescript
+prefixFn: (m) => m.brand ? `[${m.name} | ${m.brand}]` : m.name ? `[${m.name}]` : undefined
+```
 
 ### Pure Utilities
 
