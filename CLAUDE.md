@@ -22,7 +22,7 @@ No test database needed — tests use mocks for all DB and embedding calls. The 
 cp examples/.env.example examples/.env   # fill in DATABASE_URL, EMBEDDING_BASE_URL, EMBEDDING_API_KEY, EMBEDDING_MODEL
 cd examples && docker compose up -d      # or: podman compose up -d
 bun run examples/playground.ts           # basic run
-bun run examples/playground.ts --vectorchord --bm25   # with optional extensions
+bun run examples/playground.ts --vectorchord --bm25 --cjk   # all optional extensions
 ```
 
 ## Architecture
