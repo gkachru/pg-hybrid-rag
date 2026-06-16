@@ -15,6 +15,7 @@
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 import {
+  Bm25Fts,
   CachingStopWordsLoader,
   CachingSynonymLoader,
   Chunker,
@@ -346,6 +347,9 @@ const FAQ_ENTRIES = [
 async function main() {
   console.log("\n=== pg-hybrid-rag playground ===\n");
 
+  const USE_VECTORCHORD = process.argv.includes("--vectorchord");
+  const USE_BM25 = process.argv.includes("--bm25");
+
   // Step 1: Create isolated database
   console.log(`1. Creating database "${PLAYGROUND_DB}"...`);
   await createPlaygroundDb();
@@ -359,8 +363,12 @@ async function main() {
     console.log("2. Running migrations...");
     await ragMigrate(sqlClient, {
       sqlDir: fileURLToPath(new URL("../sql", import.meta.url)),
+      vectorchord: USE_VECTORCHORD,
+      bm25: USE_BM25,
     });
-    console.log("   Done.\n");
+    console.log(
+      `   Done. (vectorchord=${USE_VECTORCHORD}, bm25=${USE_BM25})\n`,
+    );
 
     // Step 3: Seed stop words & synonyms
     console.log("3. Seeding stop words & synonyms...");
@@ -370,7 +378,7 @@ async function main() {
 
     // Step 4: Index sample products (all languages)
     console.log("4. Indexing products...");
-    const db = new PostgresRagDatabase(txProvider);
+    const db = new PostgresRagDatabase(txProvider, USE_BM25 ? { fts: new Bm25Fts() } : undefined);
     const chunker = new Chunker({
       tokenLimit: 512,
       overlap: 75,
