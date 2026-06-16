@@ -7,6 +7,7 @@ export type { OpenAiCompatibleEmbedderConfig } from "./adapters/OpenAiCompatible
 export { OpenAiCompatibleEmbedder } from "./adapters/OpenAiCompatibleEmbedder.js";
 export type { PostgresRagDatabaseOptions } from "./adapters/PostgresRagDatabase.js";
 export { PostgresRagDatabase } from "./adapters/PostgresRagDatabase.js";
+export { Bm25Fts } from "./adapters/fts/Bm25Fts.js";
 export { TsvectorFts } from "./adapters/fts/TsvectorFts.js";
 
 // Core
