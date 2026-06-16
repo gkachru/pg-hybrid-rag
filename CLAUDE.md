@@ -8,12 +8,22 @@ Hybrid RAG search library using pgvector, pg_trgm (+ optional pg_bigm for CJK), 
 bun run build          # tsup → dual ESM/CJS in dist/
 bun run typecheck      # tsc --noEmit
 bun run lint           # biome check
+bun run lint:fix       # biome check --write (auto-fix)
 bun test               # bun:test, all tests in tests/
 bun test tests/pipeline.test.ts  # single file
 bun run examples/playground.ts   # live integration test (needs DB + embedding API)
 ```
 
 No test database needed — tests use mocks for all DB and embedding calls. The playground example creates and drops an isolated database automatically.
+
+### Playground setup
+
+```bash
+cp examples/.env.example examples/.env   # fill in DATABASE_URL, EMBEDDING_BASE_URL, EMBEDDING_API_KEY, EMBEDDING_MODEL
+cd examples && docker compose up -d      # or: podman compose up -d
+bun run examples/playground.ts           # basic run
+bun run examples/playground.ts --vectorchord --bm25   # with optional extensions
+```
 
 ## Architecture
 

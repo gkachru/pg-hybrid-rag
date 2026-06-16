@@ -255,15 +255,23 @@ prefixFn: (m) => m.brand ? `[${m.name} | ${m.brand}]` : m.name ? `[${m.name}]` :
 
 ```typescript
 import {
-  detectLanguage, removeStopWords, buildFtsQuery, applyRRF,
-  stripTrailingPunctuation,
+  detectLanguage, removeStopWords, buildFtsQuery, buildBm25Query,
+  expandQueryWithSynonyms, applyRRF, stripTrailingPunctuation,
+  buildFilters, toRankedCandidate,
 } from "pg-hybrid-rag";
 
-detectLanguage("दौड़ते हुए जूते");           // "hi"
-removeStopWords("the best phone", stops); // "best phone"
-buildFtsQuery(query, synonymLookup);      // tsquery string
-applyRRF(legs, rrfK, topK, weights);      // fused results
-stripTrailingPunctuation("phones?");      // "phones"
+detectLanguage("दौड़ते हुए जूते");                  // "hi"
+removeStopWords("the best phone", stops);          // "best phone"
+buildFtsQuery(query, synonymLookup);               // tsquery string (tsvector leg)
+buildBm25Query(query, synonymLookup);              // BM25 query string (pg_textsearch leg)
+expandQueryWithSynonyms(query, synonymLookup);     // synonym-expanded plain query string
+applyRRF(legs, rrfK, topK, weights);               // fused results
+stripTrailingPunctuation("phones?");               // "phones"
+
+// For custom RagDatabase implementations:
+buildFilters({ sourceTypes: ["product"], languages: ["en"] }, 3);
+// → { clause: "AND source_type = ANY(...) AND language = ANY(...)", params: [...] }
+toRankedCandidate(dbRow);                          // maps a raw DB row to RankedCandidate
 ```
 
 ### Migrate
@@ -285,41 +293,131 @@ await ragMigrate(sqlClient, { sqlDir: "/path/to/node_modules/pg-hybrid-rag/sql" 
 
 SQL files are also available at `pg-hybrid-rag/sql/*` for manual migration systems.
 
-### Optional extensions (0.3.0)
+### Optional extensions
 
-Both extensions require adding them to `shared_preload_libraries` in `postgresql.conf` and restarting Postgres. Because VectorChord already needs this restart, you can enable both with a single rolling restart.
+Both extensions are not bundled with standard Postgres — you must install them first, then enable them in `shared_preload_libraries` and restart Postgres before applying the migrations. Because both require a restart, you can enable them together with a single rolling restart.
+
+For local development, `examples/docker-compose.yml` builds a ready-to-use image (`examples/Dockerfile`) that ships pgvector + VectorChord + pg_textsearch together with `shared_preload_libraries` already set.
 
 #### VectorChord (`vchordrq`) — faster vector index
 
+VectorChord replaces the default IVFFlat index with a `vchordrq` (RaBitQ-quantized graph) index, giving significantly faster approximate nearest-neighbor search at high recall. No application code changes are needed — it keeps the same `<=>` cosine operator.
+
+**Step 1 — install the extension.**
+Use the [`tensorchord/vchord-postgres`](https://github.com/tensorchord/VectorChord) Docker image (ships pgvector + vchord), or install the `.deb`/`.rpm` from the VectorChord releases page into your existing Postgres.
+
+**Step 2 — add to `shared_preload_libraries` and restart.**
+
 ```
+# postgresql.conf
 shared_preload_libraries = 'vchord'
 ```
 
-Restart Postgres, then apply the migration:
+**Step 3 — apply the migration.**
 
 ```typescript
+import { ragMigrate } from "pg-hybrid-rag";
+
 await ragMigrate(sqlClient, { vectorchord: true });
+// Drops idx_rag_embedding_ivfflat, creates idx_rag_embedding_vchordrq
 ```
 
-That's it — no TypeScript changes. VectorChord swaps the IVFFlat index for a `vchordrq` (RaBitQ-quantized graph) index while keeping the same `<=>` cosine operator.
+**Step 4 — no other changes.** `PostgresRagDatabase` uses the same `<=>` cosine operator regardless of which index is active; the planner automatically picks `idx_rag_embedding_vchordrq`.
+
+> **Note:** Applying the migration on a populated table will block while the index builds. For large datasets, apply during a maintenance window or use `CREATE INDEX CONCURRENTLY` manually (the migration uses `CREATE INDEX IF NOT EXISTS` — safe to run more than once).
+
+---
 
 #### pg_textsearch — BM25 full-text search
 
+pg_textsearch replaces the default tsvector/tsquery FTS leg with BM25 probabilistic ranking (via the `<@>` operator). BM25 typically produces better-calibrated scores than tsvector's TF-IDF weighting, especially for short queries and long documents.
+
+**Step 1 — install the extension.**
+Download the pre-built `.deb` from the [Timescale pg_textsearch releases](https://github.com/timescale/pg_textsearch/releases) page and install it into your Postgres. The `examples/Dockerfile` shows a multi-stage build that does this automatically.
+
+**Step 2 — add to `shared_preload_libraries` and restart.**
+
 ```
-shared_preload_libraries = 'pg_textsearch'  // or include alongside vchord
+# postgresql.conf
+shared_preload_libraries = 'pg_textsearch'
 ```
 
-Restart Postgres, then apply the migration and use the `Bm25Fts` strategy:
+**Step 3 — apply the migration.**
+
+```typescript
+import { ragMigrate } from "pg-hybrid-rag";
+
+await ragMigrate(sqlClient, { bm25: true });
+// Creates per-language partial BM25 indexes on rag_documents.content
+```
+
+The migration creates one partial BM25 index per language group (english, spanish, french, german, italian, portuguese, romanian) plus a `simple` catch-all for all other languages. The tsvector column and trigger from migration 004 are preserved — both strategies coexist in the schema.
+
+**Step 4 — switch to `Bm25Fts` in your database adapter.**
 
 ```typescript
 import { PostgresRagDatabase, Bm25Fts, ragMigrate } from "pg-hybrid-rag";
 
+// Apply migration first (idempotent — safe to call on every startup)
 await ragMigrate(sqlClient, { bm25: true });
 
+// Pass Bm25Fts as the FTS strategy
 const db = new PostgresRagDatabase(txProvider, { fts: new Bm25Fts() });
+
+const pipeline = new RagPipeline({ tenantId, db, embedder });
 ```
 
-`Bm25Fts` replaces the tsvector/tsquery FTS leg with BM25 scoring via the `<@>` operator. The tsvector column and trigger remain (they coexist), so you can switch strategies per deployment without a schema change.
+**Step 5 — always pass `language` in search options.**
+
+`Bm25Fts` uses the `language` value from each search call to route to the correct partial index. Without it the query falls back to the `simple` catch-all index (no stemming).
+
+```typescript
+// Good — planner uses idx_rag_bm25_en (english stemming)
+await pipeline.search("running shoes", { language: "en" });
+
+// Good — planner uses idx_rag_bm25_fr (french stemming)
+await pipeline.search("chaussures de course", { language: "fr" });
+
+// Falls back to idx_rag_bm25_simple (no stemming) for unsupported languages
+await pipeline.search("दौड़ते हुए जूते", { language: "hi" });
+```
+
+**BM25 language coverage:**
+
+| Index | Languages | Stemming |
+|-------|-----------|---------|
+| `idx_rag_bm25_en` | `en`, `en-US`, `en-IN` | Yes (english) |
+| `idx_rag_bm25_es` | `es`, `es-ES`, `es-MX` | Yes (spanish) |
+| `idx_rag_bm25_fr` | `fr`, `fr-FR` | Yes (french) |
+| `idx_rag_bm25_de` | `de`, `de-DE` | Yes (german) |
+| `idx_rag_bm25_it` | `it`, `it-IT` | Yes (italian) |
+| `idx_rag_bm25_pt` | `pt`, `pt-PT` | Yes (portuguese) |
+| `idx_rag_bm25_ro` | `ro`, `ro-RO` | Yes (romanian) |
+| `idx_rag_bm25_simple` | all others | No (lowercase only) |
+
+> **Switching back:** To revert to the default tsvector FTS, construct `PostgresRagDatabase` without the `fts` option (or pass `new TsvectorFts()`). The BM25 indexes remain but are unused, and the tsvector column is always kept up to date by the trigger.
+
+---
+
+#### Using both together
+
+Enable VectorChord and BM25 with a single restart and a single migrate call:
+
+```
+# postgresql.conf
+shared_preload_libraries = 'vchord,pg_textsearch'
+```
+
+```typescript
+import { PostgresRagDatabase, Bm25Fts, ragMigrate } from "pg-hybrid-rag";
+
+await ragMigrate(sqlClient, { vectorchord: true, bm25: true });
+
+const db = new PostgresRagDatabase(txProvider, { fts: new Bm25Fts() });
+const pipeline = new RagPipeline({ tenantId, db, embedder });
+```
+
+This gives you VectorChord's faster ANN search on the vector leg combined with BM25's better-calibrated scoring on the FTS leg.
 
 ## Adapter Interfaces
 
@@ -438,6 +536,19 @@ Reranking is opt-in (`rerank: false` by default). If the reranker throws, the pi
 The package manages 3 tables: `rag_documents`, `rag_stop_words`, `rag_synonyms`. All include `tenant_id` for multi-tenant isolation. RLS policies are optional (migration 007). CJK support via pg_bigm is optional (migration 009).
 
 Stemming is handled by the `rag_fts_config()` SQL function which maps language codes to Postgres `regconfig` names. The tsvector trigger auto-applies the correct stemmer per row based on the `language` column.
+
+## Examples
+
+The [`examples/`](examples/) directory contains ready-to-use reference implementations:
+
+| File | Description |
+|------|-------------|
+| [`playground.ts`](examples/playground.ts) | Full pipeline integration test against live infra (creates/drops an isolated DB automatically) |
+| [`nestjs-rag-module.ts`](examples/nestjs-rag-module.ts) | NestJS module wiring with Prisma + Pino logger |
+| [`nestjs-search.ts`](examples/nestjs-search.ts) | NestJS search service with multi-language support |
+| [`nestjs-migrations.ts`](examples/nestjs-migrations.ts) | Running migrations on NestJS startup |
+| [`nestjs-bullmq-reindex.ts`](examples/nestjs-bullmq-reindex.ts) | BullMQ worker for async reindexing |
+| [`docker-compose.yml`](examples/docker-compose.yml) | Local Postgres (pgvector + VectorChord + pg_textsearch) + HuggingFace TEI embedding service |
 
 ## What This Package Does NOT Include
 
