@@ -28,6 +28,17 @@ export function bm25SupportedLanguages(): string[] {
 }
 
 /**
+ * Name of the partial BM25 index matching `language`.
+ * Must stay in sync with the index names in sql/011_pg_textsearch.sql.
+ * Used by Bm25Fts to pass explicitly to to_bm25query() (required by pg_textsearch >=1.0).
+ */
+export function bm25IndexName(language: string): string {
+  const group = BM25_LANGUAGE_GROUPS.find((g) => g.languages.includes(language));
+  if (group) return `idx_rag_bm25_${group.languages[0]}`;
+  return "idx_rag_bm25_simple";
+}
+
+/**
  * SQL predicate that selects the partial BM25 index matching `language`.
  * Returns `language IN (...)` for a supported group, or `language NOT IN (...all supported...)`
  * for the 'simple' catch-all index. Values come from BM25_LANGUAGE_GROUPS (trusted constant,

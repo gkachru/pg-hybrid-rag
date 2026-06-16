@@ -1,10 +1,22 @@
 # Local infra for the pg-hybrid-rag playground:
-#   - db:        PostgreSQL with pgvector (+ pg_trgm from contrib)
+#   - db:        Postgres with pgvector + VectorChord (vchord) + pg_textsearch
 #   - embedding: self-hosted embedding API via HuggingFace TEI
 #
 # Usage (Docker or Podman):
 #   EMBEDDING_API_KEY=your-key docker compose up
 #   EMBEDDING_API_KEY=your-key podman compose up
+#
+# The db service builds a custom image from examples/Dockerfile on first run.
+# It extends tensorchord/vchord-postgres (pgvector + vchord) with the
+# timescale/pg_textsearch .deb, then sets shared_preload_libraries so all
+# three extensions are available without a separate compose file.
+#
+# Playground flags (all work with this single compose file):
+#   bun run examples/playground.ts --vectorchord   # vchordrq index
+#   bun run examples/playground.ts --bm25          # BM25 full-text search
+#   bun run examples/playground.ts --vectorchord --bm25
+#
+# CJK support (pg_bigm) is NOT in this image — only needed with { cjk: true }.
 #
 # TEI downloads the model from HuggingFace on first start.
 # The hf-cache volume persists it across restarts.
@@ -17,11 +29,14 @@
 
 services:
   db:
-    # pgvector image bundles the `vector` extension; `pg_trgm` ships with the
-    # Postgres contrib package. Both are created by migration 001. (CJK support
-    # needs `pg_bigm`, which is NOT in this image — only required when running
-    # migrations with { cjk: true }.)
-    image: pgvector/pgvector:pg17
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pg-hybrid-rag-db:latest
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=vchord,pg_textsearch
     ports:
       - "5432:5432"
     environment:

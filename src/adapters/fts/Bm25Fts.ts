@@ -2,7 +2,7 @@ import type { FtsContext, FtsStrategy, SqlClient } from "../../interfaces.js";
 import { buildBm25Query } from "../../synonymExpander.js";
 import type { RankedCandidate } from "../../types.js";
 import { buildFilters, toRankedCandidate } from "../sqlHelpers.js";
-import { bm25LanguagePredicate } from "./bm25LanguageGroups.js";
+import { bm25IndexName, bm25LanguagePredicate } from "./bm25LanguageGroups.js";
 
 /**
  * BM25 FTS strategy backed by pg_textsearch. Uses a flat term list and the `<@>`
@@ -21,15 +21,19 @@ export class Bm25Fts implements FtsStrategy {
     const baseParams: unknown[] = [ctx.tenantId, bm25Query, ctx.candidateLimit];
     const f = buildFilters(ctx, 4);
     const langPredicate = bm25LanguagePredicate(ctx.language);
+    // pg_textsearch requires the index name to be passed explicitly to to_bm25query().
+    // The index name comes from a trusted constant (never user input), so embedding it
+    // as a SQL literal is safe.
+    const idxName = bm25IndexName(ctx.language);
 
     const sql = `
           SELECT content, source_type, source_id, metadata,
-                 -(content <@> $2) as score
+                 -(content <@> to_bm25query($2, '${idxName}')) as score
           FROM rag_documents
           WHERE tenant_id = $1
             AND ${langPredicate}
             ${f.clause}
-          ORDER BY content <@> $2
+          ORDER BY content <@> to_bm25query($2, '${idxName}')
           LIMIT $3
         `;
     const rows = await client.query<Record<string, unknown>>(sql, [...baseParams, ...f.params]);
