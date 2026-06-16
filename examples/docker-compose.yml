@@ -1,5 +1,5 @@
 # Local infra for the pg-hybrid-rag playground:
-#   - db:        Postgres with pgvector + VectorChord (vchord) + pg_textsearch
+#   - db:        Postgres with pgvector + VectorChord (vchord) + pg_textsearch + pg_bigm
 #   - embedding: self-hosted embedding API via HuggingFace TEI
 #
 # Usage (Docker or Podman):
@@ -7,16 +7,15 @@
 #   EMBEDDING_API_KEY=your-key podman compose up
 #
 # The db service builds a custom image from examples/Dockerfile on first run.
-# It extends tensorchord/vchord-postgres (pgvector + vchord) with the
-# timescale/pg_textsearch .deb, then sets shared_preload_libraries so all
-# three extensions are available without a separate compose file.
+# It extends tensorchord/vchord-postgres (pgvector + vchord) with pg_textsearch
+# (.deb) and pg_bigm (compiled from source), then sets shared_preload_libraries
+# so all four extensions are available without a separate compose file.
 #
 # Playground flags (all work with this single compose file):
-#   bun run examples/playground.ts --vectorchord   # vchordrq index
-#   bun run examples/playground.ts --bm25          # BM25 full-text search
-#   bun run examples/playground.ts --vectorchord --bm25
-#
-# CJK support (pg_bigm) is NOT in this image — only needed with { cjk: true }.
+#   bun run examples/playground.ts --vectorchord          # vchordrq index
+#   bun run examples/playground.ts --bm25                 # BM25 full-text search
+#   bun run examples/playground.ts --cjk                  # pg_bigm CJK keyword search
+#   bun run examples/playground.ts --vectorchord --bm25 --cjk
 #
 # TEI downloads the model from HuggingFace on first start.
 # The hf-cache volume persists it across restarts.
