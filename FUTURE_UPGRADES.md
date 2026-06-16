@@ -1,6 +1,15 @@
 # Future Upgrades
 
-This document covers Postgres extensions that can improve search quality and performance as pg-hybrid-rag scales. Both are optional drop-in upgrades — the library works without them.
+This document covers Postgres extensions that can improve search quality and performance as pg-hybrid-rag scales. They are optional — the library works without them.
+
+- **Vector leg** — **VectorChord** (preferred for the OCI Ampere A1 / ARM64 stack) or **pgvectorscale**: both swap the IVFFlat index for a better-scaling index with zero TypeScript changes.
+- **FTS leg** — **pg_textsearch**: replaces tsvector/tsquery with BM25 ranking. Needs a minor `buildFtsQuery` rewrite, but no missing-feature gates (see the re-assessment below).
+
+> **Planned for the next version:** adopt **VectorChord** (`vchordrq`) for the vector leg and **pg_textsearch** (BM25) for the FTS leg.
+>
+> *Why VectorChord over pgvectorscale:* the more active development of the two, first-class ARM64 support on the OCI Ampere A1 (Neoverse N1) fleet, and RaBitQ's theoretical error bound is a more principled recall story than pgvectorscale's SBQ (Statistical Binary Quantization). The AGPLv3/ELv2 license is manageable for this deployment.
+>
+> *Why the two together:* VectorChord already requires `shared_preload_libraries` + a restart, and that is pg_textsearch's only real gate — so a single rolling restart on the N+1 fleet brings up both legs at once.
 
 ---
 
@@ -38,29 +47,39 @@ CREATE INDEX ON rag_documents USING bm25(content) WITH (text_config='english');
 - **Simpler schema** — no tsvector column, no trigger, no `rag_fts_config()` function
 - **Parallel index builds** — 4x+ faster CREATE INDEX on large tables
 
-### Why not yet
+### Adoption considerations (re-assessed)
 
-1. **No boolean queries** — AND/OR/NOT is on the roadmap but not yet shipped. Our synonym expansion produces OR groups like `(phones | smartphones | iphone)`. With pg_textsearch v1.0, multi-term queries work as implicit OR (BM25 naturally scores documents with more matching terms higher), but explicit OR grouping isn't available. Synonym expansion would need to flatten to plain term lists.
+Three of the original "wait" reasons were re-assessed against the pg_textsearch README. Only one is a real constraint.
 
-2. **One index per language** — A single BM25 index uses one `text_config`. Mixed-language rows in one table would need either:
-   - A `simple` config index (no stemming — loses the BM25 stemming advantage)
-   - Partitioned table by language (each partition gets its own language-specific index)
-   - Separate indexes per language (messy)
+1. **Boolean queries — not a blocker (originally mislabeled).** What pg_textsearch lacks is *phrase* queries (`"exact phrase"`) and explicit `AND`/`NOT` operators. What pg-hybrid-rag's `buildFtsQuery` actually needs from the FTS leg is **OR semantics for synonym expansion** (`phones | smartphones | iphone`), and BM25 is an OR-ranked model by definition: a space-separated query `phones smartphones iphone` scores any document containing *any* of those terms, weighted by IDF/TF. That is functionally equivalent to tsquery `OR` — and ranks *better*, because it weights by term frequency. No `|` syntax is required; you pass the synonym terms space-separated to `<@>`.
 
-   Our current tsvector approach handles mixed languages in one table via the per-row trigger.
+   *Code impact:* `buildFtsQuery` currently emits `best & (phones | smartphones | iphone) & market`. For pg_textsearch it would be rewritten to emit a flat, space-separated term list (drop the `&`, `|`, parentheses, and `<->` phrase operators). Semantic behavior is preserved and improved.
 
-3. **Multi-tenant filtering** — The roadmap mentions dedicated multi-tenant support as future work. Current filtering uses WHERE clauses which post-filter after the BM25 scan. For large multi-tenant datasets this could be slower than GIN-indexed tsvector with `WHERE tenant_id = $1`.
+2. **One index per language — still a design choice (not resolved).** A single BM25 index uses one `text_config`. Mixed-language rows in one table still need either:
+   - a `simple` config index (no stemming — loses the BM25 stemming advantage),
+   - a table partitioned by language (each partition gets its own language-specific index), or
+   - separate per-language indexes (messy).
 
-4. **`shared_preload_libraries`** — Requires server configuration + restart. Not a pure `CREATE EXTENSION`.
+   The current tsvector approach handles mixed languages in one table via the per-row trigger. This remains the main schema-design question for adopting pg_textsearch.
+
+3. **Multi-tenant filtering — supported, not a blocker (originally mislabeled).** pg_textsearch's README documents pre-filtering with a B-tree index on a filter column *before* BM25 scoring: `WHERE tenant_id = $1 ORDER BY content <@> 'query' LIMIT n` uses the B-tree on `tenant_id` to shrink the candidate set before scoring — the exact pattern `PostgresRagDatabase` already uses (`WHERE tenant_id = $1` on every leg).
+
+4. **`shared_preload_libraries` — the one real constraint.** Requires server configuration + a Postgres restart (not a pure `CREATE EXTENSION`). On the OCI Ampere A1 setup (N+1 instances behind a load balancer) this is a **rolling restart** — an ops step, not an architectural blocker.
 
 ### When to adopt
 
-Once boolean queries ship and multi-tenant support lands, pg_textsearch becomes a clear upgrade for the FTS leg. It could be added as an alternative FTS adapter alongside the current tsvector approach.
+The original blockers (boolean queries, multi-tenant filtering) don't apply — pg_textsearch is a viable upgrade for the FTS leg today. The remaining work is operational and minor:
+
+- the `shared_preload_libraries` rollout (rolling restart),
+- the `buildFtsQuery` flattening (drop the tsquery operators), and
+- a decision on the per-language index strategy (partition vs `simple`).
+
+It is best added as an alternative FTS adapter alongside the current tsvector approach, selectable per deployment.
 
 ### Migration sketch
 
 ```sql
--- Requires shared_preload_libraries = 'pg_textsearch' in postgresql.conf
+-- Requires shared_preload_libraries = 'pg_textsearch' in postgresql.conf (+ restart)
 CREATE EXTENSION IF NOT EXISTS pg_textsearch;
 
 -- One index per language partition, or use 'simple' for all
@@ -68,11 +87,85 @@ CREATE INDEX idx_rag_bm25_en ON rag_documents USING bm25(content)
   WITH (text_config='english')
   WHERE language IN ('en', 'en-US', 'en-IN');
 
--- Query changes
--- Before: ts_rank_cd(content_tsvector, to_tsquery(rag_fts_config($4), $2))
--- After:  -(content <@> to_bm25query($2, 'idx_rag_bm25_en'))
--- Note: <@> returns negative BM25 scores (lower = better match for ASC ordering)
+-- B-tree on tenant_id lets BM25 pre-filter by tenant before scoring (README pattern)
+CREATE INDEX IF NOT EXISTS idx_rag_tenant ON rag_documents (tenant_id);
 ```
+
+Query changes (in `PostgresRagDatabase`):
+
+```sql
+-- Before (tsvector + tsquery OR groups):
+SELECT ..., ts_rank_cd(content_tsvector, to_tsquery(rag_fts_config($4), $2)) AS score
+FROM rag_documents
+WHERE tenant_id = $1
+  AND content_tsvector @@ to_tsquery(rag_fts_config($4), $2)   -- $2 = "best & (phones | smartphones | iphone)"
+ORDER BY score DESC LIMIT $3;
+
+-- After (BM25, flat term list, B-tree tenant pre-filter):
+SELECT ..., -(content <@> $2) AS score                         -- $2 = "best phones smartphones iphone"
+FROM rag_documents
+WHERE tenant_id = $1
+ORDER BY content <@> $2 LIMIT $3;
+-- Note: <@> returns negative BM25 distances (lower = better) so order ASC; negate for a positive
+--       RRF score. buildFtsQuery emits the flat term list — no &, |, or parentheses.
+```
+
+---
+
+## VectorChord — RaBitQ Vector Search
+
+**Repo:** https://github.com/tensorchord/VectorChord
+**License:** AGPLv3 / Elastic License v2 (dual) | **Requires:** PG 17+, pgvector | **Status:** Stable (v1.1.x) — successor to pgvecto.rs
+
+> **Preferred vector-leg upgrade for the OCI Ampere A1 (ARM64) stack.** ARM64 is first-class, it's production-proven, and `vchordrq` is strictly better than IVFFlat at scale. pgvectorscale (below) remains a valid alternative — see the trade-off table.
+
+### What it does
+
+Adds the `vchordrq` index — a graph index with RaBitQ quantization — for scalable, disk-friendly vector search. Reported up to ~5x faster queries, ~16x higher insert throughput, and ~16x faster index builds than pgvector's HNSW, while keeping memory low. Built on top of pgvector's `vector` type.
+
+### What it replaces in pg-hybrid-rag
+
+| Current | With VectorChord |
+|---------|------------------|
+| IVFFlat index (100 lists) | `vchordrq` (RaBitQ-quantized graph) index |
+| Recall degrades as data grows | Maintains high recall at scale |
+| Loads index into RAM | Quantized, disk-friendly footprint |
+
+### Drop-in upgrade (no code changes)
+
+`vchordrq` uses the same `<=>` cosine operator and `vector_cosine_ops` opclass as IVFFlat, so every SQL query and all TypeScript stay identical — only the index changes:
+
+```sql
+-- One-time server config, then restart Postgres (rolling restart on the N+1 fleet):
+ALTER SYSTEM SET shared_preload_libraries = 'vchord';
+
+CREATE EXTENSION IF NOT EXISTS vchord CASCADE;     -- pulls in pgvector via CASCADE
+DROP INDEX IF EXISTS idx_rag_embedding_ivfflat;
+CREATE INDEX idx_rag_embedding_vchordrq
+  ON rag_documents USING vchordrq (embedding vector_cosine_ops);
+```
+
+Queries are unchanged (`... ORDER BY embedding <=> $2::vector LIMIT $4`). Zero TypeScript changes.
+
+### VectorChord vs pgvectorscale
+
+| | VectorChord (`vchordrq`) | pgvectorscale (`diskann`) |
+|---|---|---|
+| ARM64 / OCI Ampere (Neoverse N1) | First-class | Supported (Rust/PGRX build) |
+| Quantization / recall | RaBitQ — theoretical error bound | SBQ (Statistical Binary Quantization) |
+| Development activity | More active | Mature, slower cadence |
+| Install | `shared_preload_libraries` + restart | Plain `CREATE EXTENSION` (no restart) |
+| License | AGPLv3 / ELv2 (manageable here) | PostgreSQL |
+| Multi-tenant pre-filter | `WHERE` / B-tree pre-filter | Label-based in-index pre-filter (`SMALLINT[]`) |
+| Code changes | None (index swap) | None for basic; schema + query for labels |
+
+For this stack VectorChord is the chosen path (see the next-version note at the top) — it wins on development activity, ARM64 / Neoverse N1 support, and RaBitQ's error-bounded recall, and its license is manageable here. pgvectorscale stays a fallback for deployments where AGPLv3/ELv2 is a hard blocker or the `shared_preload_libraries` restart must be avoided.
+
+### Considerations
+
+- **`shared_preload_libraries = 'vchord'` + restart** — the same operational step as pg_textsearch (a rolling restart on the N+1 OCI fleet). This is the one caveat to the "pure index swap" framing.
+- **Licensing** — AGPLv3 / Elastic License v2 (vs pgvectorscale's PostgreSQL license). Assessed as manageable for this deployment (internal service, not redistributed); revisit if the library or a derivative is ever distributed externally.
+- **Depends on pgvector** — already installed (migration 001); `CASCADE` handles it.
 
 ---
 
@@ -178,6 +271,8 @@ SMALLINT range is -32,768 to 32,767 (~65K labels). With 100 tenants × 10 source
 
 ### When to adopt
 
+The alternative to **VectorChord** for the vector leg. Prefer pgvectorscale when you want to avoid the `shared_preload_libraries` restart, or when its **label-based in-index pre-filtering** (above) is the priority for multi-tenant search.
+
 - **Without labels**: Immediate drop-in upgrade at any scale. Better recall than IVFFlat, lower memory usage.
 - **With labels**: Worth it at scale — 10+ tenants with 1M+ chunks each, where post-filtering causes the vector index to scan across all tenants unnecessarily.
 
@@ -193,12 +288,13 @@ For smaller deployments (single tenant, <1M chunks), IVFFlat is fine.
 
 ## Adoption strategy
 
-Both extensions can be adopted independently:
+Each extension can be adopted independently. The vector leg has two alternatives (pick one); the FTS leg has one.
 
-| Extension | Complexity | Impact | When |
-|-----------|-----------|--------|------|
-| pgvectorscale (basic) | Low — index swap only | Better vector recall at scale | Anytime on PG 17+ |
-| pgvectorscale (with labels) | Medium — schema + query changes | Faster multi-tenant vector search | At scale (10+ tenants, 1M+ chunks) |
-| pg_textsearch | High — FTS leg rewrite | Better FTS ranking (BM25) | After boolean queries + multi-tenant support ship |
+| Extension | Leg | Complexity | Impact | When |
+|-----------|-----|-----------|--------|------|
+| **VectorChord** (`vchordrq`) | Vector | Low — index swap + `shared_preload_libraries` restart | Better recall & throughput at scale; ARM64-native; RaBitQ error-bounded recall | **Chosen for next version** (preferred on OCI ARM, PG 17+) |
+| pgvectorscale (basic) | Vector | Low — index swap, no restart | Better vector recall at scale | Fallback — if AGPL/ELv2 or the restart is a blocker |
+| pgvectorscale (with labels) | Vector | Medium — schema + query changes | Faster multi-tenant vector search | At scale (10+ tenants, 1M+ chunks) |
+| pg_textsearch | FTS | Medium — flatten `buildFtsQuery` + ops | Better FTS ranking (BM25) | **Chosen for next version** — lands with VectorChord's restart |
 
-None of these require changes to the pg-hybrid-rag TypeScript library if implemented at the SQL/adapter level. The `PostgresRagDatabase` adapter can be extended or swapped to support these without touching the pipeline or indexer.
+Vector-leg upgrades (VectorChord, pgvectorscale-basic) need **zero TypeScript changes** — pure SQL/adapter index swaps. pg_textsearch needs a minor `buildFtsQuery` change (flatten the tsquery operators to a space-separated term list) plus adapter SQL changes; the pipeline and indexer are untouched. The `PostgresRagDatabase` adapter can be extended or swapped to support any of these.
