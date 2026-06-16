@@ -49,6 +49,25 @@ describe("Bm25Fts", () => {
     expect(calls[0].params[3]).toBe("faq");
   });
 
+  it("orders all three filters after the base params (sourceTypes $4, sourceIds $5, languages $6)", async () => {
+    const { client, calls } = capturingClient();
+    await new Bm25Fts().search(client, {
+      ...base,
+      query: "phones",
+      synonyms: new Map(),
+      sourceTypes: ["faq"],
+      sourceIds: ["s1"],
+      languages: ["en"],
+    });
+    expect(calls[0].sql).toContain("source_type = ANY(string_to_array($4::text, ','))");
+    expect(calls[0].sql).toContain("source_id::text = ANY(string_to_array($5::text, ','))");
+    expect(calls[0].sql).toContain("language = ANY(string_to_array($6::text, ','))");
+    // base params $1..$3, then the three filters in order
+    expect(calls[0].params).toEqual(["t1", "phones", 10, "faq", "s1", "en"]);
+    // the stemming-config predicate (from ctx.language) is independent of the languages filter
+    expect(calls[0].sql).toContain("language IN ('en', 'en-US', 'en-IN')");
+  });
+
   it("returns [] without querying when the query sanitizes to empty", async () => {
     const { client, calls } = capturingClient();
     const res = await new Bm25Fts().search(client, {

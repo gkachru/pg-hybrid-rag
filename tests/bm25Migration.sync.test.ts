@@ -1,7 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BM25_LANGUAGE_GROUPS, bm25SupportedLanguages } from "../src/adapters/fts/bm25LanguageGroups.js";
+import {
+  BM25_LANGUAGE_GROUPS,
+  bm25SupportedLanguages,
+} from "../src/adapters/fts/bm25LanguageGroups.js";
 
 describe("BM25 language groups stay in sync with sql/011_pg_textsearch.sql", () => {
   const sql = readFileSync(
@@ -18,7 +21,9 @@ describe("BM25 language groups stay in sync with sql/011_pg_textsearch.sql", () 
   }
 
   it("has a simple catch-all index excluding every supported language", () => {
-    const all = bm25SupportedLanguages().map((l) => `'${l}'`).join(",");
+    const all = bm25SupportedLanguages()
+      .map((l) => `'${l}'`)
+      .join(",");
     expect(sql).toContain("text_config='simple'");
     expect(sql).toContain(`language NOT IN (${all})`);
   });

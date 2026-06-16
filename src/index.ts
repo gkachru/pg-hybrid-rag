@@ -3,12 +3,14 @@ export type { CachingStopWordsLoaderConfig } from "./adapters/CachingStopWordsLo
 export { CachingStopWordsLoader } from "./adapters/CachingStopWordsLoader.js";
 export type { CachingSynonymLoaderConfig } from "./adapters/CachingSynonymLoader.js";
 export { CachingSynonymLoader } from "./adapters/CachingSynonymLoader.js";
+export { Bm25Fts } from "./adapters/fts/Bm25Fts.js";
+export { TsvectorFts } from "./adapters/fts/TsvectorFts.js";
 export type { OpenAiCompatibleEmbedderConfig } from "./adapters/OpenAiCompatibleEmbedder.js";
 export { OpenAiCompatibleEmbedder } from "./adapters/OpenAiCompatibleEmbedder.js";
 export type { PostgresRagDatabaseOptions } from "./adapters/PostgresRagDatabase.js";
 export { PostgresRagDatabase } from "./adapters/PostgresRagDatabase.js";
-export { Bm25Fts } from "./adapters/fts/Bm25Fts.js";
-export { TsvectorFts } from "./adapters/fts/TsvectorFts.js";
+export type { BuiltFilters, SearchFilters } from "./adapters/sqlHelpers.js";
+export { buildFilters, toRankedCandidate } from "./adapters/sqlHelpers.js";
 
 // Core
 export { Chunker, type ChunkerConfig } from "./Chunker.js";
