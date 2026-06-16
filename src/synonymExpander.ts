@@ -170,6 +170,24 @@ export function buildFtsQuery(query: string, lookup: SynonymLookup): string {
   return groups.join(" & ");
 }
 
+/**
+ * Build a flat, space-separated term list for the BM25 (pg_textsearch) FTS leg.
+ * Synonym-expands the query (longest-match-first), then strips characters special
+ * to the query parser. BM25 is OR-ranked by definition, so a space-separated list
+ * is functionally equivalent to a tsquery OR group — and ranks by term frequency.
+ *
+ * Input:  "best phones market", synonyms: phones -> [smartphones]
+ * Output: "best phones smartphones market"
+ */
+export function buildBm25Query(query: string, lookup: SynonymLookup): string {
+  const expanded = expandQueryWithSynonyms(query, lookup);
+  return expanded
+    .split(/\s+/)
+    .map(sanitizeTsqueryTerm)
+    .filter(Boolean)
+    .join(" ");
+}
+
 /** Strip characters that have special meaning in tsquery to prevent injection. */
 function sanitizeTsqueryTerm(term: string): string {
   return term.replace(/[&|!():<>*\\'"]/g, "").trim();

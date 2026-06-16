@@ -35,7 +35,7 @@ export { RagPipeline } from "./RagPipeline.js";
 // Utilities
 export { applyRRF } from "./rrf.js";
 export { removeStopWords } from "./stopWords.js";
-export { buildFtsQuery, expandQueryWithSynonyms } from "./synonymExpander.js";
+export { buildBm25Query, buildFtsQuery, expandQueryWithSynonyms } from "./synonymExpander.js";
 
 // Types
 export type {

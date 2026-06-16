@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildFtsQuery, expandQueryWithSynonyms } from "../src/synonymExpander.js";
+import { buildBm25Query, buildFtsQuery, expandQueryWithSynonyms } from "../src/synonymExpander.js";
 import type { SynonymLookup } from "../src/types.js";
 
 function makeLookup(
@@ -164,5 +164,34 @@ describe("buildFtsQuery", () => {
     expect(buildFtsQuery("want cash on delivery", lookup)).toBe(
       "want & (cash <-> on <-> delivery | cod)",
     );
+  });
+});
+
+describe("buildBm25Query", () => {
+  it("expands synonyms into a flat space-separated list", () => {
+    const lookup = makeLookup([{ lang: "en", term: "phones", expansions: ["smartphones"] }]);
+    expect(buildBm25Query("best phones market", lookup)).toBe("best phones smartphones market");
+  });
+
+  it("returns the query unchanged when no synonyms match", () => {
+    const lookup = makeLookup([{ lang: "en", term: "tv", expansions: ["television"] }]);
+    expect(buildBm25Query("best phones market", lookup)).toBe("best phones market");
+  });
+
+  it("returns the query unchanged when the lookup is empty", () => {
+    expect(buildBm25Query("best phones", new Map())).toBe("best phones");
+  });
+
+  it("flattens multi-word synonyms into individual terms", () => {
+    const lookup = makeLookup([{ lang: "en", term: "cash on delivery", expansions: ["cod"] }]);
+    expect(buildBm25Query("want cash on delivery", lookup)).toBe("want cash on delivery cod");
+  });
+
+  it("strips characters special to the query parser", () => {
+    expect(buildBm25Query("best & phones | market", new Map())).toBe("best phones market");
+  });
+
+  it("drops terms that sanitize to empty", () => {
+    expect(buildBm25Query("| & !", new Map())).toBe("");
   });
 });
