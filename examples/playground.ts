@@ -285,7 +285,7 @@ const FAQ_ES = [
   },
 ];
 
-// ── Chinese products & FAQs (CJK — falls back to pg_trgm without pg_bigm) ──
+// ── Chinese products & FAQs (CJK — use --cjk for pg_bigm bigram keyword search) ──
 
 const PRODUCTS_ZH = [
   {
@@ -325,6 +325,42 @@ const FAQ_ZH = [
   },
 ];
 
+// ── Japanese products & FAQs (CJK — use --cjk for pg_bigm bigram keyword search) ─
+
+const PRODUCTS_JA = [
+  {
+    id: "00000000-0000-0000-0000-000000000051",
+    name: "象印 炎舞炊き NW-FB10",
+    brand: "象印",
+    text: `象印 炎舞炊き NW-FB10 IH炊飯ジャー。独自の「炎舞炊き」技術で、まるでかまどで炊いたようなふっくらもちもちのご飯が炊けます。5.5合炊き。
+
+主な機能：豪炎かまどIH、スチームセンサー、豊潤保温（40時間）、タイマー炊飯（2回分）、少量高速炊飯コース。内なべ：「黒まる厚鉄鍋」6層遠赤塗装。
+
+価格：¥44,800。カラー：黒漆・白漆。付属品：しゃもじ・計量カップ。保証期間：本体1年、内なべ3年。`,
+  },
+  {
+    id: "00000000-0000-0000-0000-000000000052",
+    name: "カシオ G-SHOCK GW-M5610",
+    brand: "カシオ",
+    text: `カシオ G-SHOCK GW-M5610 タフソーラー電波時計。世界6局の電波を受信して自動時刻修正。太陽光と室内光で発電するソーラーシステム搭載。電池交換不要。
+
+スペック：耐衝撃構造、20気圧防水、ストップウォッチ（1/100秒）、タイマー、世界時計（31タイムゾーン）、LEDバックライト。サイズ：48.9×43.2×12.7mm、重量：51g。
+
+価格：¥19,800。カラー：ブラック、シルバー、ブルー。保証期間：1年間。電波受信局：日本（60kHz/40kHz）、アメリカ、イギリス、ドイツ、中国。`,
+  },
+];
+
+const FAQ_JA = [
+  {
+    id: "00000000-0000-0000-0000-f00000000051",
+    text: `返品・交換ポリシーについて。商品到着後8日以内であれば未使用・未開封品に限り返品を承ります。お客様都合の返品は送料お客様負担となります。初期不良・破損の場合は送料当社負担で交換対応いたします。食品・消耗品・デジタルコンテンツは返品不可です。返金は確認後5〜7営業日以内に処理いたします。`,
+  },
+  {
+    id: "00000000-0000-0000-0000-f00000000052",
+    text: `ご利用いただける支払い方法。クレジットカード（Visa、Mastercard、JCB、アメックス）、デビットカード、コンビニ払い（セブンイレブン、ローソン、ファミリーマート）、銀行振込、代金引換、PayPay、楽天ペイ、d払いがご利用いただけます。3,000円以上のお買い物でクレジットカードの分割払い（3回・6回・12回）が可能です。`,
+  },
+];
+
 // ── English FAQs ────────────────────────────────────────────────────────────
 
 const FAQ_ENTRIES = [
@@ -349,6 +385,7 @@ async function main() {
 
   const USE_VECTORCHORD = process.argv.includes("--vectorchord");
   const USE_BM25 = process.argv.includes("--bm25");
+  const USE_CJK = process.argv.includes("--cjk");
 
   // Step 1: Create isolated database
   console.log(`1. Creating database "${PLAYGROUND_DB}"...`);
@@ -365,9 +402,10 @@ async function main() {
       sqlDir: fileURLToPath(new URL("../sql", import.meta.url)),
       vectorchord: USE_VECTORCHORD,
       bm25: USE_BM25,
+      cjk: USE_CJK,
     });
     console.log(
-      `   Done. (vectorchord=${USE_VECTORCHORD}, bm25=${USE_BM25})\n`,
+      `   Done. (vectorchord=${USE_VECTORCHORD}, bm25=${USE_BM25}, cjk=${USE_CJK})\n`,
     );
 
     // Step 3: Seed stop words & synonyms
@@ -378,7 +416,10 @@ async function main() {
 
     // Step 4: Index sample products (all languages)
     console.log("4. Indexing products...");
-    const db = new PostgresRagDatabase(txProvider, USE_BM25 ? { fts: new Bm25Fts() } : undefined);
+    const db = new PostgresRagDatabase(txProvider, {
+      ...(USE_BM25 ? { fts: new Bm25Fts() } : {}),
+      ...(USE_CJK  ? { cjk: true }          : {}),
+    });
     const chunker = new Chunker({
       tokenLimit: 512,
       overlap: 75,
@@ -403,6 +444,7 @@ async function main() {
       ...PRODUCTS_AR.map((p) => ({ ...p, lang: "ar" })),
       ...PRODUCTS_ES.map((p) => ({ ...p, lang: "es" })),
       ...PRODUCTS_ZH.map((p) => ({ ...p, lang: "zh" })),
+      ...PRODUCTS_JA.map((p) => ({ ...p, lang: "ja" })),
     ];
 
     for (const product of allProducts) {
@@ -423,6 +465,7 @@ async function main() {
       ...FAQ_AR.map((f) => ({ ...f, lang: "ar" })),
       ...FAQ_ES.map((f) => ({ ...f, lang: "es" })),
       ...FAQ_ZH.map((f) => ({ ...f, lang: "zh" })),
+      ...FAQ_JA.map((f) => ({ ...f, lang: "ja" })),
     ];
 
     for (const faq of allFaqs) {
@@ -480,11 +523,16 @@ async function main() {
       { q: "hamaca artesanal tejida", lang: "es", desc: "ES keyword" },
       { q: "cuánto tarda el envío", lang: "es", desc: "ES FAQ" },
       { q: "pago en cuotas sin interés", lang: "es", desc: "ES FAQ semantic" },
-      // Chinese (CJK — pg_trgm fallback without pg_bigm)
+      // Chinese (CJK — use --cjk for pg_bigm bigram keyword search)
       { q: "小米手机拍照", lang: "zh", desc: "ZH product search" },
       { q: "无人机续航时间", lang: "zh", desc: "ZH keyword" },
       { q: "退货政策", lang: "zh", desc: "ZH FAQ" },
       { q: "支持微信支付吗", lang: "zh", desc: "ZH FAQ semantic" },
+      // Japanese (CJK — use --cjk for pg_bigm bigram keyword search)
+      { q: "IH圧力炊飯器", lang: "ja", desc: "JA product keyword" },
+      { q: "防水 ソーラー電波時計", lang: "ja", desc: "JA product semantic" },
+      { q: "返品できますか", lang: "ja", desc: "JA FAQ keyword" },
+      { q: "クレジットカードで支払えますか", lang: "ja", desc: "JA FAQ semantic" },
       // Cross-language (multilingual e5 should handle these)
       { q: "wireless earphones", lang: "en", desc: "EN→HI cross-lang" },
       { q: "coffee beans", lang: "en", desc: "EN→ES cross-lang" },
@@ -684,6 +732,35 @@ async function seedStopWords(sql: postgres.Sql) {
       "什么",
       "怎么",
     ],
+    ja: [
+      "の",
+      "は",
+      "が",
+      "を",
+      "に",
+      "で",
+      "と",
+      "から",
+      "まで",
+      "て",
+      "た",
+      "な",
+      "だ",
+      "です",
+      "ます",
+      "する",
+      "した",
+      "ある",
+      "いる",
+      "など",
+      "も",
+      "や",
+      "か",
+      "この",
+      "その",
+      "について",
+      "できます",
+    ],
     es: [
       "el",
       "la",
@@ -840,6 +917,25 @@ async function seedSynonyms(sql: postgres.Sql) {
       synonyms: ["abono", "cancelación"],
       direction: "two_way",
     },
+    // Japanese
+    {
+      lang: "ja",
+      term: "炊飯器",
+      synonyms: ["ライスクッカー", "炊飯機", "ご飯炊き"],
+      direction: "two_way",
+    },
+    {
+      lang: "ja",
+      term: "時計",
+      synonyms: ["ウォッチ", "腕時計", "クロック"],
+      direction: "two_way",
+    },
+    {
+      lang: "ja",
+      term: "価格",
+      synonyms: ["値段", "料金", "費用"],
+      direction: "two_way",
+    },
   ];
 
   for (const s of synonyms) {
@@ -849,7 +945,7 @@ async function seedSynonyms(sql: postgres.Sql) {
       [TENANT_ID, s.lang, s.term, JSON.stringify(s.synonyms), s.direction],
     );
   }
-  console.log(`   Seeded ${synonyms.length} synonym mappings (en, hi, ar, es)`);
+  console.log(`   Seeded ${synonyms.length} synonym mappings (en, hi, ar, es, ja)`);
 }
 
 main().catch((err) => {
