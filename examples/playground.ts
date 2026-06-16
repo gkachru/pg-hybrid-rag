@@ -945,7 +945,7 @@ async function seedSynonyms(sql: postgres.Sql) {
       [TENANT_ID, s.lang, s.term, JSON.stringify(s.synonyms), s.direction],
     );
   }
-  console.log(`   Seeded ${synonyms.length} synonym mappings (en, hi, ar, es, ja)`);
+  console.log(`   Seeded ${synonyms.length} synonym mappings (en, hi, ar, zh, es, ja)`);
 }
 
 main().catch((err) => {
