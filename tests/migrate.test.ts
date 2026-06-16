@@ -88,4 +88,28 @@ describe("ragMigrate", () => {
     await ragMigrate(client, { sqlDir });
     expect(appliedMigrations.length).toBe(firstRunCount);
   });
+
+  it("skips VectorChord migration by default", async () => {
+    const { client, appliedMigrations } = createMockClient();
+    await ragMigrate(client, { sqlDir });
+    expect(appliedMigrations).not.toContain("010_vectorchord.sql");
+  });
+
+  it("includes VectorChord migration when vectorchord: true", async () => {
+    const { client, appliedMigrations } = createMockClient();
+    await ragMigrate(client, { sqlDir, vectorchord: true });
+    expect(appliedMigrations).toContain("010_vectorchord.sql");
+  });
+
+  it("skips pg_textsearch migration by default", async () => {
+    const { client, appliedMigrations } = createMockClient();
+    await ragMigrate(client, { sqlDir });
+    expect(appliedMigrations).not.toContain("011_pg_textsearch.sql");
+  });
+
+  it("includes pg_textsearch migration when bm25: true", async () => {
+    const { client, appliedMigrations } = createMockClient();
+    await ragMigrate(client, { sqlDir, bm25: true });
+    expect(appliedMigrations).toContain("011_pg_textsearch.sql");
+  });
 });

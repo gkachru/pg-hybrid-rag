@@ -7,6 +7,10 @@ export interface MigrateOptions {
   rls?: boolean;
   /** Apply CJK support via pg_bigm (migration 009). Default: false. */
   cjk?: boolean;
+  /** Apply VectorChord vchordrq index (migration 010). Requires shared_preload_libraries='vchord'. Default: false. */
+  vectorchord?: boolean;
+  /** Apply pg_textsearch BM25 indexes (migration 011). Requires shared_preload_libraries includes 'pg_textsearch'. Default: false. */
+  bm25?: boolean;
   /** Custom path to SQL directory. Default: auto-detected from package. */
   sqlDir?: string;
 }
@@ -99,7 +103,9 @@ export async function ragMigrate(client: SqlClient, options: MigrateOptions = {}
   // Skip optional migrations unless explicitly requested
   const filesToApply = files
     .filter((f: string) => options.rls || !f.includes("rls"))
-    .filter((f: string) => options.cjk || !f.includes("cjk"));
+    .filter((f: string) => options.cjk || !f.includes("cjk"))
+    .filter((f: string) => options.vectorchord || !f.includes("vectorchord"))
+    .filter((f: string) => options.bm25 || !f.includes("textsearch"));
 
   // Get already-applied migrations
   const applied = await client.query<{ name: string }>(`SELECT name FROM _rag_migrations`, []);
