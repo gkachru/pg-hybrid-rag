@@ -1,8 +1,10 @@
-# Self-hosted embedding API using HuggingFace Text Embeddings Inference (TEI).
-# Sized for a dev laptop (CPU, no GPU). Starts on port 3333.
+# Local infra for the pg-hybrid-rag playground:
+#   - db:        PostgreSQL with pgvector (+ pg_trgm from contrib)
+#   - embedding: self-hosted embedding API via HuggingFace TEI
 #
-# Usage:
+# Usage (Docker or Podman):
 #   EMBEDDING_API_KEY=your-key docker compose up
+#   EMBEDDING_API_KEY=your-key podman compose up
 #
 # TEI downloads the model from HuggingFace on first start.
 # The hf-cache volume persists it across restarts.
@@ -14,6 +16,29 @@
 #   CPUs with AVX-512 VNNI support.
 
 services:
+  db:
+    # pgvector image bundles the `vector` extension; `pg_trgm` ships with the
+    # Postgres contrib package. Both are created by migration 001. (CJK support
+    # needs `pg_bigm`, which is NOT in this image — only required when running
+    # migrations with { cjk: true }.)
+    image: pgvector/pgvector:pg17
+    ports:
+      - "5432:5432"
+    environment:
+      # Matches DATABASE_URL in .env.example:
+      #   postgresql://user:password@localhost:5432/postgres
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=postgres
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   embedding:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
     ports:
@@ -39,3 +64,4 @@ services:
 
 volumes:
   hf-cache:
+  pg-data:

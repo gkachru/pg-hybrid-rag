@@ -12,6 +12,7 @@
  * Reads settings from project .env (DATABASE_URL, EMBEDDING_BASE_URL, etc.)
  */
 
+import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 import {
   CachingStopWordsLoader,
@@ -357,7 +358,7 @@ async function main() {
     // Step 2: Run migrations (creates tables, indexes, triggers)
     console.log("2. Running migrations...");
     await ragMigrate(sqlClient, {
-      sqlDir: new URL("../sql", import.meta.url).pathname,
+      sqlDir: fileURLToPath(new URL("../sql", import.meta.url)),
     });
     console.log("   Done.\n");
 
