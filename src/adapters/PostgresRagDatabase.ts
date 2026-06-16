@@ -1,11 +1,15 @@
-import type { RagDatabase, TransactionProvider } from "../interfaces.js";
+import type { FtsStrategy, RagDatabase, TransactionProvider } from "../interfaces.js";
 import type { HybridSearchParams, RankedCandidate } from "../types.js";
+import { TsvectorFts } from "./fts/TsvectorFts.js";
+import { buildFilters, toRankedCandidate } from "./sqlHelpers.js";
 
 const CJK_LANGUAGES = new Set(["zh", "zh-CN", "ja", "ja-JP", "ko", "ko-KR"]);
 
 export interface PostgresRagDatabaseOptions {
   /** Enable pg_bigm for CJK keyword search. Requires the pg_bigm extension. Default: false. */
   cjk?: boolean;
+  /** FTS strategy for the FTS leg. Default: new TsvectorFts(). Use new Bm25Fts() with migration 011. */
+  fts?: FtsStrategy;
 }
 
 /**
@@ -13,16 +17,19 @@ export interface PostgresRagDatabaseOptions {
  * Uses parameterized SQL for all queries — always includes WHERE tenant_id = ?.
  * Requires pgvector and pg_trgm. Optionally uses pg_bigm for CJK keyword search.
  *
- * Stemming is handled by Postgres via language-specific FTS configs (rag_fts_config function).
- * The keyword leg uses raw content (not content_stemmed) with pg_trgm or pg_bigm similarity.
+ * The vector leg uses the `<=>` cosine operator (IVFFlat or, with migration 010,
+ * VectorChord vchordrq — identical SQL). The FTS leg is delegated to a pluggable
+ * FtsStrategy (TsvectorFts default; Bm25Fts for pg_textsearch BM25).
  */
 export class PostgresRagDatabase implements RagDatabase {
   private txProvider: TransactionProvider;
   private cjk: boolean;
+  private fts: FtsStrategy;
 
   constructor(txProvider: TransactionProvider, options?: PostgresRagDatabaseOptions) {
     this.txProvider = txProvider;
     this.cjk = options?.cjk ?? false;
+    this.fts = options?.fts ?? new TsvectorFts();
   }
 
   async hybridSearch(params: HybridSearchParams): Promise<{
@@ -30,80 +37,42 @@ export class PostgresRagDatabase implements RagDatabase {
     keywordRows: RankedCandidate[];
     ftsRows: RankedCandidate[];
   }> {
-    const sourceTypeClause = params.sourceTypes?.length
-      ? `AND source_type = ANY(string_to_array($SOURCE_TYPES::text, ','))`
-      : "";
-    const sourceIdClause = params.sourceIds?.length
-      ? `AND source_id::text = ANY(string_to_array($SOURCE_IDS::text, ','))`
-      : "";
-    const languageClause = params.languages?.length
-      ? `AND language = ANY(string_to_array($LANGUAGES::text, ','))`
-      : "";
-
-    const buildParams = (baseParams: unknown[]): unknown[] => {
-      const p = [...baseParams];
-      if (params.sourceTypes?.length) p.push(params.sourceTypes.join(","));
-      if (params.sourceIds?.length) p.push(params.sourceIds.join(","));
-      if (params.languages?.length) p.push(params.languages.join(","));
-      return p;
-    };
-
-    const paramIdx = (
-      baseCount: number,
-    ): { sourceType: string; sourceId: string; language: string } => {
-      let idx = baseCount + 1;
-      const sourceType = params.sourceTypes?.length ? `$${idx++}` : "";
-      const sourceId = params.sourceIds?.length ? `$${idx++}` : "";
-      const language = params.languages?.length ? `$${idx}` : "";
-      return { sourceType, sourceId, language };
-    };
-
-    const toCandidate = (row: Record<string, unknown>): RankedCandidate => ({
-      content: row.content as string,
-      sourceType: row.source_type as string,
-      sourceId: row.source_id as string | null,
-      metadata: (row.metadata as string) || "{}",
-    });
-
     const useBigm = this.cjk && CJK_LANGUAGES.has(params.language);
 
     // Run all 3 legs in parallel with separate connections for true concurrency
     const [vectorRows, keywordRows, ftsRows] = await Promise.all([
-      // --- Vector leg ---
+      // --- Vector leg (IVFFlat or vchordrq — identical SQL) ---
       this.txProvider.withConnection(async (client) => {
-        const baseParams = [
+        const baseParams: unknown[] = [
           params.tenantId,
           params.embeddingStr,
           params.vectorMinScore,
           params.candidateLimit,
         ];
-        const idx = paramIdx(4);
+        const f = buildFilters(params, 5);
         const sql = `
           SELECT content, source_type, source_id, metadata,
                  1 - (embedding <=> $2::vector) as score
           FROM rag_documents
           WHERE tenant_id = $1
             AND 1 - (embedding <=> $2::vector) >= $3
-            ${sourceTypeClause.replace("$SOURCE_TYPES", idx.sourceType)}
-            ${sourceIdClause.replace("$SOURCE_IDS", idx.sourceId)}
-            ${languageClause.replace("$LANGUAGES", idx.language)}
+            ${f.clause}
           ORDER BY embedding <=> $2::vector
           LIMIT $4
         `;
-        const rows = await client.query<Record<string, unknown>>(sql, buildParams(baseParams));
-        return rows.map(toCandidate);
+        const rows = await client.query<Record<string, unknown>>(sql, [...baseParams, ...f.params]);
+        return rows.map(toRankedCandidate);
       }),
 
       // --- Keyword leg (pg_trgm or pg_bigm) ---
       this.txProvider.withConnection(async (client) => {
-        const baseParams = [
+        const baseParams: unknown[] = [
           params.tenantId,
           params.query,
           params.keywordMinScore,
           params.candidateLimit,
         ];
-        const idx = paramIdx(4);
-
+        const f = buildFilters(params, 5);
         const similarityFn = useBigm ? "bigm_similarity" : "word_similarity";
         const sql = `
           SELECT content, source_type, source_id, metadata,
@@ -111,61 +80,27 @@ export class PostgresRagDatabase implements RagDatabase {
           FROM rag_documents
           WHERE tenant_id = $1
             AND ${similarityFn}($2, content) > $3
-            ${sourceTypeClause.replace("$SOURCE_TYPES", idx.sourceType)}
-            ${sourceIdClause.replace("$SOURCE_IDS", idx.sourceId)}
-            ${languageClause.replace("$LANGUAGES", idx.language)}
+            ${f.clause}
           ORDER BY ${similarityFn}($2, content) DESC
           LIMIT $4
         `;
-        const rows = await client.query<Record<string, unknown>>(sql, buildParams(baseParams));
-        return rows.map(toCandidate);
+        const rows = await client.query<Record<string, unknown>>(sql, [...baseParams, ...f.params]);
+        return rows.map(toRankedCandidate);
       }),
 
-      // --- FTS leg (language-aware via rag_fts_config) ---
-      this.txProvider.withConnection(async (client) => {
-        const useTsquery = params.ftsQueryStr.includes("|") || params.ftsQueryStr.includes("&");
-
-        if (useTsquery) {
-          const baseParams = [
-            params.tenantId,
-            params.ftsQueryStr,
-            params.candidateLimit,
-            params.language,
-          ];
-          const idx = paramIdx(4);
-          const sql = `
-            SELECT content, source_type, source_id, metadata,
-                   ts_rank_cd(content_tsvector, to_tsquery(rag_fts_config($4), $2)) as score
-            FROM rag_documents
-            WHERE tenant_id = $1
-              AND content_tsvector @@ to_tsquery(rag_fts_config($4), $2)
-              ${sourceTypeClause.replace("$SOURCE_TYPES", idx.sourceType)}
-              ${sourceIdClause.replace("$SOURCE_IDS", idx.sourceId)}
-              ${languageClause.replace("$LANGUAGES", idx.language)}
-            ORDER BY ts_rank_cd(content_tsvector, to_tsquery(rag_fts_config($4), $2)) DESC
-            LIMIT $3
-          `;
-          const rows = await client.query<Record<string, unknown>>(sql, buildParams(baseParams));
-          return rows.map(toCandidate);
-        }
-
-        const baseParams = [params.tenantId, params.query, params.candidateLimit, params.language];
-        const idx = paramIdx(4);
-        const sql = `
-          SELECT content, source_type, source_id, metadata,
-                 ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) as score
-          FROM rag_documents
-          WHERE tenant_id = $1
-            AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)
-            ${sourceTypeClause.replace("$SOURCE_TYPES", idx.sourceType)}
-            ${sourceIdClause.replace("$SOURCE_IDS", idx.sourceId)}
-            ${languageClause.replace("$LANGUAGES", idx.language)}
-          ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC
-          LIMIT $3
-        `;
-        const rows = await client.query<Record<string, unknown>>(sql, buildParams(baseParams));
-        return rows.map(toCandidate);
-      }),
+      // --- FTS leg (pluggable strategy) ---
+      this.txProvider.withConnection((client) =>
+        this.fts.search(client, {
+          tenantId: params.tenantId,
+          query: params.query,
+          synonyms: params.synonymLookup,
+          language: params.language,
+          candidateLimit: params.candidateLimit,
+          sourceTypes: params.sourceTypes,
+          sourceIds: params.sourceIds,
+          languages: params.languages,
+        }),
+      ),
     ]);
 
     return { vectorRows, keywordRows, ftsRows };
@@ -186,7 +121,6 @@ export class PostgresRagDatabase implements RagDatabase {
     if (chunks.length === 0) return;
 
     return this.txProvider.withConnection(async (client) => {
-      // Build a single INSERT with multiple value rows for batch efficiency
       const params: unknown[] = [];
       const valueClauses: string[] = [];
 

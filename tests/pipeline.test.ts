@@ -153,6 +153,27 @@ describe("RagPipeline", () => {
     expect(lastSearchParams.languages).toBeUndefined();
   });
 
+  it("passes a synonymLookup to db.hybridSearch", async () => {
+    await pipeline.search("test");
+    expect(lastSearchParams.synonymLookup).toBeInstanceOf(Map);
+  });
+
+  it("loads synonyms into the lookup when a provider is set", async () => {
+    const synonyms = {
+      load: mock(async () => new Map([["en", new Map([["phones", ["smartphones"]]])]])),
+      invalidate: mock(() => {}),
+    };
+    const pipelineWithSyn = new RagPipeline({
+      tenantId: "tenant-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      synonyms,
+    });
+    await pipelineWithSyn.search("phones");
+    const lookup = lastSearchParams.synonymLookup as Map<string, Map<string, string[]>>;
+    expect(lookup.get("en")?.get("phones")).toEqual(["smartphones"]);
+  });
+
   it("minRelevance drops results below threshold relative to top score", async () => {
     vectorRows = [
       { content: "Top match", sourceType: "product", sourceId: "1", metadata: "{}" },

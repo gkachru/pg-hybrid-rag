@@ -57,7 +57,7 @@ export interface HybridSearchParams {
   tenantId: string;
   embeddingStr: string;
   query: string;
-  ftsQueryStr: string;
+  synonymLookup: SynonymLookup;
   language: string;
   candidateLimit: number;
   vectorMinScore: number;

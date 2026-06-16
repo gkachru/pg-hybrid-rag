@@ -11,7 +11,6 @@ import type {
 import { stripTrailingPunctuation } from "./punctuation.js";
 import { applyRRF } from "./rrf.js";
 import { removeStopWords } from "./stopWords.js";
-import { buildFtsQuery } from "./synonymExpander.js";
 import type { RagResult, RagSearchOptions } from "./types.js";
 
 const DEFAULTS = {
@@ -136,8 +135,6 @@ export class RagPipeline {
         span.setAttribute("synonymsApplied", synonymLookup.size > 0);
         const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
-        // Build FTS query string (Postgres handles stemming via language-specific config)
-        const ftsQueryStr = buildFtsQuery(searchQuery, synonymLookup);
         const language = opts.language ?? "en";
 
         // Run 3-way hybrid search
@@ -147,7 +144,7 @@ export class RagPipeline {
               tenantId: this.tenantId,
               embeddingStr,
               query: searchQuery,
-              ftsQueryStr,
+              synonymLookup,
               language,
               candidateLimit,
               vectorMinScore: opts.vectorMinScore,
