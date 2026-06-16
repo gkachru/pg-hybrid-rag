@@ -49,7 +49,13 @@ Three-way hybrid search fused via RRF:
 | `src/adapters/OpenAiCompatibleEmbedder.ts` | Fetch-based OpenAI-compatible embedding client with batched requests (`batchSize`, `concurrency`) |
 | `src/adapters/CachingStopWordsLoader.ts` | 30s TTL per-tenant stop words cache |
 | `src/adapters/CachingSynonymLoader.ts` | 30s TTL per-tenant synonym cache |
-| `sql/001-009_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK) |
+| `src/adapters/fts/TsvectorFts.ts` | Default FTS strategy (tsvector/tsquery) |
+| `src/adapters/fts/Bm25Fts.ts` | BM25 FTS strategy (pg_textsearch) |
+| `src/adapters/fts/bm25LanguageGroups.ts` | BM25 language groups + partial-index predicate |
+| `src/adapters/sqlHelpers.ts` | Shared filter-clause + row-mapping helpers |
+| `sql/010_vectorchord.sql` | Optional vchordrq index (gated by `vectorchord`) |
+| `sql/011_pg_textsearch.sql` | Optional BM25 indexes (gated by `bm25`) |
+| `sql/001-011_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK) |
 
 ## Design patterns
 
@@ -68,6 +74,9 @@ Three-way hybrid search fused via RRF:
 - **Pluggable chunker** — `ChunkingProvider` interface lets consumers swap in alternative chunking libraries (e.g. chonkie).
 - **Batch inserts** — PostgresRagDatabase inserts all chunks in a single INSERT statement.
 - **Punctuation handling** — trailing punctuation stripped before matching (Latin, Hindi, Arabic, CJK).
+- **Pluggable FTS strategy** — the FTS leg is an injectable `FtsStrategy` on `PostgresRagDatabase` (`fts` option). `TsvectorFts` (default) uses tsvector/tsquery + `rag_fts_config()`; `Bm25Fts` uses pg_textsearch BM25 (`content <@> query`). The pipeline passes `synonymLookup` (not a pre-built tsquery); the strategy builds its own query form (`buildFtsQuery` vs `buildBm25Query`).
+- **BM25 per-language partial indexes** — `Bm25Fts` scopes the FTS leg to `params.language`'s group via `bm25LanguagePredicate()` so the planner uses the matching partial `bm25` index. `BM25_LANGUAGE_GROUPS` (TS) and `sql/011_pg_textsearch.sql` literals are kept in sync by a test.
+- **Gated optional extensions** — `ragMigrate` flags `vectorchord` (migration 010, `vchordrq` index swap) and `bm25` (migration 011, pg_textsearch). Both require `shared_preload_libraries` + restart (ops prerequisite, not in the migration).
 
 ## Schema
 

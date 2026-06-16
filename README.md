@@ -285,6 +285,42 @@ await ragMigrate(sqlClient, { sqlDir: "/path/to/node_modules/pg-hybrid-rag/sql" 
 
 SQL files are also available at `pg-hybrid-rag/sql/*` for manual migration systems.
 
+### Optional extensions (0.3.0)
+
+Both extensions require adding them to `shared_preload_libraries` in `postgresql.conf` and restarting Postgres. Because VectorChord already needs this restart, you can enable both with a single rolling restart.
+
+#### VectorChord (`vchordrq`) — faster vector index
+
+```
+shared_preload_libraries = 'vchord'
+```
+
+Restart Postgres, then apply the migration:
+
+```typescript
+await ragMigrate(sqlClient, { vectorchord: true });
+```
+
+That's it — no TypeScript changes. VectorChord swaps the IVFFlat index for a `vchordrq` (RaBitQ-quantized graph) index while keeping the same `<=>` cosine operator.
+
+#### pg_textsearch — BM25 full-text search
+
+```
+shared_preload_libraries = 'pg_textsearch'  // or include alongside vchord
+```
+
+Restart Postgres, then apply the migration and use the `Bm25Fts` strategy:
+
+```typescript
+import { PostgresRagDatabase, Bm25Fts, ragMigrate } from "pg-hybrid-rag";
+
+await ragMigrate(sqlClient, { bm25: true });
+
+const db = new PostgresRagDatabase(txProvider, { fts: new Bm25Fts() });
+```
+
+`Bm25Fts` replaces the tsvector/tsquery FTS leg with BM25 scoring via the `<@>` operator. The tsvector column and trigger remain (they coexist), so you can switch strategies per deployment without a schema change.
+
 ## Adapter Interfaces
 
 Consumers wire their own DB and embedding providers:

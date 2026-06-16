@@ -5,11 +5,12 @@ This document covers Postgres extensions that can improve search quality and per
 - **Vector leg** — **VectorChord** (preferred for the OCI Ampere A1 / ARM64 stack) or **pgvectorscale**: both swap the IVFFlat index for a better-scaling index with zero TypeScript changes.
 - **FTS leg** — **pg_textsearch**: replaces tsvector/tsquery with BM25 ranking. Needs a minor `buildFtsQuery` rewrite, but no missing-feature gates (see the re-assessment below).
 
-> **Planned for the next version:** adopt **VectorChord** (`vchordrq`) for the vector leg and **pg_textsearch** (BM25) for the FTS leg.
->
-> *Why VectorChord over pgvectorscale:* the more active development of the two, first-class ARM64 support on the OCI Ampere A1 (Neoverse N1) fleet, and RaBitQ's theoretical error bound is a more principled recall story than pgvectorscale's SBQ (Statistical Binary Quantization). The AGPLv3/ELv2 license is manageable for this deployment.
->
-> *Why the two together:* VectorChord already requires `shared_preload_libraries` + a restart, and that is pg_textsearch's only real gate — so a single rolling restart on the N+1 fleet brings up both legs at once.
+> **Shipped in 0.3.0:** **VectorChord** (`vchordrq`) for the vector leg and
+> **pg_textsearch** (BM25) for the FTS leg, both opt-in. VectorChord is a
+> migration-only swap (`ragMigrate(client, { vectorchord: true })`). BM25 is the
+> `Bm25Fts` strategy plus `ragMigrate(client, { bm25: true })`. Both require a
+> one-time `shared_preload_libraries` change + rolling restart. pgvectorscale
+> remains the documented fallback for the vector leg.
 
 ---
 
@@ -292,9 +293,9 @@ Each extension can be adopted independently. The vector leg has two alternatives
 
 | Extension | Leg | Complexity | Impact | When |
 |-----------|-----|-----------|--------|------|
-| **VectorChord** (`vchordrq`) | Vector | Low — index swap + `shared_preload_libraries` restart | Better recall & throughput at scale; ARM64-native; RaBitQ error-bounded recall | **Chosen for next version** (preferred on OCI ARM, PG 17+) |
+| **VectorChord** (`vchordrq`) | Vector | Low — index swap + `shared_preload_libraries` restart | Better recall & throughput at scale; ARM64-native; RaBitQ error-bounded recall | **Shipped in 0.3.0** (preferred on OCI ARM, PG 17+) |
 | pgvectorscale (basic) | Vector | Low — index swap, no restart | Better vector recall at scale | Fallback — if AGPL/ELv2 or the restart is a blocker |
 | pgvectorscale (with labels) | Vector | Medium — schema + query changes | Faster multi-tenant vector search | At scale (10+ tenants, 1M+ chunks) |
-| pg_textsearch | FTS | Medium — flatten `buildFtsQuery` + ops | Better FTS ranking (BM25) | **Chosen for next version** — lands with VectorChord's restart |
+| pg_textsearch | FTS | Medium — flatten `buildFtsQuery` + ops | Better FTS ranking (BM25) | **Shipped in 0.3.0** — lands with VectorChord's restart |
 
 Vector-leg upgrades (VectorChord, pgvectorscale-basic) need **zero TypeScript changes** — pure SQL/adapter index swaps. pg_textsearch needs a minor `buildFtsQuery` change (flatten the tsquery operators to a space-separated term list) plus adapter SQL changes; the pipeline and indexer are untouched. The `PostgresRagDatabase` adapter can be extended or swapped to support any of these.
