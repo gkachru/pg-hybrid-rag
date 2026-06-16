@@ -295,9 +295,9 @@ SQL files are also available at `pg-hybrid-rag/sql/*` for manual migration syste
 
 ### Optional extensions
 
-Both extensions are not bundled with standard Postgres — you must install them first, then enable them in `shared_preload_libraries` and restart Postgres before applying the migrations. Because both require a restart, you can enable them together with a single rolling restart.
+These extensions are not bundled with standard Postgres — you must install them first, then enable them in `shared_preload_libraries` and restart Postgres before applying the migrations. Because all three require a restart, you can enable them together with a single rolling restart.
 
-For local development, `examples/docker-compose.yml` builds a ready-to-use image (`examples/Dockerfile`) that ships pgvector + VectorChord + pg_textsearch together with `shared_preload_libraries` already set.
+For local development, `examples/docker-compose.yml` builds a ready-to-use image (`examples/Dockerfile`) that ships pgvector + VectorChord + pg_textsearch + pg_bigm together with `shared_preload_libraries` already set.
 
 #### VectorChord (`vchordrq`) — faster vector index
 
