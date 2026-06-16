@@ -425,7 +425,7 @@ This gives you VectorChord's faster ANN search on the vector leg combined with B
 
 pg_bigm replaces the keyword leg's `word_similarity` (pg_trgm) with `bigm_similarity` for Chinese, Japanese, and Korean (`zh`, `zh-CN`, `ja`, `ja-JP`, `ko`, `ko-KR`). All other languages continue using pg_trgm unchanged.
 
-**Why bigrams for CJK:** CJK scripts write words as runs of characters with no whitespace between them. pg_trgm splits on spaces, so it produces near-zero trigram overlap on CJK text. pg_bigm builds bigrams over character pairs, which works regardless of word boundaries — a query like `炊飯器` (rice cooker) correctly overlaps with text that contains `炊飯ジャー` or `ご飯炊き`.
+**Why bigrams for CJK:** CJK scripts write words as runs of characters with no whitespace between them. pg_trgm's `word_similarity` produces near-zero scores on CJK text because short CJK queries generate too few trigrams to overlap with longer content strings. pg_bigm builds bigrams over character pairs, which works regardless of word boundaries — a query like `炊飯器` (rice cooker) correctly overlaps with text that contains `炊飯ジャー` or `ご飯炊き`.
 
 **Step 1 — install the extension.** pg_bigm has no pre-built packages; build from source:
 
@@ -461,7 +461,7 @@ const db = new PostgresRagDatabase(txProvider, { cjk: true });
 const pipeline = new RagPipeline({ tenantId, db, embedder });
 ```
 
-> **Note:** `cjk: true` only affects the keyword leg for `zh`, `ja`, and `ko` language codes. The vector and FTS legs are unaffected. Hindi and Arabic use whitespace-delimited scripts — pg_trgm works correctly for them and pg_bigm is not needed.
+> **Note:** `cjk: true` only affects the keyword leg for `zh`, `ja`, and `ko` language codes. The vector and FTS legs are unaffected. Hindi and Arabic separate words with whitespace, so pg_trgm produces meaningful trigram overlap for them and pg_bigm is not needed.
 
 ## Adapter Interfaces
 
