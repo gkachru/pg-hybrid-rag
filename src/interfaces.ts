@@ -90,3 +90,26 @@ export interface RagDatabase {
   /** Delete all chunks for a given source. */
   deleteBySource(tenantId: string, sourceType: string, sourceId: string): Promise<void>;
 }
+
+/** Context passed to an FtsStrategy for one FTS-leg execution. */
+export interface FtsContext {
+  tenantId: string;
+  /** Normalized, stop-words-removed query (the strategy builds its own FTS query form from this). */
+  query: string;
+  synonyms: SynonymLookup;
+  /** Language code for stemming / config selection (e.g. 'en', 'fr-FR'). */
+  language: string;
+  candidateLimit: number;
+  sourceTypes?: string[];
+  sourceIds?: string[];
+  languages?: string[];
+}
+
+/**
+ * Pluggable full-text-search leg. Implementations own the FTS query-string form
+ * AND the FTS-leg SQL. Injected into PostgresRagDatabase (default: TsvectorFts).
+ */
+export interface FtsStrategy {
+  /** Run the FTS leg against one connection and return ranked candidates (best first). */
+  search(client: SqlClient, ctx: FtsContext): Promise<RankedCandidate[]>;
+}
