@@ -19,7 +19,8 @@ No test database needed — tests use mocks for all DB and embedding calls. The 
 ### Playground setup
 
 ```bash
-cp examples/.env.example examples/.env   # fill in DATABASE_URL, EMBEDDING_BASE_URL, EMBEDDING_API_KEY, EMBEDDING_MODEL
+cp examples/.env.example examples/.env   # compose env (POSTGRES_USER/PASSWORD/DB + EMBEDDING_API_KEY)
+cp examples/.env.example .env            # playground env (DATABASE_URL + embedding vars) — edit EMBEDDING_API_KEY in both
 cd examples && docker compose up -d      # or: podman compose up -d
 bun run examples/playground.ts           # basic run
 bun run examples/playground.ts --vectorchord --bm25 --cjk   # all optional extensions

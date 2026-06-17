@@ -39,11 +39,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      # Matches DATABASE_URL in .env.example:
-      #   postgresql://user:password@localhost:5432/postgres
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=postgres
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - pg-data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -64,10 +62,14 @@ services:
       - API_KEY=${EMBEDDING_API_KEY}
     command:
       [
-        "--model-id", "intfloat/multilingual-e5-small",
-        "--max-batch-tokens", "4096",
-        "--max-client-batch-size", "8",
-        "--port", "3333",
+        "--model-id",
+        "intfloat/multilingual-e5-small",
+        "--max-batch-tokens",
+        "4096",
+        "--max-client-batch-size",
+        "8",
+        "--port",
+        "3333",
       ]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3333/health"]
