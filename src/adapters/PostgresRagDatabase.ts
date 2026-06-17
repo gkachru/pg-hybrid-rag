@@ -51,10 +51,12 @@ export class PostgresRagDatabase implements RagDatabase {
     const useBigm = this.cjk && CJK_LANGUAGES.has(params.language);
 
     // Run all 3 legs in parallel with separate connections for true concurrency.
-    // Promise.all is intentional fail-fast by design: if any single leg rejects (e.g. pg_bigm
-    // not installed, a missing partial index, a dropped connection), the whole hybridSearch
-    // rejects rather than returning partial results from the surviving legs.
-    const [vectorRows, keywordRows, ftsRows] = await Promise.all([
+    // Fail-fast is intentional: if any leg fails (e.g. pg_bigm not installed, a missing
+    // partial index, a dropped connection) the whole search fails rather than returning
+    // partial/degraded results. We use allSettled (not Promise.all) so every leg settles
+    // before we raise — Promise.all rejects on the first failure and abandons the sibling
+    // legs mid-query on their reserved connections, which hangs a consumer's connection cleanup.
+    const settled = await Promise.allSettled([
       // --- Vector leg (IVFFlat or vchordrq — identical SQL) ---
       this.txProvider.withConnection(async (client) => {
         const baseParams: unknown[] = [
@@ -139,6 +141,25 @@ export class PostgresRagDatabase implements RagDatabase {
       ),
     ]);
 
+    // Raise after every leg has settled (so none is left in flight). Report each failed leg
+    // by name, carrying the original errors in AggregateError.errors for inspection.
+    const legNames = ["vector", "keyword", "fts"] as const;
+    const failures = settled.flatMap((r, i) =>
+      r.status === "rejected" ? [{ name: legNames[i], reason: r.reason }] : [],
+    );
+    if (failures.length > 0) {
+      const detail = failures
+        .map((f) => `${f.name}: ${f.reason instanceof Error ? f.reason.message : String(f.reason)}`)
+        .join("; ");
+      throw new AggregateError(
+        failures.map((f) => f.reason),
+        `hybridSearch: ${failures.length} of ${settled.length} search legs failed (${detail})`,
+      );
+    }
+
+    const [vectorRows, keywordRows, ftsRows] = settled.map(
+      (r) => (r as PromiseFulfilledResult<RankedCandidate[]>).value,
+    );
     return { vectorRows, keywordRows, ftsRows };
   }
 

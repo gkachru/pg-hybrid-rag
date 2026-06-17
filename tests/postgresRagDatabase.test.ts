@@ -201,3 +201,58 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     assertEveryParamReferenced(calls);
   });
 });
+
+// --- A failing leg fails the whole search, but only AFTER every leg settles ---
+// Fail-fast is intentional (no partial results), but Promise.all rejected the instant one
+// leg failed — abandoning the sibling legs mid-query on their reserved connections, which
+// makes a consumer's connection cleanup hang. Promise.allSettled waits for every leg to
+// settle first (so nothing is abandoned), then raises.
+
+describe("PostgresRagDatabase.hybridSearch leg-failure handling", () => {
+  /**
+   * A provider whose keyword leg's main SELECT throws, while the vector and FTS legs'
+   * main SELECTs resolve only after a macrotask — so they are still in flight at the
+   * instant the keyword leg rejects. `released` counts completed withConnection callbacks.
+   */
+  function failingKeywordTx(slowMs: number) {
+    let released = 0;
+    const slow = () => new Promise<void>((r) => setTimeout(r, slowMs));
+    const client: SqlClient = {
+      query: async <T>(sql: string): Promise<T[]> => {
+        if (sql.includes("word_similarity($2, content) as score")) {
+          throw new Error("keyword leg boom");
+        }
+        if (sql.includes("embedding <=> $2::vector") || sql.includes("tsquery(")) {
+          await slow(); // vector / FTS legs stay in flight past the keyword rejection
+        }
+        return [] as T[];
+      },
+    };
+    const txProvider: TransactionProvider = {
+      withConnection: async <T>(fn: (c: SqlClient) => Promise<T>) => {
+        try {
+          return await fn(client);
+        } finally {
+          released++;
+        }
+      },
+    };
+    return { txProvider, releasedCount: () => released };
+  }
+
+  it("raises an error when a leg fails (no partial results)", async () => {
+    const { txProvider } = failingKeywordTx(0);
+    await expect(new PostgresRagDatabase(txProvider).hybridSearch(params)).rejects.toThrow(
+      /keyword/,
+    );
+  });
+
+  it("awaits every leg before raising (does not abandon in-flight legs)", async () => {
+    const { txProvider, releasedCount } = failingKeywordTx(20);
+    const err = await new PostgresRagDatabase(txProvider).hybridSearch(params).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    // All three legs' withConnection callbacks completed before the error surfaced.
+    // Promise.all would have rejected with the slow vector/FTS legs still in flight (released < 3).
+    expect(releasedCount()).toBe(3);
+  });
+});
