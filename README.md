@@ -147,7 +147,8 @@ const results = await pipeline.search(query, {
   language?: string,               // for FTS stemming + keyword search (default: "en")
   normalizer?: { normalize(text, lang): string },
   rerank?: boolean,                // default: false
-  rerankerMinScore?: number,       // default: 0.01
+  rerankerMinRelativeScore?: number, // fraction of top reranked score, default: 0.01
+  rerankerMinAbsoluteScore?: number, // hard floor in model's units, default: 0 (off)
 });
 ```
 
@@ -181,7 +182,8 @@ The search pipeline processes a query through these stages in order:
 | `language` | `"en"` | Language code for FTS stemming (Postgres `regconfig`) and keyword search. Accepts short codes (`en`) or BCP-47 (`en-US`). Determines which Postgres stemmer is used — e.g. `english` stems "running" → "run", while `simple` does lowercase-only tokenization. If unset, falls back to a single-entry `languages` filter when present, otherwise `"en"`. |
 | `normalizer` | — | Optional pre-processing hook called before stop-word removal. Receives the cleaned query and language. Useful for expanding abbreviations (e.g. "dept" → "department") or domain-specific normalization. |
 | `rerank` | `false` | Enable cross-encoder reranking after RRF fusion. A cross-encoder scores each query-document pair jointly, which is more accurate than the independent scoring of the three search legs, but slower. Requires a `RerankerProvider` on the pipeline. If the reranker throws, results gracefully fall back to RRF order. |
-| `rerankerMinScore` | `0.01` | Absolute score floor for reranked results. Results below this cross-encoder score are dropped. Only applies when reranking is active. |
+| `rerankerMinRelativeScore` | `0.01` | Relative reranker cutoff: drop reranked results scoring below this fraction of the top reranked score. Model-agnostic — it keys off the gap between relevant and unrelated results rather than an absolute scale, so it works across rerankers. This is the everyday "drop unrelated results" knob. Set to `0` to disable. Skipped when the top score is not positive (e.g. raw logits). Only applies when reranking is active. |
+| `rerankerMinAbsoluteScore` | `0` (off) | Absolute reranker score floor, in the model's own score units. Reranker scales are model-specific (e.g. `bge-reranker-v2-m3` via TEI scores even a perfect match around `0.07`), so a fixed absolute floor over-filters unless calibrated — that's why it defaults to off and the relative cutoff is preferred. Enable only when you've calibrated a value to your reranker. Only applies when reranking is active. |
 
 #### Tuning tips
 
@@ -581,6 +583,13 @@ const results = await pipeline.search("blue shirt", { rerank: true });
 ```
 
 Reranking is opt-in (`rerank: false` by default). If the reranker throws, the pipeline gracefully falls back to RRF results.
+
+**Dropping unrelated results.** After reranking, two independent cutoffs decide what survives — a result must clear both:
+
+- **`rerankerMinRelativeScore`** (default `0.01`, on) drops anything below that fraction of the top reranked score. This is the knob to reach for. Reranker score scales vary wildly between models, but the *gap* between relevant and unrelated results is large and consistent, so a relative cutoff drops the unrelated tail reliably without assuming a scale.
+- **`rerankerMinAbsoluteScore`** (default `0`, off) is a hard floor in the model's own units, for the "return nothing when even the best match is weak" case. Calibrate it to your reranker first.
+
+> **Why not a fixed absolute default?** Cross-encoder scores are not comparable across models. For example `bge-reranker-v2-m3` served via TEI applies a sigmoid and scores even a strong match around `0.07` (a second relevant result can land near `0.007`), while a relevant/unrelated cliff sits orders of magnitude below that. A fixed absolute floor like `0.01` silently drops relevant results for such a model — which is exactly why the relative cutoff is the default. The cross-encoder reads candidate **text**, not embeddings, so it's independent of your embedding model.
 
 ## Schema
 

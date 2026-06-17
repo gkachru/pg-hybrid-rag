@@ -14,26 +14,38 @@ import type { RagPipeline, RagResult, RerankerProvider } from "pg-hybrid-rag";
 
 // --- Reranker adapter (e.g. TEI-compatible cross-encoder) ---
 
-function createReranker(rerankerUrl: string): RerankerProvider {
+// TEI caps texts per /rerank call (its `max_client_batch_size`, often 8). Sending more
+// returns HTTP 422 — which the pipeline catches as a reranker failure and silently falls
+// back to RRF order, so reranking just stops happening. Split candidates into batches,
+// score each, and merge by original index. `batchSize` must be ≤ the server's limit.
+function createReranker(rerankerUrl: string, batchSize = 8): RerankerProvider {
+  // Returns scores aligned to the input `texts` order.
+  async function scoreBatch(query: string, texts: string[]): Promise<number[]> {
+    const res = await fetch(`${rerankerUrl}/rerank`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, texts, truncate: true }),
+    });
+    if (!res.ok) throw new Error(`Reranker error ${res.status}`);
+    const ranked = (await res.json()) as Array<{ index: number; score: number }>;
+    const scores = new Array<number>(texts.length).fill(0);
+    for (const { index, score } of ranked) scores[index] = score;
+    return scores;
+  }
+
   return {
     async rerank(query, results, topN) {
-      const res = await fetch(`${rerankerUrl}/rerank`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query,
-          texts: results.map((r) => r.content),
-          truncate: true,
-        }),
-      });
-
-      if (!res.ok) throw new Error(`Reranker error ${res.status}`);
-
-      const ranked = (await res.json()) as Array<{ index: number; score: number }>;
-      return ranked
+      const batches: RagResult[][] = [];
+      for (let i = 0; i < results.length; i += batchSize) {
+        batches.push(results.slice(i, i + batchSize));
+      }
+      const batchScores = await Promise.all(
+        batches.map((batch) => scoreBatch(query, batch.map((r) => r.content))),
+      );
+      return batches
+        .flatMap((batch, bi) => batch.map((r, j) => ({ ...r, score: batchScores[bi][j] })))
         .sort((a, b) => b.score - a.score)
-        .slice(0, topN)
-        .map((item) => ({ ...results[item.index], score: item.score }));
+        .slice(0, topN);
     },
   };
 }
@@ -95,16 +107,23 @@ class SearchService {
   }
 
   /**
-   * High-quality search with reranking and relevance cutoff.
-   * The cross-encoder reranker reorders results by query-document relevance,
-   * then drops anything scoring below 60% of the top result.
+   * High-quality search with reranking and relevance cutoffs.
+   * The cross-encoder reranker reorders results by query-document relevance, then the
+   * relative cutoff drops the unrelated tail (anything below 1% of the top reranked score).
    */
   async searchWithReranking(query: string, language: string): Promise<RagResult[]> {
     return this.pipeline.search(query, {
       language,
       topK: 10,
       rerank: true,
-      rerankerMinScore: 0.01,
+      // Relative cutoff (default 0.01): drop results scoring below this fraction of the top
+      // reranked score. Model-agnostic — keys off the gap between relevant and unrelated
+      // results, so it works whatever scale your reranker emits. Set to 0 to disable.
+      rerankerMinRelativeScore: 0.01,
+      // Optional hard floor in the reranker's own score units (default 0 = off). Calibrate to
+      // your model before enabling — e.g. bge-reranker-v2-m3 via TEI scores even a perfect
+      // match around 0.07, so a naive 0.01 absolute floor would drop relevant results.
+      // rerankerMinAbsoluteScore: 0.001,
       minRelevance: 0.6,
     });
   }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-import type { RagDatabase } from "../src/interfaces.js";
+import type { RagDatabase, RerankerProvider } from "../src/interfaces.js";
 import { RagPipeline } from "../src/RagPipeline.js";
+import type { RagResult } from "../src/types.js";
 
 const mockEmbedQuery = mock(() => Promise.resolve(new Array(384).fill(0.5)));
 const mockEmbedder = {
@@ -424,7 +425,7 @@ describe("RagPipeline", () => {
       expect(results[0].content).toBe("A");
     });
 
-    it("applies rerankerMinScore cutoff", async () => {
+    it("applies rerankerMinAbsoluteScore cutoff", async () => {
       const reranker = {
         rerank: mock(async (_q: string, results: unknown[]) => {
           const r = results as Array<{ content: string; score: number }>;
@@ -445,10 +446,82 @@ describe("RagPipeline", () => {
       });
       const results = await pipelineWithReranker.search("test", {
         rerank: true,
-        rerankerMinScore: 0.01,
+        rerankerMinRelativeScore: 0, // isolate the absolute floor
+        rerankerMinAbsoluteScore: 0.01,
       });
       expect(results).toHaveLength(1);
       expect(results[0].content).toBe("High");
+    });
+  });
+
+  describe("reranker score cutoffs", () => {
+    // Reranker that assigns scores by content. Mirrors bge-reranker-v2-m3 via TEI:
+    // even a strong match scores low in absolute terms (0.0711), a relevant doc lower
+    // still (0.0075), and unrelated docs collapse toward zero (~2.6e-5).
+    const SCORES: Record<string, number> = {
+      "A relevant": 0.0711,
+      "B relevant": 0.0075,
+      "C noise": 0.0000263,
+    };
+
+    const rerankerWithScores = (scoreByContent: Record<string, number>): RerankerProvider => ({
+      rerank: mock(async (_q: string, results: RagResult[]) =>
+        results
+          .map((r) => ({ ...r, score: scoreByContent[r.content] ?? 0 }))
+          .sort((a, b) => b.score - a.score),
+      ),
+    });
+
+    const threeDocs = () => {
+      vectorRows = [
+        { content: "A relevant", sourceType: "faq", sourceId: "1", metadata: "{}" },
+        { content: "B relevant", sourceType: "faq", sourceId: "2", metadata: "{}" },
+        { content: "C noise", sourceType: "faq", sourceId: "3", metadata: "{}" },
+      ];
+      keywordRows = [];
+      ftsRows = [];
+    };
+
+    const pipelineWith = (reranker: RerankerProvider) =>
+      new RagPipeline({ tenantId: "tenant-1", db: mockDb, embedder: mockEmbedder, reranker });
+
+    it("relative cutoff (default) keeps relevant docs and drops only the unrelated tail", async () => {
+      threeDocs();
+      const results = await pipelineWith(rerankerWithScores(SCORES)).search("test", {
+        rerank: true,
+      });
+      const contents = results.map((r) => r.content);
+      expect(contents).toContain("A relevant");
+      expect(contents).toContain("B relevant"); // 10.6% of top → survives (the bug: 0.01 absolute dropped it)
+      expect(contents).not.toContain("C noise"); // 0.037% of top → dropped
+    });
+
+    it("rerankerMinRelativeScore=0 disables the relative cutoff (keep all)", async () => {
+      threeDocs();
+      const results = await pipelineWith(rerankerWithScores(SCORES)).search("test", {
+        rerank: true,
+        rerankerMinRelativeScore: 0,
+      });
+      expect(results).toHaveLength(3);
+    });
+
+    it("a result must clear both the relative and absolute floors", async () => {
+      threeDocs();
+      const results = await pipelineWith(rerankerWithScores(SCORES)).search("test", {
+        rerank: true,
+        rerankerMinRelativeScore: 0.01, // threshold 0.000711 → A, B pass
+        rerankerMinAbsoluteScore: 0.01, // → only A clears the absolute floor
+      });
+      expect(results.map((r) => r.content)).toEqual(["A relevant"]);
+    });
+
+    it("skips the relative cutoff when the top score is not positive (e.g. raw logits)", async () => {
+      threeDocs();
+      const results = await pipelineWith(
+        rerankerWithScores({ "A relevant": -2.25, "B relevant": -4.82, "C noise": -9.77 }),
+      ).search("test", { rerank: true });
+      // Fraction-of-top is meaningless for negative scores → no relative drop.
+      expect(results).toHaveLength(3);
     });
   });
 

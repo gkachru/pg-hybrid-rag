@@ -37,8 +37,20 @@ export interface RagSearchOptions {
   normalizer?: { normalize(text: string, language: string): string };
   /** Enable cross-encoder reranking (default: false). Requires a RerankerProvider. */
   rerank?: boolean;
-  /** Absolute reranker score floor — results below this are dropped (default: 0.01). Only applies when reranking is active. */
-  rerankerMinScore?: number;
+  /**
+   * Relative reranker cutoff: drop results scoring below this fraction of the top reranked
+   * score (default: 0.01). Model-agnostic — keys off the gap between relevant and unrelated
+   * results rather than an absolute scale, so it works across rerankers. Set to 0 to disable.
+   * Only applies when reranking is active; skipped when the top score is not positive.
+   */
+  rerankerMinRelativeScore?: number;
+  /**
+   * Absolute reranker score floor in the model's own score units: drop results scoring below
+   * this value (default: 0 = off). Reranker score scales are model-specific (e.g. TEI's
+   * bge-reranker-v2-m3 sigmoid output scores even a perfect match around 0.07), so calibrate
+   * this to your reranker before enabling. Only applies when reranking is active.
+   */
+  rerankerMinAbsoluteScore?: number;
 }
 
 /** A text chunk produced by the Chunker. */

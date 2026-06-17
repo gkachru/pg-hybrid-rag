@@ -24,6 +24,8 @@ import {
   RagIndexer,
   RagPipeline,
   ragMigrate,
+  type RagResult,
+  type RerankerProvider,
   type SqlClient,
   type TransactionProvider,
 } from "../src/index.js";
@@ -133,6 +135,58 @@ const embedder = new OpenAiCompatibleEmbedder({
   apiKey: EMBEDDING_API_KEY,
   model: EMBEDDING_MODEL,
 });
+
+// ── Reranker (optional) ───────────────────────────────────────────────────────
+// HuggingFace TEI cross-encoder /rerank endpoint. Enabled with --rerank when the
+// RERANKER_* env vars are set. The cross-encoder reads candidate text directly — it
+// does not use embeddings, so it is independent of the embedding model above.
+
+const RERANKER_BASE_URL = process.env.RERANKER_BASE_URL;
+const RERANKER_API_KEY = process.env.RERANKER_API_KEY;
+
+// TEI caps texts per /rerank call (its `max_client_batch_size`, often 8). Sending more
+// returns HTTP 422, which surfaces as a reranker failure → silent fallback to RRF order.
+// So split candidates into batches, score each, and merge by original index.
+const RERANK_BATCH_SIZE = 8;
+
+function createReranker(
+  baseUrl: string,
+  apiKey?: string,
+  batchSize = RERANK_BATCH_SIZE,
+): RerankerProvider {
+  // Returns scores aligned to the input `texts` order.
+  async function scoreBatch(query: string, texts: string[]): Promise<number[]> {
+    const res = await fetch(`${baseUrl}/rerank`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify({ query, texts, truncate: true }),
+    });
+    if (!res.ok) throw new Error(`Reranker error ${res.status}`);
+    const ranked = (await res.json()) as Array<{ index: number; score: number }>;
+    const scores = new Array<number>(texts.length).fill(0);
+    for (const { index, score } of ranked) scores[index] = score;
+    return scores;
+  }
+
+  return {
+    async rerank(query, results, topN) {
+      const batches: RagResult[][] = [];
+      for (let i = 0; i < results.length; i += batchSize) {
+        batches.push(results.slice(i, i + batchSize));
+      }
+      const batchScores = await Promise.all(
+        batches.map((batch) => scoreBatch(query, batch.map((r) => r.content))),
+      );
+      return batches
+        .flatMap((batch, bi) => batch.map((r, j) => ({ ...r, score: batchScores[bi][j] })))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topN);
+    },
+  };
+}
 
 // ── Logger (simple console) ─────────────────────────────────────────────────
 
@@ -420,6 +474,15 @@ async function main() {
   const USE_VECTORCHORD = process.argv.includes("--vectorchord");
   const USE_BM25 = process.argv.includes("--bm25");
   const USE_CJK = process.argv.includes("--cjk");
+  const USE_RERANK = process.argv.includes("--rerank");
+
+  const reranker =
+    USE_RERANK && RERANKER_BASE_URL
+      ? createReranker(RERANKER_BASE_URL, RERANKER_API_KEY)
+      : undefined;
+  if (USE_RERANK && !reranker) {
+    console.warn("   --rerank set but RERANKER_BASE_URL is missing; reranking disabled.\n");
+  }
 
   // Step 1: Create isolated database
   console.log(`1. Creating database "${PLAYGROUND_DB}"...`);
@@ -517,8 +580,9 @@ async function main() {
       stopWords,
       synonyms,
       logger,
+      ...(reranker ? { reranker } : {}),
     });
-    console.log("   Ready.\n");
+    console.log(`   Ready.${reranker ? " (reranker enabled)" : ""}\n`);
 
     // Step 7: Run test queries (multilingual)
     const queries: Array<{
@@ -619,6 +683,78 @@ async function main() {
     }
 
     console.log(`\n${"─".repeat(80)}`);
+
+    // Step 7b: Reranking cutoff demonstration (only when --rerank is enabled)
+    if (reranker) {
+      console.log("\n7b. Reranking cutoff demonstration (cross-encoder)\n");
+      console.log("   Shows the full reranked score distribution (the relevant/unrelated cliff)");
+      console.log("   vs. what survives the default relative cutoff (rerankerMinRelativeScore).\n");
+      const rerankDemo = [
+        { q: "return policy", lang: "en" },
+        { q: "noise cancelling headphones", lang: "en" },
+        { q: "how do I cancel an order", lang: "en" },
+      ];
+      for (const { q, lang } of rerankDemo) {
+        console.log(`  Query: "${q}" [${lang}]`);
+        console.log(`  ${"─".repeat(76)}`);
+        // No cutoff: reveal every reranked candidate's score.
+        const all = await pipeline.search(q, {
+          topK: 10,
+          language: lang,
+          candidateMultiplier: 4,
+          rerank: true,
+          rerankerMinRelativeScore: 0,
+        });
+        console.log(`  Reranked scores (no cutoff): ${all.map((r) => r.score.toExponential(2)).join(", ")}`);
+        // Default relative cutoff.
+        const kept = await pipeline.search(q, {
+          topK: 10,
+          language: lang,
+          candidateMultiplier: 4,
+          rerank: true,
+        });
+        console.log(`  Kept by default relative cutoff (${kept.length}/${all.length}):`);
+        for (const r of kept) {
+          const snippet = r.content.slice(0, 80).replace(/\n/g, " ");
+          console.log(`    [${r.score.toExponential(2)}] ${r.sourceType}/${r.sourceId} — ${snippet}...`);
+        }
+        console.log("");
+      }
+
+      // Off-topic query: nothing in this e-commerce corpus is relevant. The relative cutoff
+      // keys off the top score, so it keeps the "best of the garbage". The absolute floor is
+      // what actually returns nothing when even the best match is weak.
+      console.log("  Off-topic query — exercises rerankerMinAbsoluteScore");
+      console.log(`  ${"─".repeat(76)}`);
+      const offTopicQ = "how does photosynthesis work in plants";
+      // Cast a wide net so unrelated docs still reach the reranker (default vectorMinScore
+      // would filter them first, so we'd never see the reranker's verdict).
+      const wideNet = {
+        topK: 10, // > the reranker's batch size (8) on purpose — exercises batched /rerank calls
+        language: "en",
+        candidateMultiplier: 4,
+        vectorMinScore: 0,
+        keywordMinScore: 0,
+        rerank: true,
+      } as const;
+      console.log(`  Query: "${offTopicQ}" [en]`);
+      const offAll = await pipeline.search(offTopicQ, { ...wideNet, rerankerMinRelativeScore: 0 });
+      console.log(`  Reranked scores (no cutoff): ${offAll.map((r) => r.score.toExponential(2)).join(", ")}`);
+      const offRel = await pipeline.search(offTopicQ, { ...wideNet });
+      console.log(
+        `  Relative cutoff only (default 0.01): kept ${offRel.length}/${offAll.length} — best-of-garbage survives`,
+      );
+      const offAbs = await pipeline.search(offTopicQ, {
+        ...wideNet,
+        rerankerMinAbsoluteScore: 0.001,
+      });
+      console.log(
+        `  + rerankerMinAbsoluteScore 0.001: kept ${offAbs.length}/${offAll.length} — hard floor drops it all`,
+      );
+      console.log("");
+
+      console.log(`${"─".repeat(80)}`);
+    }
 
     // Close playground connection before dropping
     await sql.end();

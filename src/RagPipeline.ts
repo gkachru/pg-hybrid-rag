@@ -23,7 +23,8 @@ const DEFAULTS = {
   rrfK: 60,
   candidateMultiplier: 2,
   rerank: false,
-  rerankerMinScore: 0.01,
+  rerankerMinRelativeScore: 0.01,
+  rerankerMinAbsoluteScore: 0,
 } satisfies Omit<
   Required<RagSearchOptions>,
   "sourceTypes" | "sourceIds" | "languages" | "minRelevance" | "language" | "normalizer"
@@ -197,8 +198,25 @@ export class RagPipeline {
               rerankSpan.setAttribute("inputCount", filtered.length);
               const reranked =
                 (await this.reranker?.rerank(naturalQuery, filtered, opts.topK)) ?? filtered;
-              const minScore = opts.rerankerMinScore;
-              const result = minScore ? reranked.filter((r) => r.score >= minScore) : reranked;
+
+              // Two independent floors; a result must clear both active ones.
+              //  - relative: a fraction of the top reranked score. Model-agnostic (reranker score
+              //    scales differ wildly), so this is the everyday "drop unrelated" knob. Skipped
+              //    when the top score is not positive (fraction-of-top is meaningless for raw logits).
+              //  - absolute: a hard floor in the model's own score units. Off by default; opt in
+              //    only when calibrated to your reranker.
+              const topScore = reranked.reduce((max, r) => (r.score > max ? r.score : max), 0);
+              const relThreshold =
+                opts.rerankerMinRelativeScore > 0 && topScore > 0
+                  ? opts.rerankerMinRelativeScore * topScore
+                  : Number.NEGATIVE_INFINITY;
+              const absThreshold =
+                opts.rerankerMinAbsoluteScore > 0
+                  ? opts.rerankerMinAbsoluteScore
+                  : Number.NEGATIVE_INFINITY;
+              const result = reranked.filter(
+                (r) => r.score >= relThreshold && r.score >= absThreshold,
+              );
               rerankSpan.setAttribute("outputCount", result.length);
               return result;
             } catch (err) {
