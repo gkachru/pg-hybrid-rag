@@ -88,16 +88,15 @@ export class PostgresRagDatabase implements RagDatabase {
 
       // --- Keyword leg (pg_trgm or pg_bigm) ---
       this.txProvider.withConnection(async (client) => {
-        const baseParams: unknown[] = [
-          params.tenantId,
-          params.query,
-          params.keywordMinScore,
-          params.candidateLimit,
-        ];
-        const f = buildFilters(params, 5);
+        // The keyword threshold is applied via the per-extension GUC below (set transaction-
+        // locally), NOT as a bound parameter — so it is intentionally absent from baseParams.
+        // Binding it as an unreferenced $N would make Postgres reject the statement with
+        // "could not determine data type of parameter $N".
+        const baseParams: unknown[] = [params.tenantId, params.query, params.candidateLimit];
+        const f = buildFilters(params, 4);
         // Drive the trigram GIN index via the (in)equality-style operators rather than a bare
-        // word_similarity()/bigm_similarity() > $3 comparison, which the planner can't turn into
-        // an index condition. The threshold moves into the per-extension GUC (set transaction-
+        // word_similarity()/bigm_similarity() > threshold comparison, which the planner can't turn
+        // into an index condition. The threshold moves into the per-extension GUC (set transaction-
         // locally below); the similarity function stays only in SELECT/ORDER BY for the score.
         //   pg_trgm: `$2 <% content` ≡ word_similarity($2, content) >= pg_trgm.word_similarity_threshold
         //   pg_bigm: `content =% $2` ≡ bigm_similarity(...) >= pg_bigm.similarity_limit
@@ -114,7 +113,7 @@ export class PostgresRagDatabase implements RagDatabase {
             AND ${matchExpr}
             ${f.clause}
           ORDER BY ${similarityFn}($2, content) DESC
-          LIMIT $4
+          LIMIT $3
         `;
         const rows = await this.runTuned(
           client,

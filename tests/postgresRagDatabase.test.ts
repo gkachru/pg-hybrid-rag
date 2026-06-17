@@ -28,6 +28,13 @@ const params: HybridSearchParams = {
   keywordMinScore: 0.35,
 };
 
+/** The distinct positional placeholders ($1, $2, …) referenced in a SQL string. */
+function referencedPlaceholders(sql: string): Set<number> {
+  const refs = new Set<number>();
+  for (const m of sql.matchAll(/\$(\d+)/g)) refs.add(Number(m[1]));
+  return refs;
+}
+
 describe("PostgresRagDatabase.hybridSearch", () => {
   it("runs the vector leg with the cosine operator", async () => {
     const { txProvider, calls } = recordingTx();
@@ -149,5 +156,48 @@ describe("PostgresRagDatabase.hybridSearch", () => {
       (c) => typeof c.sql === "string" && c.sql.includes("ivfflat.probes"),
     );
     expect(setCall?.params).toContain("25");
+  });
+
+  // --- Every bound parameter must be referenced by the SQL ---
+  // Regression: the keyword leg bound keywordMinScore as an unreferenced $3 (its threshold
+  // moved into a GUC), so Postgres rejected the statement at runtime with "could not determine
+  // data type of parameter $3" — invisible to string-only assertions and to the mocked legs.
+  // Guard that every leg references exactly the placeholders it binds: {1..params.length}.
+
+  function assertEveryParamReferenced(calls: Array<{ sql: string; params: unknown[] }>) {
+    for (const { sql, params: p } of calls) {
+      const refs = referencedPlaceholders(sql);
+      for (let n = 1; n <= p.length; n++) {
+        expect(refs.has(n)).toBe(true); // bound $n must appear in the SQL
+      }
+      for (const ref of refs) {
+        expect(ref).toBeLessThanOrEqual(p.length); // no $n beyond the bound params
+      }
+    }
+  }
+
+  it("binds no unreferenced parameter in any leg (no filters)", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider).hybridSearch(params);
+    assertEveryParamReferenced(calls);
+  });
+
+  it("binds no unreferenced parameter in any leg (with filters)", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider).hybridSearch({
+      ...params,
+      sourceTypes: ["faq", "product"],
+      languages: ["en", "hi"],
+    });
+    assertEveryParamReferenced(calls);
+  });
+
+  it("binds no unreferenced parameter in the CJK keyword leg", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider, { cjk: true }).hybridSearch({
+      ...params,
+      language: "ja",
+    });
+    assertEveryParamReferenced(calls);
   });
 });

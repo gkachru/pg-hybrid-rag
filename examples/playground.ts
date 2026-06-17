@@ -92,23 +92,13 @@ async function dropPlaygroundDb() {
 // ── Postgres adapter (postgres.js → SqlClient/TransactionProvider) ──────────
 
 function createAdapter(sql: postgres.Sql) {
-  const sqlClient: SqlClient = {
-    async query<T = Record<string, unknown>>(text: string, params: unknown[]): Promise<T[]> {
-      const result = await sql.unsafe(text, params as postgres.MaybeRow[]);
-      return result as T[];
-    },
-  };
-
-  const txProvider: TransactionProvider = {
-    async withConnection<T>(fn: (client: SqlClient) => Promise<T>): Promise<T> {
-      return fn(sqlClient);
-    },
-  };
-
-  // Migrations run through a reserved single connection so each file's statements +
-  // tracking-row insert commit atomically (ragMigrate emits BEGIN/COMMIT/ROLLBACK when
-  // given a TransactionProvider). The pooled txProvider above can't guarantee one session.
-  const migrationProvider: TransactionProvider = {
+  // Every withConnection reserves one pooled connection for the duration of the
+  // callback, so all of its queries share a single session. Both consumers require it:
+  //   - search legs apply transaction-local planner GUCs via BEGIN/set_config/COMMIT
+  //   - migrations run each file's statements + its tracking-row insert atomically
+  // postgres.js rejects a raw BEGIN on a pooled (max>1) connection that isn't reserved,
+  // so a non-reserving provider would fail the first search leg with UNSAFE_TRANSACTION.
+  const reservingProvider: TransactionProvider = {
     async withConnection<T>(fn: (client: SqlClient) => Promise<T>): Promise<T> {
       const reserved = await sql.reserve();
       try {
@@ -125,7 +115,7 @@ function createAdapter(sql: postgres.Sql) {
     },
   };
 
-  return { sqlClient, txProvider, migrationProvider, sql };
+  return { txProvider: reservingProvider, migrationProvider: reservingProvider, sql };
 }
 
 // ── Embedder ────────────────────────────────────────────────────────────────
