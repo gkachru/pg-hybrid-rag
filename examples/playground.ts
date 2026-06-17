@@ -828,8 +828,16 @@ async function seedStopWords(sql: postgres.Sql) {
 
   let total = 0;
   for (const [lang, words] of Object.entries(stopWords)) {
-    const values = words.map((w) => `('${TENANT_ID}', '${lang}', '${w}')`).join(", ");
-    await sql.unsafe(`INSERT INTO rag_stop_words (tenant_id, language, word) VALUES ${values}`);
+    // Parameterized batch insert ($1..$N) — never interpolate values into SQL,
+    // matching seedSynonyms and the rest of the library.
+    const placeholders = words
+      .map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`)
+      .join(", ");
+    const params = words.flatMap((w) => [TENANT_ID, lang, w]);
+    await sql.unsafe(
+      `INSERT INTO rag_stop_words (tenant_id, language, word) VALUES ${placeholders}`,
+      params,
+    );
     total += words.length;
   }
   console.log(`   Seeded ${total} stop words (${Object.keys(stopWords).join(", ")})`);
