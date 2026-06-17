@@ -78,8 +78,14 @@ export class OpenAiCompatibleEmbedder implements EmbeddingProvider {
     }
 
     const json = (await res.json()) as {
-      data: Array<{ embedding: number[] }>;
+      data: Array<{ embedding: number[]; index?: number }>;
     };
-    return json.data.map((d) => d.embedding);
+    // The OpenAI embeddings API tags each result with its input `index` and does NOT
+    // guarantee `data` is returned in input order. Sort by `index` to keep embeddings
+    // aligned with their inputs; fall back to response order if a server omits `index`.
+    const ordered = json.data.every((d) => typeof d.index === "number")
+      ? [...json.data].sort((a, b) => (a.index as number) - (b.index as number))
+      : json.data;
+    return ordered.map((d) => d.embedding);
   }
 }
