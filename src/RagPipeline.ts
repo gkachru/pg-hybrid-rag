@@ -211,7 +211,13 @@ export class RagPipeline {
               //    when the top score is not positive (fraction-of-top is meaningless for raw logits).
               //  - absolute: a hard floor in the model's own score units. Off by default; opt in
               //    only when calibrated to your reranker.
-              const topScore = reranked.reduce((max, r) => (r.score > max ? r.score : max), 0);
+              // Seed with the first score (not 0) so the max is correct even when every
+              // reranker score is negative (raw logits); the topScore > 0 guard below then
+              // decides whether the relative floor applies.
+              const topScore = reranked.reduce(
+                (max, r) => (r.score > max ? r.score : max),
+                reranked[0]?.score ?? Number.NEGATIVE_INFINITY,
+              );
               const relThreshold =
                 opts.rerankerMinRelativeScore > 0 && topScore > 0
                   ? opts.rerankerMinRelativeScore * topScore

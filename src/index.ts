@@ -6,7 +6,10 @@ export { CachingSynonymLoader } from "./adapters/CachingSynonymLoader.js";
 export { Bm25Fts } from "./adapters/fts/Bm25Fts.js";
 export { TsvectorFts } from "./adapters/fts/TsvectorFts.js";
 export type { OpenAiCompatibleEmbedderConfig } from "./adapters/OpenAiCompatibleEmbedder.js";
-export { OpenAiCompatibleEmbedder } from "./adapters/OpenAiCompatibleEmbedder.js";
+export {
+  EmbeddingApiError,
+  OpenAiCompatibleEmbedder,
+} from "./adapters/OpenAiCompatibleEmbedder.js";
 export type { PostgresRagDatabaseOptions } from "./adapters/PostgresRagDatabase.js";
 export { PostgresRagDatabase } from "./adapters/PostgresRagDatabase.js";
 export type { BuiltFilters, SearchFilters } from "./adapters/sqlHelpers.js";

@@ -20,9 +20,10 @@ export interface CachingStopWordsLoaderConfig {
  */
 export class CachingStopWordsLoader implements StopWordsProvider {
   private cache = new Map<string, CacheEntry>();
-  private mergedCache = new Map<string, { data: Set<string>; loadedAt: number }>();
+  // Keyed by the load() entry's loadedAt so the merged set tracks load()'s TTL
+  // exactly (a separate TTL here could let it lag the per-language cache).
+  private mergedCache = new Map<string, { data: Set<string>; sourceLoadedAt: number }>();
   private inflight = new Map<string, Promise<Map<string, Set<string>>>>();
-  private inflightMerged = new Map<string, Promise<Set<string>>>();
   private txProvider: TransactionProvider;
   private loadFn: (client: SqlClient, tenantId: string) => Promise<StopWordRow[]>;
 
@@ -69,36 +70,28 @@ export class CachingStopWordsLoader implements StopWordsProvider {
 
   /** Load all stop words merged across languages into a single Set (cached). */
   async loadMerged(tenantId: string): Promise<Set<string>> {
+    // Derive from load()'s cache entry so the merged set shares load()'s 30s TTL.
+    // load() handles freshness + coalescing; rebuilding the Set is cheap, and the
+    // mergedCache below memoizes it per load entry (keyed by that entry's loadedAt).
+    const map = await this.load(tenantId);
+    const sourceLoadedAt = this.cache.get(tenantId)?.loadedAt ?? 0;
+
     const cached = this.mergedCache.get(tenantId);
-    if (cached && Date.now() - cached.loadedAt < CACHE_TTL_MS) {
+    if (cached && cached.sourceLoadedAt === sourceLoadedAt) {
       return cached.data;
     }
 
-    const existing = this.inflightMerged.get(tenantId);
-    if (existing) return existing;
-
-    const promise = (async () => {
-      const map = await this.load(tenantId);
-      const merged = new Set<string>();
-      for (const words of map.values()) {
-        for (const w of words) merged.add(w);
-      }
-      this.mergedCache.set(tenantId, { data: merged, loadedAt: Date.now() });
-      return merged;
-    })();
-
-    this.inflightMerged.set(tenantId, promise);
-    try {
-      return await promise;
-    } finally {
-      this.inflightMerged.delete(tenantId);
+    const merged = new Set<string>();
+    for (const words of map.values()) {
+      for (const w of words) merged.add(w);
     }
+    this.mergedCache.set(tenantId, { data: merged, sourceLoadedAt });
+    return merged;
   }
 
   invalidate(tenantId: string): void {
     this.cache.delete(tenantId);
     this.mergedCache.delete(tenantId);
     this.inflight.delete(tenantId);
-    this.inflightMerged.delete(tenantId);
   }
 }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { OpenAiCompatibleEmbedder } from "../src/adapters/OpenAiCompatibleEmbedder.js";
+import { EmbeddingApiError } from "../src/index.js";
 
 const realFetch = globalThis.fetch;
 
@@ -223,6 +224,15 @@ describe("OpenAiCompatibleEmbedder timeout and retry", () => {
     installSequence([400, 200]);
     await expect(newEmbedder({ maxRetries: 2 }).embedQuery("hi")).rejects.toThrow();
     expect(calls).toBe(1);
+  });
+
+  it("throws an exported EmbeddingApiError carrying the HTTP status on a non-OK response", async () => {
+    installSequence([401]);
+    const err = await newEmbedder({ maxRetries: 0 })
+      .embedQuery("hi")
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(EmbeddingApiError);
+    expect((err as EmbeddingApiError).status).toBe(401);
   });
 
   it("aborts a request that exceeds the timeout", async () => {

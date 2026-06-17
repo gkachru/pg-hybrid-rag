@@ -98,6 +98,7 @@ export interface StopWordRow {
 export interface SynonymRow {
   language: string;
   term: string;
-  synonyms: string[];
-  direction: string;
+  /** JSONB column — a parsed `string[]` or a raw JSON string, depending on the driver. */
+  synonyms: string[] | string;
+  direction: "two_way" | "one_way";
 }

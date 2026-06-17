@@ -1,6 +1,6 @@
 /**
  * Detect language from text using Unicode script ranges.
- * Lightweight — no DB lookups, just script analysis via charCode comparisons.
+ * Lightweight — no DB lookups, just script analysis via code-point comparisons.
  * Distinguishes script families (Latin, Devanagari, Arabic, and CJK) but cannot
  * distinguish languages sharing one script (e.g. English vs French, both Latin).
  *
@@ -18,7 +18,9 @@ export function detectLanguage(text: string): string {
   let hangul = 0;
 
   for (const char of text) {
-    const code = char.charCodeAt(0);
+    // for…of yields whole code points; codePointAt (not charCodeAt) reads the full
+    // value so a supplementary-plane character isn't misread as a lone surrogate.
+    const code = char.codePointAt(0) ?? 0;
     if (code >= 0x0900 && code <= 0x097f) devanagari++;
     else if (
       (code >= 0x0600 && code <= 0x06ff) ||
@@ -42,8 +44,14 @@ export function detectLanguage(text: string): string {
       (code >= 0x3130 && code <= 0x318f)
     )
       hangul++;
-    // CJK unified ideographs (incl. Extension A) → Han, shared by zh/ja/ko
-    else if ((code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3400 && code <= 0x4dbf)) han++;
+    // CJK unified ideographs — BMP base + Extension A, plus the supplementary-plane
+    // extensions (Ext B–F, Compatibility Ideographs Supplement) → Han, shared by zh/ja/ko
+    else if (
+      (code >= 0x4e00 && code <= 0x9fff) ||
+      (code >= 0x3400 && code <= 0x4dbf) ||
+      (code >= 0x20000 && code <= 0x2fa1f)
+    )
+      han++;
   }
 
   const total = devanagari + arabic + latin + han + kana + hangul;

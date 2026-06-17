@@ -21,7 +21,7 @@ export interface OpenAiCompatibleEmbedderConfig {
 }
 
 /** Error carrying the HTTP status of a non-OK embedding API response. */
-class EmbeddingApiError extends Error {
+export class EmbeddingApiError extends Error {
   constructor(
     readonly status: number,
     body: string,

@@ -272,3 +272,24 @@ describe("Chunker fixed-size fallback", () => {
     }
   });
 });
+
+describe("Chunker (surrogate-pair safety)", () => {
+  /** True if the string contains a lone (unpaired) UTF-16 surrogate code unit. */
+  const hasLoneSurrogate = (s: string): boolean =>
+    Array.from(s).some((cp) => {
+      const code = cp.codePointAt(0) ?? 0;
+      return code >= 0xd800 && code <= 0xdfff;
+    });
+
+  it("never carries a corrupted overlap that begins mid-surrogate-pair", () => {
+    // 10 astral emoji (2 UTF-16 code units each = 20 units). With chunkSize 20 and
+    // overlap 5, slice(-5) starts on the low half of a surrogate pair, so the raw
+    // overlap tail would drag a lone surrogate into the next chunk's content.
+    const c = new Chunker(20, 5);
+    const chunks = c.chunk(`${"😀".repeat(10)}\n\nok`);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(hasLoneSurrogate(chunk.content)).toBe(false);
+    }
+  });
+});

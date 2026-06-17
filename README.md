@@ -251,6 +251,8 @@ Pass `language` in the metadata to activate language-aware sizing:
 To prefix chunks with entity context, pass a `prefixFn` to the constructor. It receives the first chunk's metadata and returns a label string (or `undefined` to skip):
 
 ```typescript
+// The label is prepended after sizing and is not counted toward the chunk size
+// limit, so keep it short (or leave headroom in tokenLimit) to avoid overflow.
 prefixFn: (m) => m.brand ? `[${m.name} | ${m.brand}]` : m.name ? `[${m.name}]` : undefined
 ```
 

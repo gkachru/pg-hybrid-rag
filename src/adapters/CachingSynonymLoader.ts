@@ -3,6 +3,9 @@ import type { SynonymLookup, SynonymRow } from "../types.js";
 
 const CACHE_TTL_MS = 30_000;
 
+/** Max synonyms kept per term. Rows arrive ordered, so this cap is deterministic. */
+const MAX_SYNONYMS_PER_TERM = 5;
+
 interface CacheEntry {
   data: SynonymLookup;
   loadedAt: number;
@@ -30,7 +33,9 @@ export class CachingSynonymLoader implements SynonymProvider {
       config.loadFn ??
       ((client, tenantId) =>
         client.query<SynonymRow>(
-          `SELECT language, term, synonyms, direction FROM rag_synonyms WHERE tenant_id = $1`,
+          // ORDER BY makes the per-term cap deterministic (which synonyms survive the
+          // MAX_SYNONYMS_PER_TERM cut no longer depends on arbitrary row order).
+          `SELECT language, term, synonyms, direction FROM rag_synonyms WHERE tenant_id = $1 ORDER BY language, term, synonyms`,
           [tenantId],
         ));
   }
@@ -55,7 +60,7 @@ export class CachingSynonymLoader implements SynonymProvider {
         lookup.set(lang, langMap);
         const existing = langMap.get(from) ?? [];
         for (const t of to) {
-          if (t !== from && !existing.includes(t) && existing.length < 5) {
+          if (t !== from && !existing.includes(t) && existing.length < MAX_SYNONYMS_PER_TERM) {
             existing.push(t);
           }
         }

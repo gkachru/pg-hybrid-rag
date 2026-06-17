@@ -42,6 +42,13 @@ describe("detectLanguage", () => {
     expect(detectLanguage("React로 앱 만들기")).toBe("ko");
   });
 
+  it("detects supplementary-plane Han (CJK Extension B) as Chinese", () => {
+    // U+20000+ is astral CJK. charCodeAt(0) reads only the high surrogate and
+    // matches no range (falls through to "en"); codePointAt(0) reads the whole
+    // code point so this rare Han is detected.
+    expect(detectLanguage("𠀀𠀁𠀂")).toBe("zh");
+  });
+
   it("defaults to English for empty input", () => {
     expect(detectLanguage("")).toBe("en");
   });

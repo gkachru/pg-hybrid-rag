@@ -32,7 +32,12 @@ export interface ChunkerConfig {
   tokenLimit: number;
   /** Overlap in characters between chunks (default: 75). */
   overlap?: number;
-  /** Return a prefix string to prepend to each chunk, or undefined/empty to skip. */
+  /**
+   * Return a prefix string to prepend to each chunk, or undefined/empty to skip.
+   * Note: the label is prepended AFTER sizing and is NOT counted toward the chunk
+   * size limit, so a non-trivial label pushes every chunk that much over the
+   * effective char limit. Keep labels short, or leave headroom in `tokenLimit`.
+   */
   prefixFn?: (metadata: Record<string, string>) => string | undefined;
 }
 
@@ -86,7 +91,12 @@ export class Chunker implements ChunkingProvider {
    */
   private getOverlapSuffix(text: string): string {
     if (this.overlap <= 0 || text.length <= this.overlap) return "";
-    const raw = text.slice(-this.overlap);
+    let raw = text.slice(-this.overlap);
+    // slice(-overlap) cuts on a UTF-16 code unit, so it can begin on the low half
+    // of a surrogate pair for the astral/CJK text this library targets. Drop the
+    // orphaned low surrogate so a lone surrogate is never carried into the next chunk.
+    const first = raw.charCodeAt(0);
+    if (first >= 0xdc00 && first <= 0xdfff) raw = raw.slice(1);
     const spaceIdx = raw.indexOf(" ");
     return spaceIdx >= 0 ? raw.slice(spaceIdx + 1) : raw;
   }

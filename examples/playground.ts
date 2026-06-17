@@ -523,6 +523,8 @@ async function main() {
     const chunker = new Chunker({
       tokenLimit: 512,
       overlap: 75,
+      // The label is prepended after sizing and is not counted toward the chunk
+      // size limit; keep it short (or leave headroom in tokenLimit) to avoid overflow.
       prefixFn: (m) => (m.brand ? `[${m.name} | ${m.brand}]` : m.name ? `[${m.name}]` : undefined),
     });
     const indexer = new RagIndexer({
