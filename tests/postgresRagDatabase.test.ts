@@ -256,3 +256,129 @@ describe("PostgresRagDatabase.hybridSearch leg-failure handling", () => {
     expect(releasedCount()).toBe(3);
   });
 });
+
+// --- Write path: batch INSERT placeholder/cast math and scoped DELETE ---
+// Exercised end-to-end only by the playground; this guards the $N offset arithmetic and the
+// ::vector cast against silent regressions (the indexer tests mock RagDatabase wholesale).
+
+describe("PostgresRagDatabase.insertChunks", () => {
+  const chunk = {
+    sourceType: "faq",
+    sourceId: "doc-1",
+    chunkIndex: "0",
+    content: "hello world",
+    language: "en",
+    embedding: [0.1, 0.2, 0.3],
+    metadata: '{"k":"v"}',
+  };
+
+  it("is a no-op for an empty chunk list (issues no query)", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider).insertChunks("t1", []);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("inserts in a single statement listing the columns in order", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider).insertChunks("t1", [chunk]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toContain(
+      "INSERT INTO rag_documents (tenant_id, source_type, source_id, chunk_index, content, language, embedding, metadata)",
+    );
+  });
+
+  it("binds the 8 columns per chunk in order and serializes the embedding as a vector literal", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider).insertChunks("t1", [chunk]);
+    expect(calls[0].params).toEqual([
+      "t1",
+      "faq",
+      "doc-1",
+      "0",
+      "hello world",
+      "en",
+      "[0.1,0.2,0.3]",
+      '{"k":"v"}',
+    ]);
+    // The embedding column carries the ::vector cast (7th of each row's 8 placeholders).
+    expect(calls[0].sql).toContain("$7::vector");
+  });
+
+  it("batches multiple chunks into one INSERT with sequential placeholders", async () => {
+    const { txProvider, calls } = recordingTx();
+    const second = { ...chunk, sourceId: "doc-2", chunkIndex: "1", embedding: [0.4, 0.5, 0.6] };
+    await new PostgresRagDatabase(txProvider).insertChunks("t1", [chunk, second]);
+    expect(calls).toHaveLength(1);
+    // 8 params per chunk, flattened in row order.
+    expect(calls[0].params).toHaveLength(16);
+    expect(calls[0].params?.[14]).toBe("[0.4,0.5,0.6]"); // 2nd row's embedding ($15)
+    // Each row's embedding keeps its ::vector cast at the right offset: $7 and $15.
+    expect(calls[0].sql).toContain("$7::vector");
+    expect(calls[0].sql).toContain("$15::vector");
+    // Guard the `$${offset + n}` arithmetic: every bound $n in {1..16} is referenced, and the
+    // SQL references nothing beyond what it binds (catches off-by-one in the placeholder math).
+    const refs = referencedPlaceholders(calls[0].sql);
+    for (let n = 1; n <= 16; n++) expect(refs.has(n)).toBe(true);
+    for (const ref of refs) expect(ref).toBeLessThanOrEqual(16);
+  });
+});
+
+describe("PostgresRagDatabase.deleteBySource", () => {
+  it("issues one parameterized DELETE scoped by tenant + source", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider).deleteBySource("t1", "faq", "doc-1");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toContain(
+      "DELETE FROM rag_documents WHERE tenant_id = $1 AND source_type = $2 AND source_id = $3",
+    );
+    expect(calls[0].params).toEqual(["t1", "faq", "doc-1"]);
+  });
+});
+
+// --- runTuned applies planner GUCs inside BEGIN/COMMIT and must ROLLBACK + rethrow the
+// ORIGINAL error if the tuned query fails — even if the ROLLBACK itself fails. ---
+
+describe("PostgresRagDatabase tuned-leg error handling", () => {
+  /**
+   * A tx whose vector-leg main SELECT throws "select boom". BEGIN/set_config/ROLLBACK resolve
+   * normally unless `rollbackThrows`, which makes ROLLBACK itself throw "rollback boom"
+   * (exercising runTuned's inner "ignore rollback failure, surface the original error" catch).
+   * Only the vector leg fails; the keyword and FTS legs settle so a single failure surfaces.
+   */
+  function failingVectorTx(opts?: { rollbackThrows?: boolean }) {
+    const calls: string[] = [];
+    const client: SqlClient = {
+      query: async <T>(sql: string): Promise<T[]> => {
+        calls.push(sql);
+        if (sql.includes("ROLLBACK") && opts?.rollbackThrows) throw new Error("rollback boom");
+        if (sql.includes("1 - (embedding <=> $2::vector) as score")) throw new Error("select boom");
+        return [] as T[];
+      },
+    };
+    const txProvider: TransactionProvider = {
+      withConnection: async <T>(fn: (c: SqlClient) => Promise<T>) => fn(client),
+    };
+    return { txProvider, calls };
+  }
+
+  it("rolls back and rethrows the original error when a tuned leg's query fails", async () => {
+    const { txProvider, calls } = failingVectorTx();
+    const err = await new PostgresRagDatabase(txProvider).hybridSearch(params).catch((e) => e);
+    expect(err).toBeInstanceOf(AggregateError);
+    expect((err as AggregateError).errors.some((e) => /select boom/.test(String(e?.message)))).toBe(
+      true,
+    );
+    // The failing leg issued a ROLLBACK on its connection.
+    expect(calls).toContain("ROLLBACK");
+  });
+
+  it("surfaces the original error even when the ROLLBACK itself fails", async () => {
+    const { txProvider } = failingVectorTx({ rollbackThrows: true });
+    const err = await new PostgresRagDatabase(txProvider).hybridSearch(params).catch((e) => e);
+    expect(err).toBeInstanceOf(AggregateError);
+    const messages = (err as AggregateError).errors.map((e) => String(e?.message));
+    // The original SELECT error wins; the swallowed ROLLBACK failure must not mask it.
+    expect(messages.some((m) => /select boom/.test(m))).toBe(true);
+    expect(messages.some((m) => /rollback boom/.test(m))).toBe(false);
+  });
+});
