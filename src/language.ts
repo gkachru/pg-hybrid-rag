@@ -1,13 +1,21 @@
 /**
  * Detect language from text using Unicode script ranges.
  * Lightweight — no DB lookups, just script analysis via charCode comparisons.
- * Can distinguish script families (Latin, Devanagari, Arabic, CJK) but cannot
- * distinguish languages within the same script (e.g. English vs French).
+ * Distinguishes script families (Latin, Devanagari, Arabic, and CJK) but cannot
+ * distinguish languages sharing one script (e.g. English vs French, both Latin).
+ *
+ * CJK heuristic: kana is exclusive to Japanese and Hangul to Korean, so either
+ * one is decisive even when Latin is mixed in. Han characters with no kana/Hangul
+ * are treated as Chinese — Japanese kanji-only or Korean hanja-only text (rare in
+ * practice) is therefore reported as `zh`.
  */
 export function detectLanguage(text: string): string {
   let devanagari = 0;
   let arabic = 0;
   let latin = 0;
+  let han = 0;
+  let kana = 0;
+  let hangul = 0;
 
   for (const char of text) {
     const code = char.charCodeAt(0);
@@ -20,10 +28,32 @@ export function detectLanguage(text: string): string {
     )
       arabic++;
     else if ((code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a)) latin++;
+    // Hiragana + Katakana (incl. halfwidth) → uniquely Japanese
+    else if (
+      (code >= 0x3040 && code <= 0x30ff) ||
+      (code >= 0x31f0 && code <= 0x31ff) ||
+      (code >= 0xff65 && code <= 0xff9f)
+    )
+      kana++;
+    // Hangul syllables + Jamo → uniquely Korean
+    else if (
+      (code >= 0xac00 && code <= 0xd7af) ||
+      (code >= 0x1100 && code <= 0x11ff) ||
+      (code >= 0x3130 && code <= 0x318f)
+    )
+      hangul++;
+    // CJK unified ideographs (incl. Extension A) → Han, shared by zh/ja/ko
+    else if ((code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3400 && code <= 0x4dbf)) han++;
   }
 
-  const total = devanagari + arabic + latin;
+  const total = devanagari + arabic + latin + han + kana + hangul;
   if (total === 0) return "en";
+
+  // CJK: kana ⇒ Japanese, Hangul ⇒ Korean (both decisive even alongside Latin);
+  // Han with neither is treated as Chinese when it carries at least half the script.
+  if (kana > 0) return "ja";
+  if (hangul > 0) return "ko";
+  if (han > 0 && han >= latin) return "zh";
 
   if (arabic / total > 0.5) return "ar";
   if (devanagari / total > 0.5) return "hi";

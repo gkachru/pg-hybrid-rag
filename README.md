@@ -260,7 +260,7 @@ import {
   buildFilters, toRankedCandidate,
 } from "pg-hybrid-rag";
 
-detectLanguage("दौड़ते हुए जूते");                  // "hi"
+detectLanguage("दौड़ते हुए जूते");                  // "hi" (also: en/ar/hinglish, and zh/ja/ko for CJK)
 removeStopWords("the best phone", stops);          // "best phone"
 buildFtsQuery(query, synonymLookup);               // tsquery string (tsvector leg)
 buildBm25Query(query, synonymLookup);              // BM25 query string (pg_textsearch leg)
