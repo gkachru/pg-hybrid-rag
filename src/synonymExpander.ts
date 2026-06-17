@@ -45,6 +45,12 @@ function buildNgramKey(words: string[], start: number, len: number): string {
  * Supports multi-word synonym keys via longest-match-first sliding window.
  * Expansions are deduped and capped at 5 per key.
  * Returns the expanded query string for the keyword/FTS legs.
+ *
+ * Original query words are always emitted, preserving multiplicity — a word the
+ * user repeats survives so the term-frequency-ranked BM25 leg (which is built on
+ * this function via `buildBm25Query`) weights it accordingly. Only synonym
+ * EXPANSIONS are de-duped: an expansion is skipped if it restates a word the
+ * query already contains or one already appended, so we never inflate a synonym.
  */
 export function expandQueryWithSynonyms(query: string, lookup: SynonymLookup): string {
   const { merged, maxN: mergedMaxN } = mergeLookup(lookup);
@@ -54,7 +60,14 @@ export function expandQueryWithSynonyms(query: string, lookup: SynonymLookup): s
   const lowers = words.map((w) => w.toLowerCase());
   const maxN = Math.min(mergedMaxN, words.length);
   const result: string[] = [];
-  const seen = new Set<string>();
+  const queryWords = new Set(lowers);
+  const emittedExpansions = new Set<string>();
+
+  const pushExpansion = (exp: string) => {
+    if (queryWords.has(exp) || emittedExpansions.has(exp)) return;
+    result.push(exp);
+    emittedExpansions.add(exp);
+  };
 
   let i = 0;
   while (i < words.length) {
@@ -65,18 +78,12 @@ export function expandQueryWithSynonyms(query: string, lookup: SynonymLookup): s
       const key = buildNgramKey(lowers, i, n);
       const expansions = merged.get(key);
       if (expansions) {
-        // Emit all original words in the matched span
+        // Emit all original words in the matched span (multiplicity preserved)
         for (let j = i; j < i + n; j++) {
-          if (!seen.has(lowers[j])) {
-            result.push(words[j]);
-            seen.add(lowers[j]);
-          }
+          result.push(words[j]);
         }
         for (const exp of expansions) {
-          if (!seen.has(exp)) {
-            result.push(exp);
-            seen.add(exp);
-          }
+          pushExpansion(exp);
         }
         i += n;
         matched = true;
@@ -86,18 +93,11 @@ export function expandQueryWithSynonyms(query: string, lookup: SynonymLookup): s
 
     if (!matched) {
       // Single-word lookup
-      const lower = lowers[i];
-      if (!seen.has(lower)) {
-        result.push(words[i]);
-        seen.add(lower);
-      }
-      const expansions = merged.get(lower);
+      result.push(words[i]);
+      const expansions = merged.get(lowers[i]);
       if (expansions) {
         for (const exp of expansions) {
-          if (!seen.has(exp)) {
-            result.push(exp);
-            seen.add(exp);
-          }
+          pushExpansion(exp);
         }
       }
       i++;

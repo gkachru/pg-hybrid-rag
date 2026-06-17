@@ -103,6 +103,13 @@ describe("expandQueryWithSynonyms", () => {
       "I want cash on delivery cod",
     );
   });
+
+  it("preserves a repeated query word so BM25 term frequency is honored", () => {
+    // A legitimately repeated query word must survive (the BM25 leg ranks on
+    // term frequency). The synonym expansion is still de-duped across the query.
+    const lookup = makeLookup([{ lang: "en", term: "tv", expansions: ["television"] }]);
+    expect(expandQueryWithSynonyms("buy tv tv", lookup)).toBe("buy tv television tv");
+  });
 });
 
 describe("buildFtsQuery", () => {
@@ -208,5 +215,10 @@ describe("buildBm25Query", () => {
 
   it("drops terms that sanitize to empty", () => {
     expect(buildBm25Query("| & !", new Map())).toBe("");
+  });
+
+  it("preserves a repeated query word for term-frequency ranking", () => {
+    const lookup = makeLookup([{ lang: "en", term: "iphone", expansions: ["smartphone"] }]);
+    expect(buildBm25Query("iphone iphone case", lookup)).toBe("iphone smartphone iphone case");
   });
 });
