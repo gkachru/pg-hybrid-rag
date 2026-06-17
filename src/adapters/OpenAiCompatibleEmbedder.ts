@@ -31,11 +31,25 @@ class EmbeddingApiError extends Error {
   }
 }
 
+/**
+ * Error for a 200 response whose body does not match the expected embeddings shape
+ * (`{ data: Array<{ embedding: number[] }> }`). Non-retryable: the endpoint is
+ * misconfigured or speaks a different protocol, so retrying cannot help.
+ */
+class EmbeddingResponseError extends Error {
+  constructor(message: string) {
+    super(`Embedding API response error: ${message}`);
+    this.name = "EmbeddingResponseError";
+  }
+}
+
 /** Retry transient failures: rate limits (429), server errors (5xx), network errors, and timeouts. */
 function isRetryableError(err: unknown): boolean {
   if (err instanceof EmbeddingApiError) {
     return err.status === 429 || err.status >= 500;
   }
+  // A malformed 200 payload is a configuration problem, not a transient one.
+  if (err instanceof EmbeddingResponseError) return false;
   // Network failures surface as TypeError; aborted (timed-out) requests as AbortError.
   const name = (err as { name?: string } | null | undefined)?.name;
   return name === "AbortError" || name === "TypeError";
@@ -132,22 +146,37 @@ export class OpenAiCompatibleEmbedder implements EmbeddingProvider {
         throw new EmbeddingApiError(res.status, body);
       }
 
-      return this.parseEmbeddings(await res.json());
+      return this.parseEmbeddings(await res.json(), input.length);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
     }
   }
 
-  private parseEmbeddings(payload: unknown): number[][] {
-    const json = payload as {
-      data: Array<{ embedding: number[]; index?: number }>;
-    };
+  private parseEmbeddings(payload: unknown, expectedCount: number): number[][] {
+    // Validate the shape before touching it: a misconfigured endpoint can return 200
+    // with an unrelated body (`{ error }`, missing `data`, etc.). Without these guards
+    // the `.every`/`.map` calls below throw an opaque TypeError that isRetryableError
+    // would treat as transient and retry needlessly.
+    const data = (payload as { data?: unknown } | null | undefined)?.data;
+    if (!Array.isArray(data)) {
+      throw new EmbeddingResponseError("response is missing a `data` array");
+    }
+    if (data.length !== expectedCount) {
+      throw new EmbeddingResponseError(
+        `expected ${expectedCount} embedding(s) but received ${data.length}`,
+      );
+    }
+    const entries = data as Array<{ embedding?: unknown; index?: unknown }>;
+    if (!entries.every((d) => Array.isArray(d.embedding))) {
+      throw new EmbeddingResponseError("an entry is missing its `embedding` array");
+    }
+    const ordered = entries as Array<{ embedding: number[]; index?: number }>;
     // The OpenAI embeddings API tags each result with its input `index` and does NOT
     // guarantee `data` is returned in input order. Sort by `index` to keep embeddings
     // aligned with their inputs; fall back to response order if a server omits `index`.
-    const ordered = json.data.every((d) => typeof d.index === "number")
-      ? [...json.data].sort((a, b) => (a.index as number) - (b.index as number))
-      : json.data;
-    return ordered.map((d) => d.embedding);
+    const sorted = ordered.every((d) => typeof d.index === "number")
+      ? [...ordered].sort((a, b) => (a.index as number) - (b.index as number))
+      : ordered;
+    return sorted.map((d) => d.embedding);
   }
 }

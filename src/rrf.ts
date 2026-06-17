@@ -6,7 +6,13 @@ import type { RagResult, RankedCandidate } from "./types.js";
  */
 function parseMetadata(raw: string | null | undefined): Record<string, string> {
   try {
-    return JSON.parse(raw || "{}");
+    const parsed = JSON.parse(raw || "{}");
+    // Reject valid-but-non-object JSON (numbers, arrays, null) so it isn't returned
+    // typed as Record<string, string>. Library rows are always objects, but applyRRF is public.
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed;
+    }
+    return {};
   } catch {
     return {};
   }

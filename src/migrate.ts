@@ -22,27 +22,38 @@ export interface MigrateOptions {
  */
 /**
  * Split SQL text into statements on `;` at end-of-line,
- * but skip semicolons inside $$-delimited blocks (PL/pgSQL functions).
+ * but skip semicolons inside dollar-quoted blocks (PL/pgSQL functions).
+ *
+ * Handles both bare `$$` and named tags (`$func$`, `$do$`). A block opens on
+ * the first dollar-quote tag and closes only on the matching tag, so a body
+ * delimited by `$func$ … $func$` is preserved intact even if it contains
+ * line-ending semicolons or a differently-named nested tag (`$$`, `$other$`).
  */
 function splitStatements(text: string): string[] {
   const lines = text.split("\n");
   const statements: string[] = [];
   let current = "";
-  let inDollarBlock = false;
+  // The currently-open dollar-quote tag (e.g. "$$" or "$func$"), or null when
+  // outside any block. Open on the first tag seen, close only on a matching tag.
+  let openTag: string | null = null;
+  const tagPattern = /\$[A-Za-z_]\w*\$|\$\$/g;
 
   for (const line of lines) {
-    // Track $$ delimiters (toggle on each occurrence)
-    const dollarMatches = line.match(/\$\$/g);
-    if (dollarMatches) {
-      for (const _ of dollarMatches) {
-        inDollarBlock = !inDollarBlock;
+    // Scan dollar-quote tags left-to-right, opening/closing the block as we go.
+    for (const match of line.matchAll(tagPattern)) {
+      const tag = match[0];
+      if (openTag === null) {
+        openTag = tag;
+      } else if (tag === openTag) {
+        openTag = null;
       }
+      // A non-matching tag while a block is open is body text — ignore it.
     }
 
     current += (current ? "\n" : "") + line;
 
-    // Only split on trailing semicolons when outside $$ blocks
-    if (!inDollarBlock && line.trimEnd().endsWith(";")) {
+    // Only split on trailing semicolons when outside a dollar-quoted block.
+    if (openTag === null && line.trimEnd().endsWith(";")) {
       const stmt = current.trim();
       // Remove trailing semicolons for execution
       const clean = stmt.replace(/;\s*$/, "").trim();

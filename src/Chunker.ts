@@ -38,13 +38,15 @@ export interface ChunkerConfig {
 
 /**
  * Semantic recursive chunker.
- * Splits on paragraph boundaries first, then sentences, then fixed size.
+ * Splits on paragraph boundaries first, then sentences, then a hard fixed-size fallback
+ * for any sentence with no usable delimiter (long URL, CSV row, terminator-free CJK run),
+ * so no chunk is emitted uncapped and silently truncated server-side by the embedding API.
  * Overlap prepends the tail of the previous chunk to the next for context continuity.
  *
- * The size limit is a soft target, not a hard cap: a near-limit paragraph plus the
- * prepended overlap can yield a chunk slightly larger than the effective char limit.
- * A chunk that exceeds the embedding model's context window is truncated server-side,
- * so leave headroom when choosing `tokenLimit` / chunk size.
+ * At the paragraph and sentence levels the size limit is a soft target: a near-limit
+ * paragraph plus the prepended overlap (and any `prefixFn` label) can yield a chunk
+ * slightly larger than the effective char limit, so still leave headroom when choosing
+ * `tokenLimit` / chunk size.
  */
 export class Chunker implements ChunkingProvider {
   private chunkSize: number | undefined;
@@ -160,14 +162,26 @@ export class Chunker implements ChunkingProvider {
     for (const sentence of sentences) {
       if (buffer.length + sentence.length + 1 <= effectiveSize) {
         buffer = buffer ? `${buffer} ${sentence}` : sentence;
+        continue;
+      }
+
+      // Flush the buffer first so the oversized sentence starts fresh.
+      let pending = sentence;
+      if (buffer) {
+        chunks.push({ content: buffer.trim(), index: idx++, metadata });
+        const suffix = this.getOverlapSuffix(buffer.trim());
+        pending = suffix ? `${suffix} ${sentence}` : sentence;
+      }
+
+      // Hard fixed-size fallback: a single sentence with no usable delimiter
+      // (long URL, CSV row, terminator-free CJK run) is sliced to the limit so it
+      // is never emitted uncapped and silently truncated by the embedding API.
+      if (pending.length > effectiveSize) {
+        buffer = this.splitFixedSize(pending, effectiveSize, (content) => {
+          chunks.push({ content, index: idx++, metadata });
+        });
       } else {
-        if (buffer) {
-          chunks.push({ content: buffer.trim(), index: idx++, metadata });
-          const suffix = this.getOverlapSuffix(buffer.trim());
-          buffer = suffix ? `${suffix} ${sentence}` : sentence;
-        } else {
-          buffer = sentence;
-        }
+        buffer = pending;
       }
     }
 
@@ -176,5 +190,32 @@ export class Chunker implements ChunkingProvider {
     }
 
     return chunks;
+  }
+
+  /**
+   * Hard fixed-size slice for text with no usable delimiter. Emits the content of every
+   * complete `effectiveSize`-bounded slice via `emit` and returns the trailing remainder
+   * for the caller to merge with following content. Slices are taken on whole code points
+   * (so a surrogate pair is not split), and the configured overlap is carried from each
+   * slice into the next.
+   */
+  private splitFixedSize(
+    text: string,
+    effectiveSize: number,
+    emit: (content: string) => void,
+  ): string {
+    const codePoints = Array.from(text);
+    let slice = "";
+    for (const cp of codePoints) {
+      if (slice.length + cp.length > effectiveSize) {
+        emit(slice.trim());
+        // Seed the next slice with overlap, capped so it cannot consume the whole
+        // budget (which would stall forward progress).
+        const overlap = this.getOverlapSuffix(slice);
+        slice = overlap.length < effectiveSize ? overlap : "";
+      }
+      slice += cp;
+    }
+    return slice;
   }
 }

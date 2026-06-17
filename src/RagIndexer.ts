@@ -42,16 +42,26 @@ export class RagIndexer {
     const texts = chunks.map((c) => c.content);
     const embeddings = await this.embedder.embedDocuments(texts);
 
+    // Guard against an embedder that drops or duplicates inputs: a count mismatch
+    // would otherwise yield undefined embeddings or silently misaligned vectors.
+    if (embeddings.length !== chunks.length) {
+      throw new Error(
+        `Embedder returned ${embeddings.length} embeddings for ${chunks.length} chunks`,
+      );
+    }
+
     // Delete existing chunks for this source
     await this.db.deleteBySource(this.tenantId, sourceType, sourceId);
 
-    // Insert all chunks (Postgres handles stemming via tsvector trigger)
+    // Insert all chunks (Postgres handles stemming via tsvector trigger).
+    // Prefer each chunk's own language (the Chunker sizes chunks from it) so the
+    // tsvector trigger stems correctly and the `languages` filter stays accurate.
     const values = chunks.map((chunk, i) => ({
       sourceType,
       sourceId,
       chunkIndex: String(chunk.index),
       content: chunk.content,
-      language,
+      language: chunk.metadata.language ?? language,
       embedding: embeddings[i],
       metadata: JSON.stringify(chunk.metadata),
     }));

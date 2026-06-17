@@ -37,9 +37,9 @@ Three-way hybrid search fused via RRF:
 
 **Search** (`RagPipeline.search`): strip punctuation → normalize query → remove stop words → embed → run 3 parallel DB queries (with optional `languages` filter) → RRF fusion → optional relevance cutoff → optional cross-encoder reranking
 
-**Index** (`RagIndexer.index`): embed chunks → delete old chunks for source → insert into `rag_documents` (Postgres tsvector trigger handles stemming)
+**Index** (`RagIndexer.index`): embed chunks (asserting the embedder returned one vector per chunk) → delete old chunks for source → insert into `rag_documents`, stamping each row with its `chunk.metadata.language` (falling back to the `index()` `language` arg) so the tsvector trigger stems per-row
 
-**Chunk** (`Chunker.chunk`): split by paragraphs → sentences → fixed-size, with 75-char word-boundary overlap. Optionally prefixes chunks via a pluggable `prefixFn` callback. Supports token-limit mode (`new Chunker({ tokenLimit: 512 })`) with language-aware char-per-token heuristics for denser chunks.
+**Chunk** (`Chunker.chunk`): split by paragraphs → sentences → hard fixed-size fallback (slices a delimiter-free/oversized sentence on code-point boundaries so nothing is emitted uncapped), with 75-char word-boundary overlap. Optionally prefixes chunks via a pluggable `prefixFn` callback. Supports token-limit mode (`new Chunker({ tokenLimit: 512 })`) with language-aware char-per-token heuristics for denser chunks.
 
 ### Key files
 
@@ -66,7 +66,8 @@ Three-way hybrid search fused via RRF:
 | `src/adapters/sqlHelpers.ts` | Shared filter-clause + row-mapping helpers |
 | `sql/010_vectorchord.sql` | Optional vchordrq index (gated by `vectorchord`) |
 | `sql/011_pg_textsearch.sql` | Optional BM25 indexes (gated by `bm25`) |
-| `sql/001-011_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK) |
+| `sql/012_drop_dead_index.sql` | Drops the unused `content_stemmed` index + column (dead since migration 008) |
+| `sql/001-012_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK) |
 
 ## Design patterns
 
@@ -77,10 +78,11 @@ Three-way hybrid search fused via RRF:
 - **No runtime dependencies** — zero npm dependencies. Stemming handled by Postgres via `rag_fts_config()` SQL function.
 - **Postgres-native stemming** — tsvector trigger uses language-specific Postgres FTS configs (english, spanish, french, etc.). Languages without a native config fall back to `'simple'`.
 - **Optional CJK support** — pg_bigm for keyword search on Chinese/Japanese/Korean. Enabled via `{ cjk: true }` in migration and adapter constructor.
-- **Optional language scoping** — `languages` filter restricts all 3 search legs to specific document languages via `WHERE language = ANY(...)`. Omit for cross-language search (default). Uses `string_to_array($N::text, ',')` for driver-agnostic array parameter binding.
-- **Parallel search** — PostgresRagDatabase runs all 3 search legs concurrently via separate connections.
+- **Optional language scoping** — `languages` filter restricts all 3 search legs to specific document languages via `WHERE language = ANY(...)`. Omit for cross-language search (default). Uses `string_to_array($N::text, ',')` for driver-agnostic array parameter binding; because values are joined on `,` and re-split in SQL, `buildFilters` rejects any filter value containing a comma with a clear error rather than silently corrupting the filter.
+- **Parallel search** — PostgresRagDatabase runs all 3 search legs concurrently via separate connections (`Promise.all`, intentionally fail-fast: one leg's failure fails the whole search rather than returning partial results).
+- **Index-driving keyword search + per-query planner GUCs** — the keyword leg matches via the trigram word-similarity operators (`$2 <% content` for pg_trgm, `content =% $2` for pg_bigm) so the `gin_trgm_ops` / pg_bigm GIN indexes apply; a bare `word_similarity(a, b) > threshold` comparison can't be turned into an index condition. The keyword threshold and the vector leg's IVFFlat `ivfflat.probes` (constructor `ivfflatProbes`, default 10 — Postgres defaults to 1, which hurts recall) are applied transaction-locally via `set_config(name, $value, true)` inside a `BEGIN`/`COMMIT` (the GUC name is a trusted constant; only the value is bound). This requires `withConnection` to pin all queries to one connection.
 - **Batched embedding** — OpenAiCompatibleEmbedder splits texts into configurable batches (`batchSize`, default 32) with configurable concurrency (default 1, sequential).
-- **Resilient embedding** — OpenAiCompatibleEmbedder aborts each request after `timeoutMs` (default 30s, `0` disables) via AbortController, and retries transient failures (HTTP 429/5xx, network errors, timeouts) up to `maxRetries` times (default 2) with exponential backoff (`retryBaseDelayMs`, default 250ms). Non-retryable 4xx responses fail fast.
+- **Resilient embedding** — OpenAiCompatibleEmbedder aborts each request after `timeoutMs` (default 30s, `0` disables) via AbortController, and retries transient failures (HTTP 429/5xx, network errors, timeouts) up to `maxRetries` times (default 2) with exponential backoff (`retryBaseDelayMs`, default 250ms). Non-retryable 4xx responses fail fast. A 200 response whose body doesn't match `{ data: Array<{ embedding }> }` (wrong shape, missing `data`, or an embedding count mismatching the request) throws a non-retryable error instead of retrying on an opaque `TypeError`.
 - **Token-limit chunking** — Chunker accepts `{ tokenLimit }` and computes per-language char limits using heuristic chars-per-token ratios (0.8 safety margin). Produces denser chunks for Latin scripts (~3x vs flat char limit).
 - **Pluggable chunk prefix** — `prefixFn?: (metadata: Record<string, string>) => string | undefined` in `ChunkerConfig`. Called once per chunk batch; return a label (e.g. `[Name | Brand]`) or `undefined` to skip. Replaces the old hardcoded name/brand extraction.
 - **Pluggable chunker** — `ChunkingProvider` interface lets consumers swap in alternative chunking libraries (e.g. chonkie).
@@ -104,8 +106,8 @@ Three-way hybrid search fused via RRF:
 - Linter: Biome (`bun run lint`)
 - Strict TypeScript, no `any`
 - All SQL uses parameterized queries — never interpolate user input
-- Migration SQL splitter is `$$`-aware — semicolons inside PL/pgSQL function bodies are preserved
-- `CachingSynonymLoader` handles JSONB synonyms as both parsed arrays and raw JSON strings (driver-dependent)
+- Migration SQL splitter is dollar-quote-aware (bare `$$` and named tags like `$func$`/`$do$`; opens on the first tag, closes only on the matching tag) — semicolons inside PL/pgSQL function bodies are preserved
+- `CachingSynonymLoader` handles JSONB synonyms as both parsed arrays and raw JSON strings (driver-dependent); a malformed or non-array row is skipped per-row rather than failing the whole tenant load
 - Exports barrel: `src/index.ts` — all public API re-exported from here
 - Tests mock `RagDatabase`, `EmbeddingProvider`, and `RerankerProvider` interfaces — no real DB in tests
 - Language detection via Unicode character ranges, not external libraries

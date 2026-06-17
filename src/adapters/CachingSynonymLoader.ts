@@ -65,9 +65,23 @@ export class CachingSynonymLoader implements SynonymProvider {
       for (const row of rows) {
         const lang = row.language;
         const term = row.term.toLowerCase();
-        const rawSyns =
-          typeof row.synonyms === "string" ? (JSON.parse(row.synonyms) as string[]) : row.synonyms;
-        const syns = rawSyns.map((s) => s.toLowerCase());
+
+        // Guard the per-row JSON: a malformed value (unparseable string, non-array,
+        // non-string elements) skips only this row rather than rejecting the whole
+        // tenant load. Rejections aren't cached, so a throw here would make every
+        // search retry the failing query.
+        let rawSyns: unknown = row.synonyms;
+        if (typeof rawSyns === "string") {
+          try {
+            rawSyns = JSON.parse(rawSyns);
+          } catch {
+            continue;
+          }
+        }
+        if (!Array.isArray(rawSyns)) continue;
+        const syns = rawSyns
+          .filter((s): s is string => typeof s === "string")
+          .map((s) => s.toLowerCase());
 
         // Forward: term -> synonyms
         addMapping(lang, term, syns);

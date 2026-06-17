@@ -218,3 +218,57 @@ describe("Chunker prefixFn", () => {
     expect(chunks[0].content).toBe("[Widget | Acme] Some content.");
   });
 });
+
+describe("Chunker fixed-size fallback", () => {
+  it("caps a delimiter-free sentence longer than the limit", () => {
+    const c = new Chunker(50, 10);
+    // A single token with no spaces or sentence terminators.
+    const text = "x".repeat(200);
+    const chunks = c.chunk(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    // No chunk may exceed the limit (this is the hard fixed-size cap).
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeLessThanOrEqual(50);
+    }
+    // No content is dropped: stripped of overlap, the chunks reconstruct the input.
+    const joined = chunks.map((ch) => ch.content).join("");
+    expect(joined.length).toBeGreaterThanOrEqual(text.length);
+    expect(joined.replace(/[^x]/g, "")).toContain(text);
+  });
+
+  it("caps CJK text with no sentence terminators", () => {
+    const c = new Chunker(40, 8);
+    // CJK run with no 。！？ terminators and no spaces.
+    const text = "测".repeat(150);
+    const chunks = c.chunk(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeLessThanOrEqual(40);
+    }
+  });
+
+  it("caps a long URL embedded in normal prose", () => {
+    const c = new Chunker(60, 10);
+    const url = `https://example.com/${"a".repeat(200)}`;
+    const text = `See the link. ${url} Thanks.`;
+    const chunks = c.chunk(text);
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeLessThanOrEqual(60);
+    }
+    // The URL survives across chunks.
+    const joined = chunks.map((ch) => ch.content).join("");
+    expect(joined).toContain("a".repeat(50));
+  });
+
+  it("carries overlap across fixed-size slices", () => {
+    const c = new Chunker(50, 10);
+    const text = "y".repeat(160);
+    const chunks = c.chunk(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    // Consecutive slices of a single token overlap by the overlap window.
+    for (let i = 0; i < chunks.length - 1; i++) {
+      const tail = chunks[i].content.slice(-5);
+      expect(chunks[i + 1].content.startsWith(tail)).toBe(true);
+    }
+  });
+});

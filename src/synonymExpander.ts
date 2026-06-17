@@ -132,15 +132,20 @@ export function buildFtsQuery(query: string, lookup: SynonymLookup): string {
       const key = buildNgramKey(lowers, i, n);
       const expansions = merged.get(key);
       if (expansions && expansions.length > 0) {
-        // The matched phrase as a tsquery phrase
+        // The matched phrase as a tsquery phrase. If every word in the span
+        // sanitizes away (e.g. a synonym key of tsquery-special chars), drop
+        // the phrase so we never emit an invalid group like "( | cod)".
         const phraseTerms = words
           .slice(i, i + n)
           .map(sanitizeTsqueryTerm)
           .filter(Boolean);
-        const phrase = phraseTerms.join(" <-> ");
-        const terms = [phrase, ...expansions.map(sanitizeTsqueryExpansion).filter(Boolean)];
+        const phrase = phraseTerms.length > 0 ? phraseTerms.join(" <-> ") : "";
+        const terms = [phrase, ...expansions.map(sanitizeTsqueryExpansion)].filter(Boolean);
         const unique = [...new Set(terms)];
-        groups.push(unique.length > 1 ? `(${unique.join(" | ")})` : unique[0]);
+        // Skip the group entirely if nothing survived sanitization.
+        if (unique.length > 0) {
+          groups.push(unique.length > 1 ? `(${unique.join(" | ")})` : unique[0]);
+        }
         i += n;
         matched = true;
         break;

@@ -81,6 +81,66 @@ describe("OpenAiCompatibleEmbedder", () => {
   });
 });
 
+describe("OpenAiCompatibleEmbedder payload validation", () => {
+  let calls: number;
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  /** Install a mock fetch that returns a 200 response with the given JSON body. */
+  function installBody(body: unknown) {
+    calls = 0;
+    globalThis.fetch = mock(async () => {
+      calls++;
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+  }
+
+  function newEmbedder() {
+    return new OpenAiCompatibleEmbedder({
+      baseUrl: "http://embeddings.test/v1",
+      apiKey: "test-key",
+      model: "test-model",
+      retryBaseDelayMs: 0,
+      maxRetries: 2,
+    });
+  }
+
+  it("throws a descriptive error when the response has no data array", async () => {
+    installBody({ error: { message: "bad request" } });
+    await expect(newEmbedder().embedQuery("hi")).rejects.toThrow(/data/i);
+  });
+
+  it("does not retry an invalid payload shape", async () => {
+    // A misconfigured endpoint returning the wrong shape must fail fast, not retry.
+    installBody({ error: { message: "bad request" } });
+    await expect(newEmbedder().embedQuery("hi")).rejects.toThrow();
+    expect(calls).toBe(1);
+  });
+
+  it("throws when data is present but not an array", async () => {
+    installBody({ data: { embedding: [1] } });
+    await expect(newEmbedder().embedQuery("hi")).rejects.toThrow(/data/i);
+  });
+
+  it("throws when the returned embedding count does not match the input count", async () => {
+    // Two inputs requested, but only one embedding returned.
+    installBody({ data: [{ index: 0, embedding: [1] }] });
+    await expect(newEmbedder().embedDocuments(["a", "b"])).rejects.toThrow(
+      /count|length|expected/i,
+    );
+  });
+
+  it("throws when an entry is missing its embedding array", async () => {
+    installBody({ data: [{ index: 0 }] });
+    await expect(newEmbedder().embedQuery("hi")).rejects.toThrow();
+  });
+});
+
 describe("OpenAiCompatibleEmbedder timeout and retry", () => {
   let calls: number;
 

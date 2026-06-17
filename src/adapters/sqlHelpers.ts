@@ -15,8 +15,26 @@ export interface BuiltFilters {
 }
 
 /**
+ * Comma-join filter values for the string_to_array(...) round-trip.
+ * The values are bound as one comma-delimited text param and re-split in SQL, so a
+ * comma inside any value would corrupt the filter. Reject it loudly instead.
+ */
+function joinFilterValues(field: string, values: string[]): string {
+  for (const value of values) {
+    if (value.includes(",")) {
+      throw new Error(
+        `${field} filter values must not contain a comma (got ${JSON.stringify(value)}); ` +
+          "the string_to_array() binding splits on commas.",
+      );
+    }
+  }
+  return values.join(",");
+}
+
+/**
  * Build the shared source-type / source-id / language WHERE clauses.
  * Uses string_to_array(...) for driver-agnostic array binding (matches existing convention).
+ * Filter values must not contain commas — see {@link joinFilterValues}.
  *
  * @param filters which optional filters are active
  * @param startIdx the first $N placeholder index to use (i.e. baseParams.length + 1)
@@ -28,17 +46,17 @@ export function buildFilters(filters: SearchFilters, startIdx: number): BuiltFil
 
   if (filters.sourceTypes?.length) {
     clauses.push(`AND source_type = ANY(string_to_array($${idx}::text, ','))`);
-    params.push(filters.sourceTypes.join(","));
+    params.push(joinFilterValues("sourceTypes", filters.sourceTypes));
     idx++;
   }
   if (filters.sourceIds?.length) {
     clauses.push(`AND source_id::text = ANY(string_to_array($${idx}::text, ','))`);
-    params.push(filters.sourceIds.join(","));
+    params.push(joinFilterValues("sourceIds", filters.sourceIds));
     idx++;
   }
   if (filters.languages?.length) {
     clauses.push(`AND language = ANY(string_to_array($${idx}::text, ','))`);
-    params.push(filters.languages.join(","));
+    params.push(joinFilterValues("languages", filters.languages));
     idx++;
   }
 

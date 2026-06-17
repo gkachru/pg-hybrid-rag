@@ -95,6 +95,24 @@ describe("applyRRF", () => {
     expect(results[0].metadata).toEqual({});
   });
 
+  it("returns empty metadata for valid-but-non-object JSON", () => {
+    // applyRRF is public and may receive arbitrary rows. JSON that parses but is not a
+    // plain object (number, array, null) must not leak through typed as Record<string, string>.
+    for (const raw of ["42", "[1,2]", "null", '"a string"', "true"]) {
+      const results = applyRRF(
+        [
+          {
+            items: [{ id: "a", content: "A", sourceType: "faq", sourceId: "1", metadata: raw }],
+          },
+          { items: [] },
+        ],
+        60,
+        5,
+      );
+      expect(results[0].metadata).toEqual({});
+    }
+  });
+
   it("keeps distinct chunks that share identical content separate", () => {
     // Two different chunks (distinct ids) with byte-identical content must NOT be merged.
     const results = applyRRF(

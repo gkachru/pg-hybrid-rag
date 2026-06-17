@@ -31,6 +31,18 @@ describe("buildFilters", () => {
     expect(f.clause).toContain("language = ANY(string_to_array($5::text, ','))");
     expect(f.params).toEqual(["en"]);
   });
+
+  it("rejects a sourceType containing a comma with a clear error", () => {
+    expect(() => buildFilters({ sourceTypes: ["a,b"] }, 5)).toThrow(/sourceTypes.*comma/i);
+  });
+
+  it("rejects a sourceId containing a comma with a clear error", () => {
+    expect(() => buildFilters({ sourceIds: ["a,b"] }, 5)).toThrow(/sourceIds.*comma/i);
+  });
+
+  it("rejects a language containing a comma with a clear error", () => {
+    expect(() => buildFilters({ languages: ["en,hi"] }, 5)).toThrow(/languages.*comma/i);
+  });
 });
 
 describe("toRankedCandidate", () => {

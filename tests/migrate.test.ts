@@ -1,4 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SqlClient, TransactionProvider } from "../src/interfaces.js";
 import { ragMigrate } from "../src/migrate.js";
@@ -183,5 +185,126 @@ describe("ragMigrate", () => {
     expect(appliedMigrations).not.toContain("002_rag_documents.sql");
     expect(executedQueries).toContain("ROLLBACK");
     expect(executedQueries.filter((q) => q === "COMMIT").length).toBe(1);
+  });
+});
+
+/**
+ * Dollar-quote splitting: a function body delimited by a dollar-quote tag
+ * may contain line-ending semicolons that must NOT split the statement.
+ * These tests drive a fixture SQL dir through ragMigrate and assert that the
+ * body survives intact as a single executed statement.
+ */
+describe("ragMigrate dollar-quote splitting", () => {
+  /** Run a single fixture migration through ragMigrate and return the migration statements executed. */
+  async function runFixture(sql: string): Promise<string[]> {
+    const dir = mkdtempSync(join(tmpdir(), "pg-hybrid-rag-migrate-"));
+    try {
+      writeFileSync(join(dir, "100_fixture.sql"), sql);
+      const { client, executedQueries } = createMockClient();
+      await ragMigrate(client, { sqlDir: dir });
+      // Drop bookkeeping queries — keep only the migration body statements.
+      return executedQueries.filter((q) => !q.includes("_rag_migrations"));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("preserves a named dollar-tag body with line-ending semicolons intact", async () => {
+    const sql = [
+      "CREATE OR REPLACE FUNCTION f() RETURNS void AS $func$",
+      "BEGIN",
+      "  PERFORM 1;",
+      "  PERFORM 2;",
+      "END;",
+      "$func$ LANGUAGE plpgsql;",
+      "SELECT 1;",
+    ].join("\n");
+
+    const statements = await runFixture(sql);
+
+    // The whole function (open $func$ … close $func$) is one statement,
+    // not split on the internal `PERFORM 1;` / `PERFORM 2;` / `END;` lines.
+    const fnStmt = statements.find((s) => s.includes("$func$"));
+    expect(fnStmt).toBeDefined();
+    expect(fnStmt).toContain("PERFORM 1;");
+    expect(fnStmt).toContain("PERFORM 2;");
+    expect(fnStmt).toContain("END;");
+    expect(fnStmt).toContain("LANGUAGE plpgsql");
+    // The trailing SELECT is its own statement.
+    expect(statements).toContain("SELECT 1");
+    // Exactly two migration statements: the function and the SELECT.
+    expect(statements.length).toBe(2);
+  });
+
+  it("does not close a named block on a different dollar-tag", async () => {
+    // An inner bare `$$` must NOT terminate a `$do$`-opened block.
+    const sql = [
+      "DO $do$",
+      "BEGIN",
+      "  EXECUTE format('SELECT %L', $$inner;value$$);",
+      "  PERFORM 1;",
+      "END;",
+      "$do$;",
+      "SELECT 2;",
+    ].join("\n");
+
+    const statements = await runFixture(sql);
+
+    const doStmt = statements.find((s) => s.startsWith("DO $do$"));
+    expect(doStmt).toBeDefined();
+    expect(doStmt).toContain("$$inner;value$$");
+    expect(doStmt).toContain("PERFORM 1;");
+    expect(doStmt).toContain("END;");
+    expect(statements).toContain("SELECT 2");
+    expect(statements.length).toBe(2);
+  });
+
+  it("still preserves bare $$ blocks with internal semicolons", async () => {
+    const sql = [
+      "CREATE OR REPLACE FUNCTION g() RETURNS void AS $$",
+      "BEGIN",
+      "  PERFORM 1;",
+      "END;",
+      "$$ LANGUAGE plpgsql;",
+    ].join("\n");
+
+    const statements = await runFixture(sql);
+
+    expect(statements.length).toBe(1);
+    expect(statements[0]).toContain("PERFORM 1;");
+    expect(statements[0]).toContain("END;");
+  });
+
+  it("handles a mix of named and bare dollar-quote blocks in one file", async () => {
+    const sql = [
+      "CREATE FUNCTION a() RETURNS int AS $body$ SELECT 1; $body$ LANGUAGE sql;",
+      "CREATE FUNCTION b() RETURNS int AS $$ SELECT 2; $$ LANGUAGE sql;",
+      "INSERT INTO t VALUES (1);",
+    ].join("\n");
+
+    const statements = await runFixture(sql);
+
+    expect(statements.length).toBe(3);
+    expect(statements.some((s) => s.includes("$body$") && s.includes("SELECT 1;"))).toBe(true);
+    expect(statements.some((s) => s.includes("$$") && s.includes("SELECT 2;"))).toBe(true);
+    expect(statements).toContain("INSERT INTO t VALUES (1)");
+  });
+
+  it("treats distinct tags independently — a $a$ open is not closed by $b$", async () => {
+    const sql = [
+      "DO $a$",
+      "BEGIN",
+      "  PERFORM $b$ not a closer; still inside $b$;",
+      "  PERFORM 1;",
+      "END;",
+      "$a$;",
+    ].join("\n");
+
+    const statements = await runFixture(sql);
+
+    // The entire DO block is a single statement despite the embedded $b$…$b$ and semicolons.
+    expect(statements.length).toBe(1);
+    expect(statements[0]).toContain("$b$ not a closer; still inside $b$");
+    expect(statements[0]).toContain("PERFORM 1;");
   });
 });

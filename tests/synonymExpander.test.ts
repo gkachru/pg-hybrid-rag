@@ -155,6 +155,21 @@ describe("buildFtsQuery", () => {
     );
   });
 
+  it("drops an empty phrase when a multi-word key sanitizes to empty", () => {
+    // The synonym KEY is made of tsquery-special chars, so every word in the
+    // matched span sanitizes to "". The phrase must be dropped, leaving only
+    // the expansion — never emitting an invalid group like "( | cod)".
+    const lookup = makeLookup([{ lang: "en", term: "& |", expansions: ["cod"] }]);
+    expect(buildFtsQuery("& |", lookup)).toBe("cod");
+  });
+
+  it("skips a multi-word group entirely when no terms survive sanitization", () => {
+    // Both the matched span and its expansions sanitize to empty: the whole
+    // group must be skipped rather than emitting a stray empty group.
+    const lookup = makeLookup([{ lang: "en", term: "& |", expansions: ["!", "()"] }]);
+    expect(buildFtsQuery("& |", lookup)).toBe("");
+  });
+
   it("two-way synonym builds FTS for both directions", () => {
     const lookup = makeLookup([
       { lang: "en", term: "cod", expansions: ["cash on delivery"] },

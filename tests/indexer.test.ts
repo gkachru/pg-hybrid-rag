@@ -81,4 +81,68 @@ describe("RagIndexer", () => {
     await indexer.index("faq", "faq-1", chunks, "en");
     expect(deleteMock).toHaveBeenCalledWith("t-1", "faq", "faq-1");
   });
+
+  it("throws if the embedder returns a different number of vectors than chunks", async () => {
+    const droppingEmbedder = {
+      embedQuery: mock(async () => [0.1, 0.2]),
+      // Drops the last text — returns one fewer vector than chunks.
+      embedDocuments: mock(async (texts: string[]) => texts.slice(0, -1).map(() => [0.1, 0.2])),
+    };
+    const indexer = new RagIndexer({
+      tenantId: "t-1",
+      db: mockDb,
+      embedder: droppingEmbedder,
+    });
+    const chunks = [
+      { index: 0, content: "one", metadata: {} },
+      { index: 1, content: "two", metadata: {} },
+    ];
+
+    expect(indexer.index("product", "p-1", chunks, "en")).rejects.toThrow(
+      "Embedder returned 1 embeddings for 2 chunks",
+    );
+  });
+
+  it("does not insert when embedding counts mismatch", async () => {
+    const insertMock = mock(async () => {});
+    const db: RagDatabase = {
+      ...mockDb,
+      insertChunks: insertMock,
+    };
+    const droppingEmbedder = {
+      embedQuery: mock(async () => [0.1, 0.2]),
+      embedDocuments: mock(async () => [[0.1, 0.2]]),
+    };
+    const indexer = new RagIndexer({
+      tenantId: "t-1",
+      db,
+      embedder: droppingEmbedder,
+    });
+    const chunks = [
+      { index: 0, content: "one", metadata: {} },
+      { index: 1, content: "two", metadata: {} },
+    ];
+
+    await expect(indexer.index("product", "p-1", chunks, "en")).rejects.toThrow();
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it("prefers per-chunk metadata.language over the index() default", async () => {
+    capturedInsertChunks = [];
+    const indexer = new RagIndexer({
+      tenantId: "t-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+    });
+    const chunks = [
+      { index: 0, content: "hindi chunk", metadata: { language: "hi" } },
+      { index: 1, content: "default chunk", metadata: {} },
+    ];
+
+    await indexer.index("product", "p-1", chunks, "en");
+
+    const rows = capturedInsertChunks as Array<Record<string, unknown>>;
+    expect(rows[0].language).toBe("hi");
+    expect(rows[1].language).toBe("en");
+  });
 });
