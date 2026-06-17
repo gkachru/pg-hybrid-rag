@@ -51,7 +51,7 @@ export class PostgresRagDatabase implements RagDatabase {
         ];
         const f = buildFilters(params, 5);
         const sql = `
-          SELECT content, source_type, source_id, metadata,
+          SELECT id, content, source_type, source_id, metadata,
                  1 - (embedding <=> $2::vector) as score
           FROM rag_documents
           WHERE tenant_id = $1
@@ -75,7 +75,7 @@ export class PostgresRagDatabase implements RagDatabase {
         const f = buildFilters(params, 5);
         const similarityFn = useBigm ? "bigm_similarity" : "word_similarity";
         const sql = `
-          SELECT content, source_type, source_id, metadata,
+          SELECT id, content, source_type, source_id, metadata,
                  ${similarityFn}($2, content) as score
           FROM rag_documents
           WHERE tenant_id = $1

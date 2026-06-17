@@ -21,7 +21,7 @@ export class TsvectorFts implements FtsStrategy {
       : "plainto_tsquery(rag_fts_config($4), $2)";
 
     const sql = `
-          SELECT content, source_type, source_id, metadata,
+          SELECT id, content, source_type, source_id, metadata,
                  ts_rank_cd(content_tsvector, ${tsExpr}) as score
           FROM rag_documents
           WHERE tenant_id = $1

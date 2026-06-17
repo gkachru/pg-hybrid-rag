@@ -36,18 +36,31 @@ describe("buildFilters", () => {
 describe("toRankedCandidate", () => {
   it("maps a row, defaulting null metadata to '{}'", () => {
     expect(
-      toRankedCandidate({ content: "c", source_type: "faq", source_id: null, metadata: null }),
-    ).toEqual({ content: "c", sourceType: "faq", sourceId: null, metadata: "{}" });
+      toRankedCandidate({
+        id: "chunk-1",
+        content: "c",
+        source_type: "faq",
+        source_id: null,
+        metadata: null,
+      }),
+    ).toEqual({ id: "chunk-1", content: "c", sourceType: "faq", sourceId: null, metadata: "{}" });
   });
 
   it("preserves existing metadata", () => {
     expect(
       toRankedCandidate({
+        id: "chunk-2",
         content: "c",
         source_type: "faq",
         source_id: "1",
         metadata: '{"a":"b"}',
       }),
-    ).toEqual({ content: "c", sourceType: "faq", sourceId: "1", metadata: '{"a":"b"}' });
+    ).toEqual({
+      id: "chunk-2",
+      content: "c",
+      sourceType: "faq",
+      sourceId: "1",
+      metadata: '{"a":"b"}',
+    });
   });
 });

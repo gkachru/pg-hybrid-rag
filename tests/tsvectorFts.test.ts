@@ -59,13 +59,15 @@ describe("TsvectorFts", () => {
 
   it("maps rows to ranked candidates", async () => {
     const { client } = capturingClient([
-      { content: "c", source_type: "faq", source_id: "1", metadata: "{}" },
+      { id: "chunk-1", content: "c", source_type: "faq", source_id: "1", metadata: "{}" },
     ]);
     const res = await new TsvectorFts().search(client, {
       ...base,
       query: "phones",
       synonyms: new Map(),
     });
-    expect(res).toEqual([{ content: "c", sourceType: "faq", sourceId: "1", metadata: "{}" }]);
+    expect(res).toEqual([
+      { id: "chunk-1", content: "c", sourceType: "faq", sourceId: "1", metadata: "{}" },
+    ]);
   });
 });

@@ -37,13 +37,19 @@ let keywordRows = [...defaultKeywordRows];
 let ftsRows: typeof defaultVectorRows = [];
 let lastSearchParams: Record<string, unknown> = {};
 
+// RRF dedups by the chunk `id`. These fixtures identify a chunk by its sourceId
+// (the same chunk shares a sourceId across legs; distinct chunks differ), so derive
+// a stable id from it — falling back to a per-row key when sourceId is null.
+const withIds = (rows: typeof defaultVectorRows) =>
+  rows.map((r, i) => ({ ...r, id: r.sourceId ?? `null-${i}` }));
+
 const mockDb: RagDatabase = {
   hybridSearch: mock(async (params) => {
     lastSearchParams = params;
     return {
-      vectorRows: [...vectorRows],
-      keywordRows: [...keywordRows],
-      ftsRows: [...ftsRows],
+      vectorRows: withIds([...vectorRows]),
+      keywordRows: withIds([...keywordRows]),
+      ftsRows: withIds([...ftsRows]),
     };
   }),
   insertChunks: mock(async () => {}),

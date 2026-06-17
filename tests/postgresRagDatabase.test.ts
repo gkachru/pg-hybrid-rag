@@ -41,6 +41,15 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     expect(calls.some((c) => c.sql.includes("word_similarity($2, content)"))).toBe(true);
   });
 
+  it("selects the chunk id in the vector and keyword legs (for RRF dedup)", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider).hybridSearch(params);
+    const vectorLeg = calls.find((c) => c.sql.includes("embedding <=> $2::vector"));
+    const keywordLeg = calls.find((c) => c.sql.includes("word_similarity($2, content)"));
+    expect(vectorLeg?.sql).toContain("SELECT id, content");
+    expect(keywordLeg?.sql).toContain("SELECT id, content");
+  });
+
   it("uses bigm_similarity for CJK when cjk: true", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider, { cjk: true }).hybridSearch({

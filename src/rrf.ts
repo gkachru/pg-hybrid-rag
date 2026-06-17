@@ -18,8 +18,9 @@ export function applyRRF(
     const w = weights ? weights[legIdx] : 1;
     for (let rank = 0; rank < leg.items.length; rank++) {
       const item = leg.items[rank];
-      // Deduplicate by content (same chunk may appear in both legs)
-      const key = item.content;
+      // Deduplicate by stable chunk id (same chunk may appear in multiple legs).
+      // Keying on id — not content — keeps distinct chunks with identical text separate.
+      const key = item.id;
       const rrfScore = w / (rrfK + rank + 1);
 
       const existing = scoreMap.get(key);

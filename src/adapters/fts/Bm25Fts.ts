@@ -27,7 +27,7 @@ export class Bm25Fts implements FtsStrategy {
     const idxName = bm25IndexName(ctx.language);
 
     const sql = `
-          SELECT content, source_type, source_id, metadata,
+          SELECT id, content, source_type, source_id, metadata,
                  -(content <@> to_bm25query($2, '${idxName}')) as score
           FROM rag_documents
           WHERE tenant_id = $1

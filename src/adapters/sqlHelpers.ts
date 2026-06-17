@@ -48,6 +48,7 @@ export function buildFilters(filters: SearchFilters, startIdx: number): BuiltFil
 /** Map a raw DB row to a RankedCandidate (shared by every leg). */
 export function toRankedCandidate(row: Record<string, unknown>): RankedCandidate {
   return {
+    id: row.id as string,
     content: row.content as string,
     sourceType: row.source_type as string,
     sourceId: row.source_id as string | null,

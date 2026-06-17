@@ -7,14 +7,14 @@ describe("applyRRF", () => {
       [
         {
           items: [
-            { content: "A", sourceType: "faq", sourceId: "1", metadata: "{}" },
-            { content: "B", sourceType: "faq", sourceId: "2", metadata: "{}" },
+            { id: "A", content: "A", sourceType: "faq", sourceId: "1", metadata: "{}" },
+            { id: "B", content: "B", sourceType: "faq", sourceId: "2", metadata: "{}" },
           ],
         },
         {
           items: [
-            { content: "B", sourceType: "faq", sourceId: "2", metadata: "{}" },
-            { content: "C", sourceType: "faq", sourceId: "3", metadata: "{}" },
+            { id: "B", content: "B", sourceType: "faq", sourceId: "2", metadata: "{}" },
+            { id: "C", content: "C", sourceType: "faq", sourceId: "3", metadata: "{}" },
           ],
         },
       ],
@@ -31,9 +31,9 @@ describe("applyRRF", () => {
       [
         {
           items: [
-            { content: "A", sourceType: "faq", sourceId: "1", metadata: "{}" },
-            { content: "B", sourceType: "faq", sourceId: "2", metadata: "{}" },
-            { content: "C", sourceType: "faq", sourceId: "3", metadata: "{}" },
+            { id: "A", content: "A", sourceType: "faq", sourceId: "1", metadata: "{}" },
+            { id: "B", content: "B", sourceType: "faq", sourceId: "2", metadata: "{}" },
+            { id: "C", content: "C", sourceType: "faq", sourceId: "3", metadata: "{}" },
           ],
         },
         { items: [] },
@@ -57,6 +57,7 @@ describe("applyRRF", () => {
         {
           items: [
             {
+              id: "A",
               content: "A",
               sourceType: "faq",
               sourceId: "1",
@@ -72,12 +73,25 @@ describe("applyRRF", () => {
     expect(results[0].metadata).toEqual({ category: "returns" });
   });
 
+  it("keeps distinct chunks that share identical content separate", () => {
+    // Two different chunks (distinct ids) with byte-identical content must NOT be merged.
+    const results = applyRRF(
+      [
+        { items: [{ id: "x", content: "dup", sourceType: "faq", sourceId: "1", metadata: "{}" }] },
+        { items: [{ id: "y", content: "dup", sourceType: "faq", sourceId: "2", metadata: "{}" }] },
+      ],
+      60,
+      10,
+    );
+    expect(results).toHaveLength(2);
+  });
+
   it("vectorWeight biases ranking toward the weighted leg", () => {
     const vectorItems = [
-      { content: "Vector top", sourceType: "faq", sourceId: "v1", metadata: "{}" },
+      { id: "v1", content: "Vector top", sourceType: "faq", sourceId: "v1", metadata: "{}" },
     ];
     const keywordItems = [
-      { content: "Keyword top", sourceType: "faq", sourceId: "k1", metadata: "{}" },
+      { id: "k1", content: "Keyword top", sourceType: "faq", sourceId: "k1", metadata: "{}" },
     ];
 
     const highVector = applyRRF(
@@ -99,8 +113,8 @@ describe("applyRRF", () => {
 
   it("higher rrfK flattens rank differences", () => {
     const items = [
-      { content: "A", sourceType: "faq", sourceId: "1", metadata: "{}" },
-      { content: "B", sourceType: "faq", sourceId: "2", metadata: "{}" },
+      { id: "A", content: "A", sourceType: "faq", sourceId: "1", metadata: "{}" },
+      { id: "B", content: "B", sourceType: "faq", sourceId: "2", metadata: "{}" },
     ];
     const lowK = applyRRF([{ items }], 1, 10);
     const highK = applyRRF([{ items }], 200, 10);
@@ -113,9 +127,9 @@ describe("applyRRF", () => {
   it("supports 3 legs with weights", () => {
     const results = applyRRF(
       [
-        { items: [{ content: "V", sourceType: "faq", sourceId: "1", metadata: "{}" }] },
-        { items: [{ content: "K", sourceType: "faq", sourceId: "2", metadata: "{}" }] },
-        { items: [{ content: "F", sourceType: "faq", sourceId: "3", metadata: "{}" }] },
+        { items: [{ id: "V", content: "V", sourceType: "faq", sourceId: "1", metadata: "{}" }] },
+        { items: [{ id: "K", content: "K", sourceType: "faq", sourceId: "2", metadata: "{}" }] },
+        { items: [{ id: "F", content: "F", sourceType: "faq", sourceId: "3", metadata: "{}" }] },
       ],
       60,
       10,

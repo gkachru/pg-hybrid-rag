@@ -46,6 +46,8 @@ export type SynonymLookup = Map<string, Map<string, string[]>>;
 
 /** Internal candidate type used during RRF fusion. */
 export interface RankedCandidate {
+  /** Stable chunk id (rag_documents.id). Used as the RRF dedup key. */
+  id: string;
   content: string;
   sourceType: string;
   sourceId: string | null;
