@@ -262,7 +262,7 @@ describe("RagPipeline", () => {
     expect(results.length).toBeGreaterThan(0);
   });
 
-  it("stop words are applied when provider is set", async () => {
+  it("stop words are applied to the lexical legs but not the vector-leg embedding", async () => {
     const stopWords = {
       load: mock(async () => new Map([["en", new Set(["the", "in", "a"])]])),
       invalidate: mock(() => {}),
@@ -274,7 +274,31 @@ describe("RagPipeline", () => {
       stopWords,
     });
     await pipelineWithStops.search("the best phone in a store");
-    expect(mockEmbedQuery).toHaveBeenCalledWith("best phone store");
+    // Vector leg embeds the natural-language query — stop words preserved for dense retrieval
+    expect(mockEmbedQuery).toHaveBeenCalledWith("the best phone in a store");
+    // Keyword + FTS legs receive the stop-word-stripped query
+    expect(lastSearchParams.query).toBe("best phone store");
+  });
+
+  it("vector-leg embedding keeps normalizer output but not stop-word removal", async () => {
+    const stopWords = {
+      load: mock(async () => new Map([["en", new Set(["for"])]])),
+      invalidate: mock(() => {}),
+    };
+    const mockNormalizer = {
+      normalize: (text: string) => text.replace("thnx", "thanks"),
+    };
+    const pipelineWithStops = new RagPipeline({
+      tenantId: "tenant-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      stopWords,
+    });
+    await pipelineWithStops.search("thnx for help", { normalizer: mockNormalizer, language: "en" });
+    // Embedding: normalizer applied ("thnx"→"thanks"), stop word "for" preserved
+    expect(mockEmbedQuery).toHaveBeenCalledWith("thanks for help");
+    // Lexical legs: normalized AND stop word "for" removed
+    expect(lastSearchParams.query).toBe("thanks help");
   });
 
   it("falls back to original query when all words are stop words", async () => {
@@ -410,6 +434,8 @@ describe("RagPipeline", () => {
     await pipelineWithMerged.search("the best phone in a store");
     expect(loadMergedMock).toHaveBeenCalledWith("tenant-1");
     expect(stopWords.load).not.toHaveBeenCalled();
-    expect(mockEmbedQuery).toHaveBeenCalledWith("best phone store");
+    // Lexical legs get the stripped query; vector leg keeps the natural query
+    expect(lastSearchParams.query).toBe("best phone store");
+    expect(mockEmbedQuery).toHaveBeenCalledWith("the best phone in a store");
   });
 });

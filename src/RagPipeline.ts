@@ -107,8 +107,11 @@ export class RagPipeline {
           span.setAttribute("normalizerApplied", true);
         }
 
-        // Preserve full query for cross-encoder reranker (before stop-word stripping)
-        const rerankerQuery = searchQuery;
+        // Natural-language query (normalized, but NOT stop-word-stripped). Used for the
+        // dense vector embedding and the cross-encoder reranker: stop-word removal helps the
+        // lexical legs (trigram/FTS) but degrades dense retrieval with sentence-trained
+        // embedding models (e.g. e5), which expect natural language.
+        const naturalQuery = searchQuery;
 
         if (allStopWords.size > 0) {
           searchQuery = removeStopWords(searchQuery, allStopWords);
@@ -122,7 +125,8 @@ export class RagPipeline {
         const [queryEmbedding, synonymLookup] = await Promise.all([
           this.tracer.startActiveSpan("rag.embedQuery", async (embedSpan) => {
             try {
-              return await this.embedder.embedQuery(searchQuery);
+              // Embed the natural query (stop words preserved) — see naturalQuery above.
+              return await this.embedder.embedQuery(naturalQuery);
             } finally {
               embedSpan.end();
             }
@@ -186,7 +190,7 @@ export class RagPipeline {
             try {
               rerankSpan.setAttribute("inputCount", filtered.length);
               const reranked =
-                (await this.reranker?.rerank(rerankerQuery, filtered, opts.topK)) ?? filtered;
+                (await this.reranker?.rerank(naturalQuery, filtered, opts.topK)) ?? filtered;
               const minScore = opts.rerankerMinScore;
               const result = minScore ? reranked.filter((r) => r.score >= minScore) : reranked;
               rerankSpan.setAttribute("outputCount", result.length);
