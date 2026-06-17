@@ -40,7 +40,12 @@ function createReranker(rerankerUrl: string, batchSize = 8): RerankerProvider {
         batches.push(results.slice(i, i + batchSize));
       }
       const batchScores = await Promise.all(
-        batches.map((batch) => scoreBatch(query, batch.map((r) => r.content))),
+        batches.map((batch) =>
+          scoreBatch(
+            query,
+            batch.map((r) => r.content),
+          ),
+        ),
       );
       return batches
         .flatMap((batch, bi) => batch.map((r, j) => ({ ...r, score: batchScores[bi][j] })))

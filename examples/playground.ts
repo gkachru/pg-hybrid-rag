@@ -23,9 +23,9 @@ import {
   PostgresRagDatabase,
   RagIndexer,
   RagPipeline,
-  ragMigrate,
   type RagResult,
   type RerankerProvider,
+  ragMigrate,
   type SqlClient,
   type TransactionProvider,
 } from "../src/index.js";
@@ -178,7 +178,12 @@ function createReranker(
         batches.push(results.slice(i, i + batchSize));
       }
       const batchScores = await Promise.all(
-        batches.map((batch) => scoreBatch(query, batch.map((r) => r.content))),
+        batches.map((batch) =>
+          scoreBatch(
+            query,
+            batch.map((r) => r.content),
+          ),
+        ),
       );
       return batches
         .flatMap((batch, bi) => batch.map((r, j) => ({ ...r, score: batchScores[bi][j] })))
@@ -705,7 +710,9 @@ async function main() {
           rerank: true,
           rerankerMinRelativeScore: 0,
         });
-        console.log(`  Reranked scores (no cutoff): ${all.map((r) => r.score.toExponential(2)).join(", ")}`);
+        console.log(
+          `  Reranked scores (no cutoff): ${all.map((r) => r.score.toExponential(2)).join(", ")}`,
+        );
         // Default relative cutoff.
         const kept = await pipeline.search(q, {
           topK: 10,
@@ -716,7 +723,9 @@ async function main() {
         console.log(`  Kept by default relative cutoff (${kept.length}/${all.length}):`);
         for (const r of kept) {
           const snippet = r.content.slice(0, 80).replace(/\n/g, " ");
-          console.log(`    [${r.score.toExponential(2)}] ${r.sourceType}/${r.sourceId} — ${snippet}...`);
+          console.log(
+            `    [${r.score.toExponential(2)}] ${r.sourceType}/${r.sourceId} — ${snippet}...`,
+          );
         }
         console.log("");
       }
@@ -739,7 +748,9 @@ async function main() {
       } as const;
       console.log(`  Query: "${offTopicQ}" [en]`);
       const offAll = await pipeline.search(offTopicQ, { ...wideNet, rerankerMinRelativeScore: 0 });
-      console.log(`  Reranked scores (no cutoff): ${offAll.map((r) => r.score.toExponential(2)).join(", ")}`);
+      console.log(
+        `  Reranked scores (no cutoff): ${offAll.map((r) => r.score.toExponential(2)).join(", ")}`,
+      );
       const offRel = await pipeline.search(offTopicQ, { ...wideNet });
       console.log(
         `  Relative cutoff only (default 0.01): kept ${offRel.length}/${offAll.length} — best-of-garbage survives`,
