@@ -57,7 +57,7 @@ Three-way hybrid search fused via RRF:
 | `src/interfaces.ts` | Provider interfaces (SqlClient, EmbeddingProvider, RagDatabase, ChunkingProvider, etc.) |
 | `src/migrate.ts` | SQL migration runner |
 | `src/adapters/PostgresRagDatabase.ts` | Postgres adapter — 3-way search SQL, insert, delete, optional CJK |
-| `src/adapters/OpenAiCompatibleEmbedder.ts` | Fetch-based OpenAI-compatible embedding client with batched requests (`batchSize`, `concurrency`) |
+| `src/adapters/OpenAiCompatibleEmbedder.ts` | Fetch-based OpenAI-compatible embedding client with batched requests (`batchSize`, `concurrency`) and per-request timeout + retry-with-backoff (`timeoutMs`, `maxRetries`, `retryBaseDelayMs`) |
 | `src/adapters/CachingStopWordsLoader.ts` | 30s TTL per-tenant stop words cache |
 | `src/adapters/CachingSynonymLoader.ts` | 30s TTL per-tenant synonym cache |
 | `src/adapters/fts/TsvectorFts.ts` | Default FTS strategy (tsvector/tsquery) |
@@ -80,6 +80,7 @@ Three-way hybrid search fused via RRF:
 - **Optional language scoping** — `languages` filter restricts all 3 search legs to specific document languages via `WHERE language = ANY(...)`. Omit for cross-language search (default). Uses `string_to_array($N::text, ',')` for driver-agnostic array parameter binding.
 - **Parallel search** — PostgresRagDatabase runs all 3 search legs concurrently via separate connections.
 - **Batched embedding** — OpenAiCompatibleEmbedder splits texts into configurable batches (`batchSize`, default 32) with configurable concurrency (default 1, sequential).
+- **Resilient embedding** — OpenAiCompatibleEmbedder aborts each request after `timeoutMs` (default 30s, `0` disables) via AbortController, and retries transient failures (HTTP 429/5xx, network errors, timeouts) up to `maxRetries` times (default 2) with exponential backoff (`retryBaseDelayMs`, default 250ms). Non-retryable 4xx responses fail fast.
 - **Token-limit chunking** — Chunker accepts `{ tokenLimit }` and computes per-language char limits using heuristic chars-per-token ratios (0.8 safety margin). Produces denser chunks for Latin scripts (~3x vs flat char limit).
 - **Pluggable chunk prefix** — `prefixFn?: (metadata: Record<string, string>) => string | undefined` in `ChunkerConfig`. Called once per chunk batch; return a label (e.g. `[Name | Brand]`) or `undefined` to skip. Replaces the old hardcoded name/brand extraction.
 - **Pluggable chunker** — `ChunkingProvider` interface lets consumers swap in alternative chunking libraries (e.g. chonkie).
