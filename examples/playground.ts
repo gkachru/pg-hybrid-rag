@@ -30,14 +30,28 @@ import {
 
 // ── Config (from .env) ──────────────────────────────────────────────────────
 
-const DATABASE_URL = process.env.DATABASE_URL;
+function buildDatabaseUrl(): string {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  const user = process.env.POSTGRES_USER;
+  const password = process.env.POSTGRES_PASSWORD;
+  const db = process.env.POSTGRES_DB;
+  if (!user || !password || !db) {
+    console.error("Missing required env vars: POSTGRES_USER/PASSWORD/DB (or DATABASE_URL)");
+    process.exit(1);
+  }
+  const host = process.env.POSTGRES_HOST ?? "localhost";
+  const port = process.env.POSTGRES_PORT ?? "5432";
+  return `postgresql://${user}:${password}@${host}:${port}/${db}`;
+}
+
+const DATABASE_URL = buildDatabaseUrl();
 const EMBEDDING_BASE_URL = process.env.EMBEDDING_BASE_URL;
 const EMBEDDING_API_KEY = process.env.EMBEDDING_API_KEY ?? process.env.LLM_API_KEY;
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL;
 
-if (!DATABASE_URL || !EMBEDDING_BASE_URL || !EMBEDDING_API_KEY || !EMBEDDING_MODEL) {
+if (!EMBEDDING_BASE_URL || !EMBEDDING_API_KEY || !EMBEDDING_MODEL) {
   console.error(
-    "Missing required env vars: DATABASE_URL, EMBEDDING_BASE_URL, EMBEDDING_API_KEY (or LLM_API_KEY), EMBEDDING_MODEL",
+    "Missing required env vars: EMBEDDING_BASE_URL, EMBEDDING_API_KEY (or LLM_API_KEY), EMBEDDING_MODEL",
   );
   process.exit(1);
 }
