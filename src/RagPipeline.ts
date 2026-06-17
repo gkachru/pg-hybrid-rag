@@ -98,8 +98,14 @@ export class RagPipeline {
           allStopWords = new Set<string>();
         }
 
-        // Strip trailing punctuation from each word before matching
-        let searchQuery = query.toLowerCase().split(/\s+/).map(stripTrailingPunctuation).join(" ");
+        // Strip trailing punctuation from each word before matching. filter(Boolean) drops
+        // empty tokens from leading/trailing whitespace and words reduced to "" by stripping.
+        let searchQuery = query
+          .toLowerCase()
+          .split(/\s+/)
+          .map(stripTrailingPunctuation)
+          .filter(Boolean)
+          .join(" ");
 
         // The query's language for FTS stemming + normalization. Use the explicit option,
         // else infer it from a single-entry `languages` filter (so "search only Spanish docs"
@@ -188,7 +194,7 @@ export class RagPipeline {
         }
 
         // Cross-encoder reranking: reorder by joint query-document relevance
-        const shouldRerank = opts.rerank !== false && this.reranker != null;
+        const shouldRerank = opts.rerank === true && this.reranker != null;
 
         span.setAttribute("rerankerApplied", shouldRerank);
 

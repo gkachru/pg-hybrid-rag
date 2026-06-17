@@ -29,14 +29,25 @@ export interface EmbeddingProvider {
 
 /** Stop words provider (optional — search works without it). */
 export interface StopWordsProvider {
+  /**
+   * Load per-language stop words. The returned map and its sets may be a shared
+   * cached reference — treat as read-only; mutating them can corrupt the cache.
+   */
   load(tenantId: string): Promise<Map<string, Set<string>>>;
-  /** Optional pre-merged set across all languages (avoids per-search merging). */
+  /**
+   * Optional pre-merged set across all languages (avoids per-search merging).
+   * May be a shared cached reference — treat as read-only.
+   */
   loadMerged?(tenantId: string): Promise<Set<string>>;
   invalidate(tenantId: string): void;
 }
 
 /** Synonym provider (optional — FTS works without expansion). */
 export interface SynonymProvider {
+  /**
+   * Load the synonym lookup. The returned map may be a shared cached reference —
+   * treat as read-only; mutating it can corrupt the cache.
+   */
   load(tenantId: string): Promise<SynonymLookup>;
   invalidate(tenantId: string): void;
 }

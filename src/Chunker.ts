@@ -40,6 +40,11 @@ export interface ChunkerConfig {
  * Semantic recursive chunker.
  * Splits on paragraph boundaries first, then sentences, then fixed size.
  * Overlap prepends the tail of the previous chunk to the next for context continuity.
+ *
+ * The size limit is a soft target, not a hard cap: a near-limit paragraph plus the
+ * prepended overlap can yield a chunk slightly larger than the effective char limit.
+ * A chunk that exceeds the embedding model's context window is truncated server-side,
+ * so leave headroom when choosing `tokenLimit` / chunk size.
  */
 export class Chunker implements ChunkingProvider {
   private chunkSize: number | undefined;
