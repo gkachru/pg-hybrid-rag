@@ -42,7 +42,12 @@ describe("toRankedCandidate", () => {
 
   it("preserves existing metadata", () => {
     expect(
-      toRankedCandidate({ content: "c", source_type: "faq", source_id: "1", metadata: '{"a":"b"}' }),
+      toRankedCandidate({
+        content: "c",
+        source_type: "faq",
+        source_id: "1",
+        metadata: '{"a":"b"}',
+      }),
     ).toEqual({ content: "c", sourceType: "faq", sourceId: "1", metadata: '{"a":"b"}' });
   });
 });

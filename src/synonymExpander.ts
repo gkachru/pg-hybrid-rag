@@ -181,11 +181,7 @@ export function buildFtsQuery(query: string, lookup: SynonymLookup): string {
  */
 export function buildBm25Query(query: string, lookup: SynonymLookup): string {
   const expanded = expandQueryWithSynonyms(query, lookup);
-  return expanded
-    .split(/\s+/)
-    .map(sanitizeTsqueryTerm)
-    .filter(Boolean)
-    .join(" ");
+  return expanded.split(/\s+/).map(sanitizeTsqueryTerm).filter(Boolean).join(" ");
 }
 
 /** Strip characters that have special meaning in tsquery to prevent injection. */

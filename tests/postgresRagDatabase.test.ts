@@ -43,7 +43,10 @@ describe("PostgresRagDatabase.hybridSearch", () => {
 
   it("uses bigm_similarity for CJK when cjk: true", async () => {
     const { txProvider, calls } = recordingTx();
-    await new PostgresRagDatabase(txProvider, { cjk: true }).hybridSearch({ ...params, language: "ja" });
+    await new PostgresRagDatabase(txProvider, { cjk: true }).hybridSearch({
+      ...params,
+      language: "ja",
+    });
     expect(calls.some((c) => c.sql.includes("bigm_similarity($2, content)"))).toBe(true);
   });
 

@@ -11,10 +11,7 @@ let lastBody: { input: string[]; model: string };
  * embedding ([charCode]) and returns `data` in the order produced by `respond`.
  * `withIndex` controls whether each result carries an OpenAI-style `index` field.
  */
-function installFetch(opts: {
-  withIndex: boolean;
-  respond: <T>(items: T[]) => T[];
-}) {
+function installFetch(opts: { withIndex: boolean; respond: <T>(items: T[]) => T[] }) {
   globalThis.fetch = mock(async (_url: string, init: { body: string }) => {
     lastBody = JSON.parse(init.body);
     const data = lastBody.input.map((text, i) => ({
@@ -97,32 +94,30 @@ describe("OpenAiCompatibleEmbedder timeout and retry", () => {
   /** Install a mock fetch that walks `behaviors`, reusing the last entry once exhausted. */
   function installSequence(behaviors: Behavior[]) {
     calls = 0;
-    globalThis.fetch = mock(
-      async (_url: string, init: { body: string; signal?: AbortSignal }) => {
-        const behavior = behaviors[Math.min(calls, behaviors.length - 1)];
-        calls++;
-        if (behavior === "network") throw new TypeError("network failure");
-        if (behavior === "hang") {
-          return await new Promise<Response>((_resolve, reject) => {
-            init.signal?.addEventListener("abort", () =>
-              reject(new DOMException("aborted", "AbortError")),
-            );
-          });
-        }
-        if (behavior !== 200) {
-          return new Response(`error ${behavior}`, { status: behavior });
-        }
-        const body = JSON.parse(init.body) as { input: string[] };
-        const data = body.input.map((t, i) => ({
-          index: i,
-          embedding: [t.charCodeAt(t.length - 1)],
-        }));
-        return new Response(JSON.stringify({ data }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
+    globalThis.fetch = mock(async (_url: string, init: { body: string; signal?: AbortSignal }) => {
+      const behavior = behaviors[Math.min(calls, behaviors.length - 1)];
+      calls++;
+      if (behavior === "network") throw new TypeError("network failure");
+      if (behavior === "hang") {
+        return await new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
         });
-      },
-    ) as unknown as typeof fetch;
+      }
+      if (behavior !== 200) {
+        return new Response(`error ${behavior}`, { status: behavior });
+      }
+      const body = JSON.parse(init.body) as { input: string[] };
+      const data = body.input.map((t, i) => ({
+        index: i,
+        embedding: [t.charCodeAt(t.length - 1)],
+      }));
+      return new Response(JSON.stringify({ data }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
   }
 
   function newEmbedder(
@@ -172,8 +167,6 @@ describe("OpenAiCompatibleEmbedder timeout and retry", () => {
 
   it("aborts a request that exceeds the timeout", async () => {
     installSequence(["hang"]);
-    await expect(
-      newEmbedder({ timeoutMs: 10, maxRetries: 0 }).embedQuery("hi"),
-    ).rejects.toThrow();
+    await expect(newEmbedder({ timeoutMs: 10, maxRetries: 0 }).embedQuery("hi")).rejects.toThrow();
   });
 });

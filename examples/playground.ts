@@ -438,9 +438,7 @@ async function main() {
       bm25: USE_BM25,
       cjk: USE_CJK,
     });
-    console.log(
-      `   Done. (vectorchord=${USE_VECTORCHORD}, bm25=${USE_BM25}, cjk=${USE_CJK})\n`,
-    );
+    console.log(`   Done. (vectorchord=${USE_VECTORCHORD}, bm25=${USE_BM25}, cjk=${USE_CJK})\n`);
 
     // Step 3: Seed stop words & synonyms
     console.log("3. Seeding stop words & synonyms...");
@@ -452,7 +450,7 @@ async function main() {
     console.log("4. Indexing products...");
     const db = new PostgresRagDatabase(txProvider, {
       ...(USE_BM25 ? { fts: new Bm25Fts() } : {}),
-      ...(USE_CJK  ? { cjk: true }          : {}),
+      ...(USE_CJK ? { cjk: true } : {}),
     });
     const chunker = new Chunker({
       tokenLimit: 512,
