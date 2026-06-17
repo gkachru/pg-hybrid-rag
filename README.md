@@ -285,6 +285,12 @@ await ragMigrate(sqlClient, { cjk: true });           // also apply CJK (pg_bigm
 await ragMigrate(sqlClient, { rls: true, cjk: true }); // both
 ```
 
+**Atomic migrations:** `ragMigrate` also accepts a `TransactionProvider` (the same interface `PostgresRagDatabase` uses). When given one, each migration file's statements and its tracking-row insert run inside a single `withConnection` scope wrapped in `BEGIN`/`COMMIT`, rolling back on error so a failed migration never leaves a partial state. Provide a `withConnection` that yields a dedicated connection (e.g. `postgres(url, { max: 1 })` or `sql.reserve()`); a bare `SqlClient` keeps the legacy per-statement (non-atomic) behavior, since it can't guarantee a single session.
+
+```typescript
+await ragMigrate(migrationProvider); // each file applied atomically (BEGIN/COMMIT/ROLLBACK)
+```
+
 The `sql/` directory is auto-detected on all Node versions (18+) and module formats (ESM and CJS). If auto-detection fails, pass `sqlDir` explicitly:
 
 ```typescript

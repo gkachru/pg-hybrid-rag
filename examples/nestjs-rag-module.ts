@@ -61,6 +61,10 @@ async function runMigrations(prisma: {
   };
 
   await ragMigrate(client);
+  // The bare client above applies migrations per-statement (non-atomic). For atomic
+  // migrations (each file wrapped in BEGIN/COMMIT, rolled back on error), pass a
+  // TransactionProvider whose withConnection runs on a single connection — e.g. backed by
+  // prisma.$transaction((tx) => ...) so every statement uses the same session.
   // For CJK language support (Chinese, Japanese, Korean):
   // await ragMigrate(client, { cjk: true });
 }

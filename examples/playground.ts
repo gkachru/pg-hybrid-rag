@@ -103,7 +103,27 @@ function createAdapter(sql: postgres.Sql) {
     },
   };
 
-  return { sqlClient, txProvider, sql };
+  // Migrations run through a reserved single connection so each file's statements +
+  // tracking-row insert commit atomically (ragMigrate emits BEGIN/COMMIT/ROLLBACK when
+  // given a TransactionProvider). The pooled txProvider above can't guarantee one session.
+  const migrationProvider: TransactionProvider = {
+    async withConnection<T>(fn: (client: SqlClient) => Promise<T>): Promise<T> {
+      const reserved = await sql.reserve();
+      try {
+        const client: SqlClient = {
+          async query<R = Record<string, unknown>>(text: string, params: unknown[]): Promise<R[]> {
+            const result = await reserved.unsafe(text, params as postgres.MaybeRow[]);
+            return result as R[];
+          },
+        };
+        return await fn(client);
+      } finally {
+        reserved.release();
+      }
+    },
+  };
+
+  return { sqlClient, txProvider, migrationProvider, sql };
 }
 
 // ── Embedder ────────────────────────────────────────────────────────────────
@@ -407,12 +427,12 @@ async function main() {
   console.log("   Created.\n");
 
   const playgroundUrl = withDatabase(DATABASE_URL, PLAYGROUND_DB);
-  const { sqlClient, txProvider, sql } = createAdapter(postgres(playgroundUrl, { max: 5 }));
+  const { txProvider, migrationProvider, sql } = createAdapter(postgres(playgroundUrl, { max: 5 }));
 
   try {
     // Step 2: Run migrations (creates tables, indexes, triggers)
     console.log("2. Running migrations...");
-    await ragMigrate(sqlClient, {
+    await ragMigrate(migrationProvider, {
       sqlDir: fileURLToPath(new URL("../sql", import.meta.url)),
       vectorchord: USE_VECTORCHORD,
       bm25: USE_BM25,

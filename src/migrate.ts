@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { SqlClient } from "./interfaces.js";
+import type { SqlClient, TransactionProvider } from "./interfaces.js";
 
 export interface MigrateOptions {
   /** Apply RLS policies (migration 007). Default: false. */
@@ -58,14 +58,32 @@ function splitStatements(text: string): string[] {
   return statements;
 }
 
-export async function ragMigrate(client: SqlClient, options: MigrateOptions = {}): Promise<void> {
-  // Create tracking table if not exists
-  await client.query(
-    `CREATE TABLE IF NOT EXISTS _rag_migrations (
+function isTransactionProvider(x: SqlClient | TransactionProvider): x is TransactionProvider {
+  return typeof (x as TransactionProvider).withConnection === "function";
+}
+
+export async function ragMigrate(
+  clientOrProvider: SqlClient | TransactionProvider,
+  options: MigrateOptions = {},
+): Promise<void> {
+  // When a TransactionProvider is supplied, each migration file is applied atomically
+  // inside a single withConnection scope (BEGIN/COMMIT, ROLLBACK on error). A bare
+  // SqlClient keeps the legacy non-atomic behavior — it can't guarantee a single session,
+  // so emitting transaction control across pooled connections would be unsafe.
+  const transactional = isTransactionProvider(clientOrProvider);
+  const withConn: <T>(fn: (c: SqlClient) => Promise<T>) => Promise<T> = transactional
+    ? (fn) => (clientOrProvider as TransactionProvider).withConnection(fn)
+    : (fn) => fn(clientOrProvider as SqlClient);
+
+  // Create tracking table if not exists (idempotent — no transaction needed)
+  await withConn((client) =>
+    client.query(
+      `CREATE TABLE IF NOT EXISTS _rag_migrations (
       name TEXT PRIMARY KEY,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
-    [],
+      [],
+    ),
   );
 
   // Determine SQL directory via fallback chain:
@@ -108,10 +126,12 @@ export async function ragMigrate(client: SqlClient, options: MigrateOptions = {}
     .filter((f: string) => options.bm25 || !f.includes("textsearch"));
 
   // Get already-applied migrations
-  const applied = await client.query<{ name: string }>(`SELECT name FROM _rag_migrations`, []);
+  const applied = await withConn((client) =>
+    client.query<{ name: string }>(`SELECT name FROM _rag_migrations`, []),
+  );
   const appliedSet = new Set(applied.map((r) => r.name));
 
-  // Apply pending migrations
+  // Apply pending migrations — one withConnection scope (and one transaction) per file.
   for (const file of filesToApply) {
     if (appliedSet.has(file)) continue;
 
@@ -120,10 +140,25 @@ export async function ragMigrate(client: SqlClient, options: MigrateOptions = {}
     // Split on semicolons at end-of-line, but preserve $$-delimited blocks intact
     const statements = splitStatements(sql);
 
-    for (const stmt of statements) {
-      await client.query(stmt, []);
-    }
-
-    await client.query(`INSERT INTO _rag_migrations (name) VALUES ($1)`, [file]);
+    await withConn(async (client) => {
+      if (transactional) await client.query("BEGIN", []);
+      try {
+        for (const stmt of statements) {
+          await client.query(stmt, []);
+        }
+        await client.query(`INSERT INTO _rag_migrations (name) VALUES ($1)`, [file]);
+        if (transactional) await client.query("COMMIT", []);
+      } catch (err) {
+        if (transactional) {
+          // Best-effort rollback; surface the original error regardless.
+          try {
+            await client.query("ROLLBACK", []);
+          } catch {
+            // ignore rollback failure
+          }
+        }
+        throw err;
+      }
+    });
   }
 }
