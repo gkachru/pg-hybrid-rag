@@ -1,6 +1,18 @@
 import type { RagResult, RankedCandidate } from "./types.js";
 
 /**
+ * Parse a candidate's metadata JSON, falling back to {} on malformed input.
+ * applyRRF is public and may receive arbitrary rows, so a bad value must not throw.
+ */
+function parseMetadata(raw: string | null | undefined): Record<string, string> {
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Reciprocal Rank Fusion: merge ranked lists into a single score.
  * rrf_score(doc) = weight_i / (k + rank_i) for each leg where doc appears.
  * When no weights are provided, all legs are weighted equally at 1.
@@ -40,6 +52,6 @@ export function applyRRF(
       sourceType: candidate.sourceType,
       sourceId: candidate.sourceId,
       score,
-      metadata: JSON.parse(candidate.metadata || "{}"),
+      metadata: parseMetadata(candidate.metadata),
     }));
 }

@@ -73,6 +73,28 @@ describe("applyRRF", () => {
     expect(results[0].metadata).toEqual({ category: "returns" });
   });
 
+  it("returns empty metadata for malformed JSON instead of throwing", () => {
+    const results = applyRRF(
+      [
+        {
+          items: [
+            {
+              id: "a",
+              content: "A",
+              sourceType: "faq",
+              sourceId: "1",
+              metadata: "{not valid json",
+            },
+          ],
+        },
+        { items: [] },
+      ],
+      60,
+      5,
+    );
+    expect(results[0].metadata).toEqual({});
+  });
+
   it("keeps distinct chunks that share identical content separate", () => {
     // Two different chunks (distinct ids) with byte-identical content must NOT be merged.
     const results = applyRRF(
