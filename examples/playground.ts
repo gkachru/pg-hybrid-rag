@@ -759,11 +759,14 @@ async function main() {
       console.log(`${"─".repeat(80)}`);
     }
 
-    // Close playground connection before dropping
-    await sql.end();
+    // Close playground connection before dropping. Bounded timeout: if a search leg
+    // errored, hybridSearch's fail-fast Promise.all can reject while sibling legs are
+    // still in flight on reserved connections, and a bare sql.end() then waits on them
+    // forever. The timeout force-closes so an error surfaces instead of hanging cleanup.
+    await sql.end({ timeout: 5 });
   } catch (err) {
-    // Ensure connection is closed even on error
-    await sql.end().catch(() => {});
+    // Ensure the connection is closed even on error (same bounded timeout as above).
+    await sql.end({ timeout: 5 }).catch(() => {});
     throw err;
   }
 
