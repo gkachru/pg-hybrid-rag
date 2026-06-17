@@ -20,11 +20,18 @@ export interface RagSearchOptions {
   sourceTypes?: string[];
   /** Filter results to specific source IDs. */
   sourceIds?: string[];
-  /** Filter results to specific languages (e.g. ['en', 'hi']). Omit for cross-language search. */
+  /**
+   * Filter results to specific languages (e.g. ['en', 'hi']). Omit for cross-language search.
+   * If exactly one language is given and `language` is unset, it is also used as the query
+   * language for FTS stemming.
+   */
   languages?: string[];
   /** Drop results scoring below this fraction of the top result (0–1). */
   minRelevance?: number;
-  /** Language code for FTS stemming and keyword search (e.g. 'en', 'en-US', 'fr-FR'). */
+  /**
+   * Language code for FTS stemming and keyword search (e.g. 'en', 'en-US', 'fr-FR').
+   * Defaults to a single-entry `languages` filter when present, otherwise 'en'.
+   */
   language?: string;
   /** Optional normalizer for abbreviation expansion before search. */
   normalizer?: { normalize(text: string, language: string): string };

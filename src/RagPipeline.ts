@@ -100,9 +100,15 @@ export class RagPipeline {
         // Strip trailing punctuation from each word before matching
         let searchQuery = query.toLowerCase().split(/\s+/).map(stripTrailingPunctuation).join(" ");
 
+        // The query's language for FTS stemming + normalization. Use the explicit option,
+        // else infer it from a single-entry `languages` filter (so "search only Spanish docs"
+        // also stems the query as Spanish), else leave undefined until the search boundary.
+        const queryLanguage =
+          opts.language ?? (opts.languages?.length === 1 ? opts.languages[0] : undefined);
+
         // Apply NLP normalization (abbreviation expansion) before stop-word removal
-        if (opts.normalizer && opts.language) {
-          searchQuery = opts.normalizer.normalize(searchQuery, opts.language);
+        if (opts.normalizer && queryLanguage) {
+          searchQuery = opts.normalizer.normalize(searchQuery, queryLanguage);
           if (!searchQuery.trim()) searchQuery = query; // fallback if normalization empties query
           span.setAttribute("normalizerApplied", true);
         }
@@ -139,7 +145,7 @@ export class RagPipeline {
         span.setAttribute("synonymsApplied", synonymLookup.size > 0);
         const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
-        const language = opts.language ?? "en";
+        const language = queryLanguage ?? "en";
 
         // Run 3-way hybrid search
         const results = await this.tracer.startActiveSpan("rag.dbSearch", async (dbSpan) => {

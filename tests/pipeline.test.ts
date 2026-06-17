@@ -159,6 +159,34 @@ describe("RagPipeline", () => {
     expect(lastSearchParams.languages).toBeUndefined();
   });
 
+  it("infers query language from a single-entry languages filter when language is unset", async () => {
+    await pipeline.search("test", { languages: ["es"] });
+    expect(lastSearchParams.language).toBe("es");
+  });
+
+  it("does not infer query language when languages has multiple entries", async () => {
+    await pipeline.search("test", { languages: ["en", "hi"] });
+    expect(lastSearchParams.language).toBe("en");
+  });
+
+  it("explicit language takes precedence over a single-entry languages filter", async () => {
+    await pipeline.search("test", { languages: ["es"], language: "fr" });
+    expect(lastSearchParams.language).toBe("fr");
+  });
+
+  it("applies normalizer with the inferred language from a single-entry languages filter", async () => {
+    const normalizeCall: string[] = [];
+    const mockNormalizer = {
+      normalize: (text: string, lang: string) => {
+        normalizeCall.push(`${text}|${lang}`);
+        return text;
+      },
+    };
+    await pipeline.search("hola", { normalizer: mockNormalizer, languages: ["es"] });
+    expect(normalizeCall.length).toBe(1);
+    expect(normalizeCall[0]).toContain("|es");
+  });
+
   it("passes a synonymLookup to db.hybridSearch", async () => {
     await pipeline.search("test");
     expect(lastSearchParams.synonymLookup).toBeInstanceOf(Map);
