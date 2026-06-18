@@ -395,6 +395,12 @@ const PRODUCTS_ZH = [
 
 价格：¥4,788（标准版）、¥6,188（畅飞套装）。赠送128GB MicroSD卡。`,
   },
+  {
+    id: "00000000-0000-0000-0000-000000000043",
+    name: "小米手环9",
+    brand: "小米",
+    text: `小米手环9 智能运动手环。1.62英寸AMOLED彩色屏幕，50米防水，标准模式续航长达21天。支持150种运动模式，全天候心率与血氧监测。价格：¥249。颜色：曜石黑、象牙白。`,
+  },
 ];
 
 const FAQ_ZH = [
@@ -430,6 +436,12 @@ const PRODUCTS_JA = [
 スペック：耐衝撃構造、20気圧防水、ストップウォッチ（1/100秒）、タイマー、世界時計（31タイムゾーン）、LEDバックライト。サイズ：48.9×43.2×12.7mm、重量：51g。
 
 価格：¥19,800。カラー：ブラック、シルバー、ブルー。保証期間：1年間。電波受信局：日本（60kHz/40kHz）、アメリカ、イギリス、ドイツ、中国。`,
+  },
+  {
+    id: "00000000-0000-0000-0000-000000000053",
+    name: "シャープ 加湿空気清浄機 KI-NX75",
+    brand: "シャープ",
+    text: `シャープ 加湿空気清浄機 KI-NX75。プラズマクラスター搭載で空気を浄化。31畳まで対応、PM2.5対応の高性能フィルター。価格：¥49,800。`,
   },
 ];
 
@@ -621,11 +633,13 @@ async function main() {
       { q: "无人机续航时间", lang: "zh", desc: "ZH keyword" },
       { q: "退货政策", lang: "zh", desc: "ZH FAQ" },
       { q: "支持微信支付吗", lang: "zh", desc: "ZH FAQ semantic" },
+      { q: "小米手环防水续航", lang: "zh", desc: "ZH short-title exact (pg_bigm coverage)" },
       // Japanese (CJK — use --cjk for pg_bigm bigram keyword search)
       { q: "IH圧力炊飯器", lang: "ja", desc: "JA product keyword" },
       { q: "防水 ソーラー電波時計", lang: "ja", desc: "JA product semantic" },
       { q: "返品できますか", lang: "ja", desc: "JA FAQ keyword" },
       { q: "クレジットカードで支払えますか", lang: "ja", desc: "JA FAQ semantic" },
+      { q: "加湿空気清浄機", lang: "ja", desc: "JA short-title exact (pg_bigm coverage)" },
       // Cross-language (multilingual e5 should handle these)
       { q: "wireless earphones", lang: "en", desc: "EN→HI cross-lang" },
       { q: "coffee beans", lang: "en", desc: "EN→ES cross-lang" },
