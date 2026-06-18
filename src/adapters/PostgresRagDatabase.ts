@@ -11,11 +11,16 @@ const DEFAULT_IVFFLAT_PROBES = 10;
 /**
  * Internal candidate-generation floor for the CJK bigram index probe (`content =% $2`).
  * NOT the relevance threshold — relevance is the query-bigram coverage gate (keywordMinScore).
- * Kept low so the `=%` GIN probe never excludes a doc that meets the coverage threshold for
- * realistic chunk sizes (~512-token chunks ≈ ≤~500 bigrams; a coverage-0.35 match then has
- * symmetric similarity ≳ 0.002, comfortably above this floor). Verified empirically against pg_bigm.
+ *
+ * `=%` rechecks pg_bigm's SYMMETRIC similarity ≈ (shared bigrams / DISTINCT doc bigrams), so this
+ * floor must sit below the smallest similarity a coverage-passing match can have on the LARGEST
+ * chunk we index. bge-m3 allows 8192-token chunks (≈ up to ~8k distinct CJK bigrams): a coverage-
+ * 0.75 hit on an 8k-distinct-bigram chunk has similarity ≈ 7.5e-4 — which a 1e-3 floor silently
+ * DROPPED. It must also stay > 0: at exactly 0, `sim >= 0` holds for every row, so `=%` matches the
+ * whole table (no index selectivity). 1e-4 is the verified middle — it keeps coverage-passing
+ * matches for chunks up to ~20k distinct bigrams while still excluding non-sharers.
  */
-const CJK_BIGM_CANDIDATE_FLOOR = 0.001;
+const CJK_BIGM_CANDIDATE_FLOOR = 0.0001;
 
 export interface PostgresRagDatabaseOptions {
   /** Enable pg_bigm for CJK keyword search. Requires the pg_bigm extension. Default: false. */

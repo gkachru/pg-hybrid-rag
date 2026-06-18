@@ -139,7 +139,7 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     );
     expect(setCall?.sql).toContain("set_config('pg_bigm.similarity_limit'");
     // The GUC is the low candidate-generation floor, NOT the relevance threshold.
-    expect(setCall?.params).toContain("0.001");
+    expect(setCall?.params).toContain("0.0001");
     expect(setCall?.params).not.toContain(String(params.keywordMinScore));
   });
 
