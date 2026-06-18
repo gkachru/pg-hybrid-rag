@@ -634,6 +634,7 @@ async function main() {
       { q: "退货政策", lang: "zh", desc: "ZH FAQ" },
       { q: "支持微信支付吗", lang: "zh", desc: "ZH FAQ semantic" },
       { q: "小米手环防水续航", lang: "zh", desc: "ZH short-title exact (pg_bigm coverage)" },
+      { q: "防水", lang: "zh", desc: "ZH 2-char exact, mid-text (boundary-bigram fix)" },
       // Japanese (CJK — use --cjk for pg_bigm bigram keyword search)
       { q: "IH圧力炊飯器", lang: "ja", desc: "JA product keyword" },
       { q: "防水 ソーラー電波時計", lang: "ja", desc: "JA product semantic" },
