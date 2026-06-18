@@ -158,6 +158,42 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     expect(setCall?.params).toContain("25");
   });
 
+  // --- Finding #5(b): runTuned must NOT nest BEGIN/COMMIT when the consumer's withConnection
+  // already opened an interactive transaction (e.g. postgres.js withTenantSql doing SET LOCAL
+  // app.current_tenant_id for RLS). Opt out via { manageTransaction: false }: the planner GUCs
+  // still apply (set_config is_local=true) in the AMBIENT txn, but the adapter emits no
+  // BEGIN/COMMIT/ROLLBACK so it can't end the consumer's tenant transaction early. ---
+
+  it("wraps tuned legs in BEGIN/COMMIT by default (manages its own transaction)", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider).hybridSearch(params);
+    expect(calls.some((c) => c.sql === "BEGIN")).toBe(true);
+    expect(calls.some((c) => c.sql === "COMMIT")).toBe(true);
+  });
+
+  it("omits BEGIN/COMMIT/ROLLBACK with manageTransaction: false but still sets GUCs and runs the SELECTs", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider, { manageTransaction: false }).hybridSearch(params);
+    // No transaction control statements — the consumer's withConnection owns the transaction.
+    expect(calls.some((c) => c.sql === "BEGIN")).toBe(false);
+    expect(calls.some((c) => c.sql === "COMMIT")).toBe(false);
+    expect(calls.some((c) => c.sql === "ROLLBACK")).toBe(false);
+    // Planner GUCs are still applied transaction-locally (is_local=true) in the ambient txn.
+    expect(
+      calls.some((c) => c.sql.includes("set_config('ivfflat.probes'") && c.sql.includes("true")),
+    ).toBe(true);
+    expect(
+      calls.some(
+        (c) =>
+          c.sql.includes("set_config('pg_trgm.word_similarity_threshold'") &&
+          c.sql.includes("true"),
+      ),
+    ).toBe(true);
+    // The tuned SELECTs still ran on the ambient connection.
+    expect(calls.some((c) => c.sql.includes("embedding <=> $2::vector"))).toBe(true);
+    expect(calls.some((c) => c.sql.includes("word_similarity($2, content)"))).toBe(true);
+  });
+
   // --- Every bound parameter must be referenced by the SQL ---
   // Regression: the keyword leg bound keywordMinScore as an unreferenced $3 (its threshold
   // moved into a GUC), so Postgres rejected the statement at runtime with "could not determine
@@ -335,6 +371,88 @@ describe("PostgresRagDatabase.deleteBySource", () => {
   });
 });
 
+// --- replaceSource: re-index DELETE+INSERT must be ONE transaction so a failed INSERT can never
+// leave the source with the old chunks deleted and nothing in their place (silent data loss). ---
+
+describe("PostgresRagDatabase.replaceSource", () => {
+  const chunk = {
+    sourceType: "faq",
+    sourceId: "doc-1",
+    chunkIndex: "0",
+    content: "hi",
+    language: "en",
+    embedding: [0.1, 0.2, 0.3],
+    metadata: '{"k":"v"}',
+  };
+
+  it("emits BEGIN, DELETE, INSERT, COMMIT on one client in order (DELETE before INSERT, both in txn)", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider).replaceSource("t1", "faq", "doc-1", [chunk]);
+    const sqls = calls.map((c) => c.sql.trim());
+    expect(sqls[0]).toBe("BEGIN");
+    expect(
+      sqls.some((s) =>
+        s.startsWith(
+          "DELETE FROM rag_documents WHERE tenant_id = $1 AND source_type = $2 AND source_id = $3",
+        ),
+      ),
+    ).toBe(true);
+    expect(sqls.some((s) => s.startsWith("INSERT INTO rag_documents"))).toBe(true);
+    expect(sqls[sqls.length - 1]).toBe("COMMIT");
+    // DELETE precedes INSERT; both inside the txn (after BEGIN, before COMMIT).
+    const iDelete = sqls.findIndex((s) => s.startsWith("DELETE FROM rag_documents"));
+    const iInsert = sqls.findIndex((s) => s.startsWith("INSERT INTO rag_documents"));
+    expect(iDelete).toBeGreaterThan(0);
+    expect(iInsert).toBeGreaterThan(iDelete);
+    // DELETE scoped by tenant + source.
+    expect(calls.find((c) => c.sql.trim().startsWith("DELETE"))?.params).toEqual([
+      "t1",
+      "faq",
+      "doc-1",
+    ]);
+  });
+
+  it("rolls back and surfaces the original error when the INSERT throws (no COMMIT)", async () => {
+    const calls: string[] = [];
+    const client: SqlClient = {
+      query: async <T>(sql: string): Promise<T[]> => {
+        calls.push(sql);
+        if (sql.startsWith("INSERT INTO rag_documents")) throw new Error("insert boom");
+        return [] as T[];
+      },
+    };
+    const txProvider: TransactionProvider = {
+      withConnection: async <T>(fn: (c: SqlClient) => Promise<T>) => fn(client),
+    };
+    const err = await new PostgresRagDatabase(txProvider)
+      .replaceSource("t1", "faq", "doc-1", [chunk])
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe("insert boom");
+    expect(calls).toContain("BEGIN");
+    expect(calls.some((s) => s.startsWith("DELETE FROM rag_documents"))).toBe(true);
+    expect(calls).toContain("ROLLBACK");
+    expect(calls).not.toContain("COMMIT");
+  });
+
+  it("surfaces the original INSERT error even when the ROLLBACK itself fails", async () => {
+    const client: SqlClient = {
+      query: async <T>(sql: string): Promise<T[]> => {
+        if (sql === "ROLLBACK") throw new Error("rollback boom");
+        if (sql.startsWith("INSERT INTO rag_documents")) throw new Error("insert boom");
+        return [] as T[];
+      },
+    };
+    const txProvider: TransactionProvider = {
+      withConnection: async <T>(fn: (c: SqlClient) => Promise<T>) => fn(client),
+    };
+    const err = await new PostgresRagDatabase(txProvider)
+      .replaceSource("t1", "faq", "doc-1", [chunk])
+      .catch((e) => e);
+    expect((err as Error).message).toBe("insert boom");
+  });
+});
+
 // --- runTuned applies planner GUCs inside BEGIN/COMMIT and must ROLLBACK + rethrow the
 // ORIGINAL error if the tuned query fails — even if the ROLLBACK itself fails. ---
 
@@ -380,5 +498,22 @@ describe("PostgresRagDatabase tuned-leg error handling", () => {
     // The original SELECT error wins; the swallowed ROLLBACK failure must not mask it.
     expect(messages.some((m) => /select boom/.test(m))).toBe(true);
     expect(messages.some((m) => /rollback boom/.test(m))).toBe(false);
+  });
+
+  // --- Finding #5(b): with manageTransaction: false the adapter must NOT emit ROLLBACK on a
+  // tuned-leg failure. The consumer's withConnection owns the (interactive) transaction, so
+  // rolling back here would abort their SET LOCAL tenant GUC and any prior work — strictly worse
+  // than the original bug. Just rethrow and let the consumer's transaction handle cleanup. ---
+
+  it("does not emit ROLLBACK on a tuned-leg failure when manageTransaction: false (consumer owns rollback)", async () => {
+    const { txProvider, calls } = failingVectorTx();
+    const err = await new PostgresRagDatabase(txProvider, { manageTransaction: false })
+      .hybridSearch(params)
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(AggregateError);
+    expect((err as AggregateError).errors.some((e) => /select boom/.test(String(e?.message)))).toBe(
+      true,
+    );
+    expect(calls).not.toContain("ROLLBACK"); // consumer's transaction owns rollback
   });
 });

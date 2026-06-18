@@ -534,7 +534,14 @@ await indexer.index("product", productId, chunks, "en");
 ```typescript
 const txProvider: TransactionProvider = {
   withConnection: (fn) =>
-    fn({ query: (sql, params) => prisma.$queryRawUnsafe(sql, ...params) }),
+    // $transaction(fn) reserves ONE pooled connection for the whole callback, so the
+    // BEGIN / set_config(LOCAL) / SELECT / COMMIT that PostgresRagDatabase issues for the
+    // tuned search legs all land on the same connection (see the pinning note below).
+    // Use the interactive-transaction client `tx` here — a top-level prisma.$queryRawUnsafe
+    // would escape back to the pool and defeat the pinning.
+    prisma.$transaction((tx) =>
+      fn({ query: (sql, params) => tx.$queryRawUnsafe(sql, ...params) }),
+    ),
 };
 ```
 
@@ -546,7 +553,17 @@ const txProvider: TransactionProvider = {
     fn({ query: (text, params) => sql.unsafe(text, params) })
   ),
 };
+
+// withTenantSql opens its OWN interactive transaction (BEGIN + SET LOCAL app.current_tenant_id
+// for RLS). Construct the adapter with manageTransaction: false so the tuned search legs do NOT
+// nest their own BEGIN/COMMIT inside it — a nested BEGIN warns "transaction already in progress"
+// and the inner COMMIT would end the tenant transaction (and discard the SET LOCAL) mid-search.
+const db = new PostgresRagDatabase(txProvider, { manageTransaction: false });
 ```
+
+> **Connection pinning (required).** `withConnection` MUST run every query in its callback on a single, pinned connection. The search path applies planner GUCs transaction-locally (`ivfflat.probes`, trigram `word_similarity_threshold`); if a pooled provider hands out a different connection per query, those `SET LOCAL` settings land on a connection that the actual search query never uses — vector recall silently drops to `probes = 1` and you get stray "no transaction in progress" warnings. With node-postgres reserve the connection via `pool.connect()`; with Prisma wrap the callback in `prisma.$transaction(...)` as shown above. Indexing and delete are single-statement and unaffected, so this fails silently on search quality only.
+
+> **Transaction ownership (`manageTransaction`).** By default the tuned search legs wrap their `set_config` + SELECT in their own `BEGIN`/`COMMIT` (so the consumer's `withConnection` only needs to pin a connection, as with node-postgres `pool.connect()` or Prisma `$transaction`). When the provider itself opens an interactive transaction for RLS — e.g. postgres.js `withTenantSql` doing `SET LOCAL app.current_tenant_id` — construct the adapter with `new PostgresRagDatabase(txProvider, { manageTransaction: false })`. The legs then run `set_config(..., is_local => true)` and the SELECT in that ambient transaction (the GUCs stay transaction-local to it) and never issue `BEGIN`/`COMMIT`/`ROLLBACK`; on error they rethrow and the consumer's transaction owns rollback. RLS itself fails closed: the policies use the 2-arg `current_setting('app.current_tenant_id', true)`, so a connection that never set the tenant GUC matches zero rows instead of erroring.
 
 ## Default Adapters
 

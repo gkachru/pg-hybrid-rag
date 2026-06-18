@@ -19,6 +19,18 @@ export interface PostgresRagDatabaseOptions {
    * Ignored when the migration-010 vchordrq index is in use. Must be a positive integer.
    */
   ivfflatProbes?: number;
+  /**
+   * Whether the tuned search legs open their own `BEGIN`/`COMMIT` around the planner-GUC
+   * `set_config` calls + SELECT. Default: true. Set false when the consumer's `withConnection`
+   * ALREADY runs the callback inside an interactive transaction (e.g. a postgres.js
+   * `withTenantSql` that does `SET LOCAL app.current_tenant_id` for RLS): a nested `BEGIN` warns
+   * "there is already a transaction in progress" and the inner `COMMIT` would end the consumer's
+   * tenant transaction early (discarding its `SET LOCAL`). When false, the
+   * `set_config(..., is_local => true)` calls and the SELECT run in the AMBIENT transaction
+   * (the GUCs stay transaction-local to it), and rollback on error is the consumer's
+   * responsibility — the adapter rethrows without issuing ROLLBACK.
+   */
+  manageTransaction?: boolean;
 }
 
 /**
@@ -35,12 +47,14 @@ export class PostgresRagDatabase implements RagDatabase {
   private cjk: boolean;
   private fts: FtsStrategy;
   private ivfflatProbes: number;
+  private manageTransaction: boolean;
 
   constructor(txProvider: TransactionProvider, options?: PostgresRagDatabaseOptions) {
     this.txProvider = txProvider;
     this.cjk = options?.cjk ?? false;
     this.fts = options?.fts ?? new TsvectorFts();
     this.ivfflatProbes = options?.ivfflatProbes ?? DEFAULT_IVFFLAT_PROBES;
+    this.manageTransaction = options?.manageTransaction ?? true;
   }
 
   async hybridSearch(params: HybridSearchParams): Promise<{
@@ -172,6 +186,13 @@ export class PostgresRagDatabase implements RagDatabase {
    * what makes "LOCAL" meaningful, and only works when the consumer's withConnection pins all
    * queries in the callback to one connection (the documented contract for the search path;
    * pooled providers must reserve a connection per withConnection — see README).
+   *
+   * When `manageTransaction` is false the consumer's withConnection already opened an interactive
+   * transaction (e.g. postgres.js withTenantSql's `SET LOCAL app.current_tenant_id`), so we do NOT
+   * emit BEGIN/COMMIT (a nested BEGIN warns and the inner COMMIT would end the consumer's tenant
+   * transaction early). The set_config(..., is_local => true) stays transaction-local relative to
+   * that ambient transaction. On error we rethrow WITHOUT a ROLLBACK — issuing one would abort the
+   * consumer's whole interactive transaction (its SET LOCAL + any prior work); rollback is theirs.
    */
   private async runTuned(
     client: SqlClient,
@@ -179,6 +200,15 @@ export class PostgresRagDatabase implements RagDatabase {
     sql: string,
     params: unknown[],
   ): Promise<Record<string, unknown>[]> {
+    if (!this.manageTransaction) {
+      // Ambient-transaction mode: apply the GUCs (still is_local=true, scoped to the consumer's
+      // transaction) and run the SELECT directly, with no transaction control of our own.
+      for (const guc of gucs) {
+        await client.query(`SELECT set_config('${guc.name}', $1, true)`, [guc.value]);
+      }
+      return client.query<Record<string, unknown>>(sql, params);
+    }
+
     await client.query("BEGIN", []);
     try {
       for (const guc of gucs) {
@@ -197,6 +227,52 @@ export class PostgresRagDatabase implements RagDatabase {
     }
   }
 
+  /**
+   * Build the batch INSERT statement + flattened params for one chunk array. Shared by
+   * insertChunks and replaceSource so the placeholder/offset math and the $N::vector cast live
+   * in exactly one place. Callers must guard `chunks.length > 0` (an empty array would emit
+   * `VALUES ` with no rows). The embedding is serialized to a pgvector literal (`[a,b,c]`).
+   */
+  private buildInsert(
+    tenantId: string,
+    chunks: Array<{
+      sourceType: string;
+      sourceId: string;
+      chunkIndex: string;
+      content: string;
+      language: string;
+      embedding: number[];
+      metadata: string;
+    }>,
+  ): { sql: string; params: unknown[] } {
+    const params: unknown[] = [];
+    const valueClauses: string[] = [];
+
+    for (const chunk of chunks) {
+      const offset = params.length;
+      const embeddingStr = `[${chunk.embedding.join(",")}]`;
+      params.push(
+        tenantId,
+        chunk.sourceType,
+        chunk.sourceId,
+        chunk.chunkIndex,
+        chunk.content,
+        chunk.language,
+        embeddingStr,
+        chunk.metadata,
+      );
+      valueClauses.push(
+        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}::vector, $${offset + 8})`,
+      );
+    }
+
+    return {
+      sql: `INSERT INTO rag_documents (tenant_id, source_type, source_id, chunk_index, content, language, embedding, metadata)
+         VALUES ${valueClauses.join(", ")}`,
+      params,
+    };
+  }
+
   async insertChunks(
     tenantId: string,
     chunks: Array<{
@@ -212,32 +288,54 @@ export class PostgresRagDatabase implements RagDatabase {
     if (chunks.length === 0) return;
 
     return this.txProvider.withConnection(async (client) => {
-      const params: unknown[] = [];
-      const valueClauses: string[] = [];
+      const { sql, params } = this.buildInsert(tenantId, chunks);
+      await client.query(sql, params);
+    });
+  }
 
-      for (const chunk of chunks) {
-        const offset = params.length;
-        const embeddingStr = `[${chunk.embedding.join(",")}]`;
-        params.push(
-          tenantId,
-          chunk.sourceType,
-          chunk.sourceId,
-          chunk.chunkIndex,
-          chunk.content,
-          chunk.language,
-          embeddingStr,
-          chunk.metadata,
+  /**
+   * Atomically replace a source's chunks: DELETE the source's existing rows then INSERT the new
+   * ones inside a single BEGIN/COMMIT (ROLLBACK on error), pinned to one connection. Mirrors
+   * runTuned's transaction shape (no planner GUCs needed here). Re-indexing routes through this so
+   * a failed INSERT rolls the DELETE back rather than leaving the source with zero chunks — the
+   * old data gone and the new data never landed.
+   */
+  async replaceSource(
+    tenantId: string,
+    sourceType: string,
+    sourceId: string,
+    chunks: Array<{
+      sourceType: string;
+      sourceId: string;
+      chunkIndex: string;
+      content: string;
+      language: string;
+      embedding: number[];
+      metadata: string;
+    }>,
+  ): Promise<void> {
+    return this.txProvider.withConnection(async (client) => {
+      await client.query("BEGIN", []);
+      try {
+        await client.query(
+          `DELETE FROM rag_documents WHERE tenant_id = $1 AND source_type = $2 AND source_id = $3`,
+          [tenantId, sourceType, sourceId],
         );
-        valueClauses.push(
-          `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}::vector, $${offset + 8})`,
-        );
+        // Guard against a delete-only call (empty chunks would emit `VALUES ` with no rows). In
+        // practice RagIndexer.index returns early on empty chunks, so this is always >= 1 there.
+        if (chunks.length > 0) {
+          const { sql, params } = this.buildInsert(tenantId, chunks);
+          await client.query(sql, params);
+        }
+        await client.query("COMMIT", []);
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK", []);
+        } catch {
+          // ignore rollback failure; surface the original error
+        }
+        throw err;
       }
-
-      await client.query(
-        `INSERT INTO rag_documents (tenant_id, source_type, source_id, chunk_index, content, language, embedding, metadata)
-         VALUES ${valueClauses.join(", ")}`,
-        params,
-      );
     });
   }
 

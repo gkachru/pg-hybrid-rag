@@ -58,10 +58,13 @@ export function detectLanguage(text: string): string {
   if (total === 0) return "en";
 
   // CJK: kana ⇒ Japanese, Hangul ⇒ Korean (both decisive even alongside Latin);
-  // Han with neither is treated as Chinese when it carries at least half the script.
+  // Han with neither is treated as Chinese when it is at least half of the total
+  // script count. Comparing against `total` (not just `latin`) keeps a stray Han
+  // ideograph from hijacking clearly Arabic- or Devanagari-dominant text, where
+  // `latin` is 0 and `han >= latin` would otherwise always win.
   if (kana > 0) return "ja";
   if (hangul > 0) return "ko";
-  if (han > 0 && han >= latin) return "zh";
+  if (han > 0 && han / total >= 0.5) return "zh";
 
   if (arabic / total > 0.5) return "ar";
   if (devanagari / total > 0.5) return "hi";

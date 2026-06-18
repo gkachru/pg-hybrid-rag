@@ -8,6 +8,7 @@ export { TsvectorFts } from "./adapters/fts/TsvectorFts.js";
 export type { OpenAiCompatibleEmbedderConfig } from "./adapters/OpenAiCompatibleEmbedder.js";
 export {
   EmbeddingApiError,
+  EmbeddingResponseError,
   OpenAiCompatibleEmbedder,
 } from "./adapters/OpenAiCompatibleEmbedder.js";
 export type { PostgresRagDatabaseOptions } from "./adapters/PostgresRagDatabase.js";

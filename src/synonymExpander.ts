@@ -64,9 +64,20 @@ export function expandQueryWithSynonyms(query: string, lookup: SynonymLookup): s
   const emittedExpansions = new Set<string>();
 
   const pushExpansion = (exp: string) => {
-    if (queryWords.has(exp) || emittedExpansions.has(exp)) return;
-    result.push(exp);
-    emittedExpansions.add(exp);
+    // De-dup a (possibly multi-word) expansion per COMPONENT word, not as a whole
+    // phrase: a synonym that restates a word the query already contains — or one an
+    // earlier expansion already appended — must not re-add that word, or buildBm25Query
+    // (which re-splits this string) would count it twice and bias the term-frequency
+    // -ranked BM25 leg. Original query words are emitted by the spans below and are
+    // never routed through here, so the user's own multiplicity is preserved.
+    const kept: string[] = [];
+    for (const w of exp.split(/\s+/).filter(Boolean)) {
+      const lw = w.toLowerCase();
+      if (queryWords.has(lw) || emittedExpansions.has(lw)) continue;
+      emittedExpansions.add(lw);
+      kept.push(w);
+    }
+    if (kept.length > 0) result.push(kept.join(" "));
   };
 
   let i = 0;

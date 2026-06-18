@@ -28,7 +28,8 @@ export class RagIndexer {
 
   /**
    * Index chunks into rag_documents.
-   * Deletes existing chunks for the same source before inserting.
+   * Atomically replaces existing chunks for the same source (DELETE + INSERT in one transaction)
+   * so a failed insert can't leave the source with its old chunks deleted and nothing in place.
    */
   async index(
     sourceType: string,
@@ -50,10 +51,7 @@ export class RagIndexer {
       );
     }
 
-    // Delete existing chunks for this source
-    await this.db.deleteBySource(this.tenantId, sourceType, sourceId);
-
-    // Insert all chunks (Postgres handles stemming via tsvector trigger).
+    // Build the chunk rows (Postgres handles stemming via tsvector trigger).
     // Prefer each chunk's own language (the Chunker sizes chunks from it) so the
     // tsvector trigger stems correctly and the `languages` filter stays accurate.
     const values = chunks.map((chunk, i) => ({
@@ -66,7 +64,10 @@ export class RagIndexer {
       metadata: JSON.stringify(chunk.metadata),
     }));
 
-    await this.db.insertChunks(this.tenantId, values);
+    // Replace the source's chunks atomically: the DELETE of the old chunks and the INSERT of the
+    // new ones happen in one transaction, so a failed INSERT rolls the DELETE back rather than
+    // leaving the source empty (silent data loss on a routine re-index).
+    await this.db.replaceSource(this.tenantId, sourceType, sourceId, values);
 
     this.logger.info(
       { tenantId: this.tenantId, sourceType, sourceId, chunks: chunks.length },

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { OpenAiCompatibleEmbedder } from "../src/adapters/OpenAiCompatibleEmbedder.js";
-import { EmbeddingApiError } from "../src/index.js";
+import { EmbeddingApiError, EmbeddingResponseError } from "../src/index.js";
 
 const realFetch = globalThis.fetch;
 
@@ -139,6 +139,42 @@ describe("OpenAiCompatibleEmbedder payload validation", () => {
   it("throws when an entry is missing its embedding array", async () => {
     installBody({ data: [{ index: 0 }] });
     await expect(newEmbedder().embedQuery("hi")).rejects.toThrow();
+  });
+
+  it("rejects duplicate index values instead of silently misaligning", async () => {
+    installBody({
+      data: [
+        { index: 0, embedding: [1] },
+        { index: 0, embedding: [2] },
+      ],
+    });
+    await expect(newEmbedder().embedDocuments(["a", "b"])).rejects.toBeInstanceOf(
+      EmbeddingResponseError,
+    );
+  });
+
+  it("rejects sparse (out-of-range) index values", async () => {
+    installBody({
+      data: [
+        { index: 0, embedding: [1] },
+        { index: 2, embedding: [2] },
+      ],
+    });
+    await expect(newEmbedder().embedDocuments(["a", "b"])).rejects.toBeInstanceOf(
+      EmbeddingResponseError,
+    );
+  });
+
+  it("rejects a response that mixes indexed and non-indexed entries", async () => {
+    installBody({ data: [{ index: 0, embedding: [1] }, { embedding: [2] }] });
+    await expect(newEmbedder().embedDocuments(["a", "b"])).rejects.toBeInstanceOf(
+      EmbeddingResponseError,
+    );
+  });
+
+  it("rejects embedding arrays whose elements are not finite numbers", async () => {
+    installBody({ data: [{ index: 0, embedding: ["a", "b"] }] });
+    await expect(newEmbedder().embedQuery("hi")).rejects.toBeInstanceOf(EmbeddingResponseError);
   });
 });
 

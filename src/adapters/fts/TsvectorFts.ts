@@ -10,7 +10,17 @@ import { buildFilters, toRankedCandidate } from "../sqlHelpers.js";
 export class TsvectorFts implements FtsStrategy {
   async search(client: SqlClient, ctx: FtsContext): Promise<RankedCandidate[]> {
     const ftsQueryStr = buildFtsQuery(ctx.query, ctx.synonyms);
-    const useTsquery = ftsQueryStr.includes("|") || ftsQueryStr.includes("&");
+    // buildFtsQuery is the sole producer of ftsQueryStr, so we infer "this is a
+    // tsquery, not free text" from the operators it emits: `|` (synonym OR group),
+    // `&` (multi-term AND), and `<->` (phrase match). The phrase case is easy to
+    // miss: a multi-word synonym key whose alternatives all collapse to the key
+    // itself yields a phrase-only string like "apple <-> watch" with no | or &.
+    // That is still a tsquery and must go through to_tsquery — plainto_tsquery
+    // would re-tokenize the raw query and AND the tokens, dropping the adjacency
+    // the phrase operator encodes. (An empty string sanitizes to none of these,
+    // so it correctly falls through to plainto_tsquery(ctx.query) below.)
+    const useTsquery =
+      ftsQueryStr.includes("|") || ftsQueryStr.includes("&") || ftsQueryStr.includes("<->");
 
     // base params: $1 tenant, $2 query-string, $3 limit, $4 language -> filters start at $5
     const queryArg = useTsquery ? ftsQueryStr : ctx.query;

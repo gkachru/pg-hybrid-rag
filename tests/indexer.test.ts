@@ -19,6 +19,10 @@ const mockDb: RagDatabase = {
     capturedInsertChunks = chunks;
   }),
   deleteBySource: mock(async () => {}),
+  // index() now writes via replaceSource (atomic delete+insert); capture the chunk values it passes.
+  replaceSource: mock(async (_tenantId, _sourceType, _sourceId, chunks) => {
+    capturedInsertChunks = chunks;
+  }),
 };
 
 describe("RagIndexer", () => {
@@ -66,20 +70,29 @@ describe("RagIndexer", () => {
     expect(result).toBe(0);
   });
 
-  it("calls deleteBySource before inserting", async () => {
+  it("replaces the source atomically (single replaceSource call, not separate delete+insert)", async () => {
+    const replaceMock = mock(async () => {});
+    const insertMock = mock(async () => {});
     const deleteMock = mock(async () => {});
     const db: RagDatabase = {
       ...mockDb,
+      replaceSource: replaceMock,
+      insertChunks: insertMock,
       deleteBySource: deleteMock,
     };
-    const indexer = new RagIndexer({
-      tenantId: "t-1",
-      db,
-      embedder: mockEmbedder,
-    });
+    const indexer = new RagIndexer({ tenantId: "t-1", db, embedder: mockEmbedder });
     const chunks = [{ index: 0, content: "test", metadata: {} }];
     await indexer.index("faq", "faq-1", chunks, "en");
-    expect(deleteMock).toHaveBeenCalledWith("t-1", "faq", "faq-1");
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+    const [tenantId, sourceType, sourceId, values] = replaceMock.mock.calls[0];
+    expect(tenantId).toBe("t-1");
+    expect(sourceType).toBe("faq");
+    expect(sourceId).toBe("faq-1");
+    expect(values).toHaveLength(1);
+    expect((values[0] as Record<string, unknown>).content).toBe("test");
+    // index() no longer issues a standalone delete+insert (atomicity is the point).
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(deleteMock).not.toHaveBeenCalled();
   });
 
   it("throws if the embedder returns a different number of vectors than chunks", async () => {
@@ -103,11 +116,13 @@ describe("RagIndexer", () => {
     );
   });
 
-  it("does not insert when embedding counts mismatch", async () => {
+  it("does not write when embedding counts mismatch", async () => {
     const insertMock = mock(async () => {});
+    const replaceMock = mock(async () => {});
     const db: RagDatabase = {
       ...mockDb,
       insertChunks: insertMock,
+      replaceSource: replaceMock,
     };
     const droppingEmbedder = {
       embedQuery: mock(async () => [0.1, 0.2]),
@@ -123,8 +138,10 @@ describe("RagIndexer", () => {
       { index: 1, content: "two", metadata: {} },
     ];
 
+    // The embedding-count guard throws before any DB write — neither write path runs.
     await expect(indexer.index("product", "p-1", chunks, "en")).rejects.toThrow();
     expect(insertMock).not.toHaveBeenCalled();
+    expect(replaceMock).not.toHaveBeenCalled();
   });
 
   it("prefers per-chunk metadata.language over the index() default", async () => {

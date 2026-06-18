@@ -38,6 +38,18 @@ describe("TsvectorFts", () => {
     expect(calls[0].params[3]).toBe("en");
   });
 
+  it("uses to_tsquery for a phrase-only synonym query and passes the built phrase string", async () => {
+    const { client, calls } = capturingClient();
+    // Two-way synonym whose expansion restates the key -> buildFtsQuery collapses
+    // the OR group to a single phrase term: "apple <-> watch" (no | and no &).
+    const synonyms = makeLookup([{ lang: "en", term: "apple watch", expansions: ["apple watch"] }]);
+    await new TsvectorFts().search(client, { ...base, query: "apple watch", synonyms });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toContain("to_tsquery(rag_fts_config($4), $2)");
+    expect(calls[0].sql).not.toContain("plainto_tsquery");
+    expect(calls[0].params[1]).toBe("apple <-> watch");
+  });
+
   it("uses plainto_tsquery with the raw query for single-term no-synonym queries", async () => {
     const { client, calls } = capturingClient();
     await new TsvectorFts().search(client, { ...base, query: "phones", synonyms: new Map() });

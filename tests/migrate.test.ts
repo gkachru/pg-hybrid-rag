@@ -307,4 +307,48 @@ describe("ragMigrate dollar-quote splitting", () => {
     expect(statements[0]).toContain("$b$ not a closer; still inside $b$");
     expect(statements[0]).toContain("PERFORM 1;");
   });
+
+  it("keeps a statement with a trailing -- comment ending in ; as one statement", async () => {
+    const sql = [
+      "CREATE TABLE foo (",
+      "  id int, -- primary key column; note the semicolon",
+      "  name text",
+      ");",
+      "SELECT 1;",
+    ].join("\n");
+    const statements = await runFixture(sql);
+    // Pre-fix: the `;` inside the -- comment truncates CREATE TABLE into two broken fragments.
+    expect(statements.length).toBe(2);
+    const create = statements.find((s) => s.startsWith("CREATE TABLE foo"));
+    expect(create).toBeDefined();
+    expect(create).toContain("name text"); // the tail survived in the same statement
+    expect(create).not.toContain("--"); // comment stripped, not executed
+    expect(statements).toContain("SELECT 1");
+  });
+
+  it("preserves a -- comment with a semicolon inside a dollar-quoted body", async () => {
+    const sql = [
+      "CREATE OR REPLACE FUNCTION g() RETURNS void AS $$",
+      "BEGIN",
+      "  -- inner note; keep this whole line",
+      "  PERFORM 1;",
+      "END;",
+      "$$ LANGUAGE plpgsql;",
+    ].join("\n");
+    const statements = await runFixture(sql);
+    expect(statements.length).toBe(1);
+    expect(statements[0]).toContain("-- inner note; keep this whole line");
+    expect(statements[0]).toContain("PERFORM 1;");
+    expect(statements[0]).toContain("END;");
+  });
+
+  it("does not let a -- comment containing $$ open a dollar block", async () => {
+    const sql = ["-- mentions $$ in a comment;", "CREATE TABLE x (id int);", "SELECT 9;"].join(
+      "\n",
+    );
+    const statements = await runFixture(sql);
+    expect(statements).toContain("CREATE TABLE x (id int)");
+    expect(statements).toContain("SELECT 9");
+    expect(statements.length).toBe(2);
+  });
 });

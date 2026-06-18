@@ -33,10 +33,11 @@ export class EmbeddingApiError extends Error {
 
 /**
  * Error for a 200 response whose body does not match the expected embeddings shape
- * (`{ data: Array<{ embedding: number[] }> }`). Non-retryable: the endpoint is
- * misconfigured or speaks a different protocol, so retrying cannot help.
+ * (`{ data: Array<{ embedding: number[] }> }`) or whose `index` fields cannot safely
+ * align embeddings to inputs (not a clean 0..n-1 permutation). Non-retryable: the
+ * endpoint is misconfigured or speaks a different protocol, so retrying cannot help.
  */
-class EmbeddingResponseError extends Error {
+export class EmbeddingResponseError extends Error {
   constructor(message: string) {
     super(`Embedding API response error: ${message}`);
     this.name = "EmbeddingResponseError";
@@ -167,16 +168,40 @@ export class OpenAiCompatibleEmbedder implements EmbeddingProvider {
       );
     }
     const entries = data as Array<{ embedding?: unknown; index?: unknown }>;
-    if (!entries.every((d) => Array.isArray(d.embedding))) {
-      throw new EmbeddingResponseError("an entry is missing its `embedding` array");
+    const isFiniteNumberArray = (v: unknown): v is number[] =>
+      Array.isArray(v) && v.every((n) => typeof n === "number" && Number.isFinite(n));
+    if (!entries.every((d) => isFiniteNumberArray(d.embedding))) {
+      // Array.isArray alone lets a string[] (e.g. ["a","b"]) through; it then fails
+      // opaquely far downstream when joined into a `[...]::vector` literal at insert time.
+      throw new EmbeddingResponseError("an entry's `embedding` is not an array of finite numbers");
     }
     const ordered = entries as Array<{ embedding: number[]; index?: number }>;
     // The OpenAI embeddings API tags each result with its input `index` and does NOT
-    // guarantee `data` is returned in input order. Sort by `index` to keep embeddings
-    // aligned with their inputs; fall back to response order if a server omits `index`.
-    const sorted = ordered.every((d) => typeof d.index === "number")
-      ? [...ordered].sort((a, b) => (a.index as number) - (b.index as number))
-      : ordered;
-    return sorted.map((d) => d.embedding);
+    // guarantee `data` is returned in input order. We only trust `index` when EVERY
+    // entry carries one AND together they form a clean 0..n-1 permutation; then sorting
+    // by index re-aligns embeddings with their inputs.
+    const indices = ordered.map((d) => d.index);
+    const allHaveIndex = indices.every((i) => typeof i === "number");
+    const noneHaveIndex = indices.every((i) => i === undefined);
+    if (allHaveIndex) {
+      // A permutation of 0..n-1 has each integer in range exactly once. Reject
+      // duplicate, sparse, or out-of-range indices rather than silently mis-mapping.
+      const seen = new Array<boolean>(ordered.length).fill(false);
+      for (const i of indices as number[]) {
+        if (!Number.isInteger(i) || i < 0 || i >= ordered.length || seen[i]) {
+          throw new EmbeddingResponseError("response `index` values are not a 0..n-1 permutation");
+        }
+        seen[i] = true;
+      }
+      const sorted = [...ordered].sort((a, b) => (a.index as number) - (b.index as number));
+      return sorted.map((d) => d.embedding);
+    }
+    // A response that tags only SOME entries with `index` is ambiguous (we cannot know
+    // where the untagged ones belong), so refuse it; only a fully-untagged response is
+    // treated as already in input order.
+    if (!noneHaveIndex) {
+      throw new EmbeddingResponseError("response mixes indexed and non-indexed entries");
+    }
+    return ordered.map((d) => d.embedding);
   }
 }

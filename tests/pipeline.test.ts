@@ -55,6 +55,7 @@ const mockDb: RagDatabase = {
   }),
   insertChunks: mock(async () => {}),
   deleteBySource: mock(async () => {}),
+  replaceSource: mock(async () => {}),
 };
 
 describe("RagPipeline", () => {

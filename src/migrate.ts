@@ -28,6 +28,15 @@ export interface MigrateOptions {
  * the first dollar-quote tag and closes only on the matching tag, so a body
  * delimited by `$func$ … $func$` is preserved intact even if it contains
  * line-ending semicolons or a differently-named nested tag (`$$`, `$other$`).
+ *
+ * Each line is walked once left-to-right, interleaving dollar-tag toggling with
+ * `--` line-comment detection (matching Postgres semantics). While OUTSIDE a
+ * dollar-quoted block, an unquoted `--` starts a comment: it and the rest of the
+ * line are dropped before the end-of-line `;` check, so a `;` inside a comment
+ * never truncates a statement and a comment containing `$$` never opens a
+ * spurious block. INSIDE a dollar-quoted body, `--` is literal text and is kept,
+ * so a PL/pgSQL body comment never alters splitting. C-style block comments
+ * are intentionally not handled — out of scope and not used in the repo's SQL.
  */
 function splitStatements(text: string): string[] {
   const lines = text.split("\n");
@@ -38,16 +47,38 @@ function splitStatements(text: string): string[] {
   let openTag: string | null = null;
   const tagPattern = /\$[A-Za-z_]\w*\$|\$\$/g;
 
-  for (const line of lines) {
-    // Scan dollar-quote tags left-to-right, opening/closing the block as we go.
-    for (const match of line.matchAll(tagPattern)) {
-      const tag = match[0];
+  for (const rawLine of lines) {
+    // One left-to-right scan: toggle dollar-quote tags AND honor `--` line comments.
+    // The `--`-vs-tag ordering is decided in this single pass so an unquoted `--`
+    // (outside a block) wins only when it precedes the next tag on the line; a tag
+    // that opens first makes a following `--` body text that must be kept.
+    let line = rawLine;
+    let cursor = 0;
+    const tags = [...rawLine.matchAll(tagPattern)];
+    let tagPos = 0;
+    while (cursor < rawLine.length) {
+      const nextTag = tagPos < tags.length ? tags[tagPos] : undefined;
+      const tagIdx = nextTag
+        ? (nextTag.index ?? Number.POSITIVE_INFINITY)
+        : Number.POSITIVE_INFINITY;
+      // Only honor `--` while outside a block — inside a body it is literal text.
+      const commentIdx = openTag === null ? rawLine.indexOf("--", cursor) : -1;
+      if (commentIdx !== -1 && commentIdx < tagIdx) {
+        // Comment begins before any remaining tag while outside a block: drop it
+        // and the rest of the line.
+        line = rawLine.slice(0, commentIdx);
+        break;
+      }
+      if (!nextTag) break;
+      const tag = nextTag[0];
       if (openTag === null) {
         openTag = tag;
       } else if (tag === openTag) {
         openTag = null;
       }
       // A non-matching tag while a block is open is body text — ignore it.
+      cursor = tagIdx + tag.length;
+      tagPos++;
     }
 
     current += (current ? "\n" : "") + line;

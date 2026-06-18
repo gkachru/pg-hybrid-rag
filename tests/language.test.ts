@@ -52,4 +52,18 @@ describe("detectLanguage", () => {
   it("defaults to English for empty input", () => {
     expect(detectLanguage("")).toBe("en");
   });
+
+  it("detects Arabic when Arabic dominates a stray Han char", () => {
+    expect(detectLanguage("أحذية الجري مريحة 中")).toBe("ar");
+  });
+
+  it("detects Hindi when Devanagari dominates a stray Han char", () => {
+    expect(detectLanguage("दौड़ते हुए जूते 中")).toBe("hi");
+  });
+
+  it("does not call a lone Han char Chinese when it is far below half the script", () => {
+    // Han with little/no Latin but a dominant non-Latin script: the comment says
+    // Han wins only when it carries at least half the script, so this must be "ar".
+    expect(detectLanguage("السلام عليكم 中")).toBe("ar");
+  });
 });

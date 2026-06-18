@@ -110,6 +110,11 @@ describe("expandQueryWithSynonyms", () => {
     const lookup = makeLookup([{ lang: "en", term: "tv", expansions: ["television"] }]);
     expect(expandQueryWithSynonyms("buy tv tv", lookup)).toBe("buy tv television tv");
   });
+
+  it("drops a synonym component that restates a query word but keeps its new words", () => {
+    const lookup = makeLookup([{ lang: "en", term: "phones", expansions: ["new phones"] }]);
+    expect(expandQueryWithSynonyms("best phones", lookup)).toBe("best phones new");
+  });
 });
 
 describe("buildFtsQuery", () => {
@@ -220,5 +225,16 @@ describe("buildBm25Query", () => {
   it("preserves a repeated query word for term-frequency ranking", () => {
     const lookup = makeLookup([{ lang: "en", term: "iphone", expansions: ["smartphone"] }]);
     expect(buildBm25Query("iphone iphone case", lookup)).toBe("iphone smartphone iphone case");
+  });
+
+  it("does not re-inflate a query word via a multi-word synonym", () => {
+    // phones -> "new phones" must not make "phones" appear twice: the synonym's
+    // duplicate component is dropped, only its new word ("new") survives. Otherwise
+    // the term-frequency-ranked BM25 leg is biased toward docs repeating "phones".
+    const lookup = makeLookup([{ lang: "en", term: "phones", expansions: ["new phones"] }]);
+    const result = buildBm25Query("best phones", lookup);
+    const phonesCount = result.split(/\s+/).filter((t) => t === "phones").length;
+    expect(phonesCount).toBe(1);
+    expect(result).toBe("best phones new");
   });
 });

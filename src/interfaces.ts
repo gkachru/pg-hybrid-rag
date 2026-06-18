@@ -100,6 +100,27 @@ export interface RagDatabase {
 
   /** Delete all chunks for a given source. */
   deleteBySource(tenantId: string, sourceType: string, sourceId: string): Promise<void>;
+
+  /**
+   * Atomically replace all chunks for a source: DELETE the source's existing chunks then INSERT
+   * the new ones inside ONE transaction (BEGIN/COMMIT, ROLLBACK on error). Used by re-indexing so
+   * a failed INSERT can never leave the source with the old data deleted and nothing in its place.
+   * `chunks` must all belong to (sourceType, sourceId).
+   */
+  replaceSource(
+    tenantId: string,
+    sourceType: string,
+    sourceId: string,
+    chunks: Array<{
+      sourceType: string;
+      sourceId: string;
+      chunkIndex: string;
+      content: string;
+      language: string;
+      embedding: number[];
+      metadata: string;
+    }>,
+  ): Promise<void>;
 }
 
 /** Context passed to an FtsStrategy for one FTS-leg execution. */
