@@ -33,7 +33,9 @@ export function applyRRF(
 
   for (let legIdx = 0; legIdx < legs.length; legIdx++) {
     const leg = legs[legIdx];
-    const w = weights ? weights[legIdx] : 1;
+    // Default to weight 1 for any leg with no corresponding entry — guards both a
+    // wholly-absent array and one shorter than `legs` (weights[legIdx] === undefined → NaN).
+    const w = weights?.[legIdx] ?? 1;
     for (let rank = 0; rank < leg.items.length; rank++) {
       const item = leg.items[rank];
       // Deduplicate by stable chunk id (same chunk may appear in multiple legs).

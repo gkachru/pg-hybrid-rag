@@ -273,6 +273,26 @@ describe("Chunker fixed-size fallback", () => {
   });
 });
 
+describe("Chunker (config validation)", () => {
+  it("throws on a non-positive chunkSize", () => {
+    // chunkSize 0 yields effectiveSize 0 → splitFixedSize emits an empty chunk then one
+    // code point per chunk. Fail loudly at construction instead of producing silent garbage.
+    expect(() => new Chunker(0)).toThrow(/positive/);
+    expect(() => new Chunker(-10)).toThrow(/positive/);
+  });
+
+  it("throws on a non-positive tokenLimit", () => {
+    expect(() => new Chunker({ tokenLimit: 0 })).toThrow(/positive/);
+    expect(() => new Chunker({ tokenLimit: -5 })).toThrow(/positive/);
+  });
+
+  it("allows default construction and explicit positive sizes", () => {
+    expect(() => new Chunker()).not.toThrow();
+    expect(() => new Chunker(100)).not.toThrow();
+    expect(() => new Chunker({ tokenLimit: 512 })).not.toThrow();
+  });
+});
+
 describe("Chunker (surrogate-pair safety)", () => {
   /** True if the string contains a lone (unpaired) UTF-16 surrogate code unit. */
   const hasLoneSurrogate = (s: string): boolean =>

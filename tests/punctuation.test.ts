@@ -27,6 +27,17 @@ describe("stripTrailingPunctuation", () => {
     expect(stripTrailingPunctuation("wow...")).toBe("wow");
   });
 
+  it("strips trailing closing brackets, quotes, and ellipsis", () => {
+    expect(stripTrailingPunctuation("phones)")).toBe("phones");
+    expect(stripTrailingPunctuation("phones]")).toBe("phones");
+    expect(stripTrailingPunctuation("phones}")).toBe("phones");
+    expect(stripTrailingPunctuation('phones"')).toBe("phones");
+    expect(stripTrailingPunctuation("phones'")).toBe("phones");
+    expect(stripTrailingPunctuation("phones…")).toBe("phones"); // U+2026 ellipsis
+    expect(stripTrailingPunctuation("phones’")).toBe("phones"); // U+2019 right single quote
+    expect(stripTrailingPunctuation("phones”")).toBe("phones"); // U+201D right double quote
+  });
+
   it("preserves text without trailing punctuation", () => {
     expect(stripTrailingPunctuation("phones")).toBe("phones");
     expect(stripTrailingPunctuation("")).toBe("");

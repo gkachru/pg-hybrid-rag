@@ -298,6 +298,14 @@ describe("RagPipeline", () => {
     expect(results.length).toBeGreaterThan(0);
   });
 
+  it("normalizer-empty fallback restores the normalized query, not the raw query", async () => {
+    // When the normalizer empties the query, the lexical legs must fall back to the
+    // lowercased/punctuation-stripped form ("test query"), NOT the raw query ("Test Query!").
+    const mockNormalizer = { normalize: () => "" };
+    await pipeline.search("Test Query!", { normalizer: mockNormalizer, language: "en" });
+    expect(lastSearchParams.query).toBe("test query");
+  });
+
   it("stop words are applied to the lexical legs but not the vector-leg embedding", async () => {
     const stopWords = {
       load: mock(async () => new Map([["en", new Set(["the", "in", "a"])]])),
@@ -350,6 +358,24 @@ describe("RagPipeline", () => {
     });
     await pipelineWithStops.search("the a an");
     expect(mockEmbedQuery).toHaveBeenCalledWith("the a an");
+  });
+
+  it("stop-word fallback restores the normalized query, not the raw query", async () => {
+    // When stop-word removal empties the query, the lexical legs must fall back to the
+    // normalized form ("the dog"), NOT the raw query ("The Dog!") — otherwise the trigram
+    // leg matches against un-lowercased, punctuation-bearing text and loses recall.
+    const stopWords = {
+      load: mock(async () => new Map([["en", new Set(["the", "dog"])]])),
+      invalidate: mock(() => {}),
+    };
+    const pipelineWithStops = new RagPipeline({
+      tenantId: "tenant-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      stopWords,
+    });
+    await pipelineWithStops.search("The Dog!");
+    expect(lastSearchParams.query).toBe("the dog");
   });
 
   it("strips trailing punctuation from query words", async () => {

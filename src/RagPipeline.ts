@@ -115,8 +115,11 @@ export class RagPipeline {
 
         // Apply NLP normalization (abbreviation expansion) before stop-word removal
         if (opts.normalizer && queryLanguage) {
+          const preNormalized = searchQuery;
           searchQuery = opts.normalizer.normalize(searchQuery, queryLanguage);
-          if (!searchQuery.trim()) searchQuery = query; // fallback if normalization empties query
+          // Fallback to the pre-normalization string (already lowercased + punctuation-stripped),
+          // not the raw `query`, so an emptied normalization doesn't re-introduce casing/punctuation.
+          if (!searchQuery.trim()) searchQuery = preNormalized;
           span.setAttribute("normalizerApplied", true);
         }
 
@@ -128,7 +131,9 @@ export class RagPipeline {
 
         if (allStopWords.size > 0) {
           searchQuery = removeStopWords(searchQuery, allStopWords);
-          if (!searchQuery.trim()) searchQuery = query; // fallback if all words removed
+          // Fallback to the pre-removal normalized query (naturalQuery), not the raw `query`,
+          // so the lexical legs match normalized text rather than re-introduced casing/punctuation.
+          if (!searchQuery.trim()) searchQuery = naturalQuery;
         }
         span.setAttribute("stopWordsApplied", searchQuery !== query);
 

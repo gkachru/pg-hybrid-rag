@@ -179,4 +179,27 @@ describe("applyRRF", () => {
     expect(results[0].score).toBeCloseTo(results[1].score, 5);
     expect(results[1].score).toBeCloseTo(results[2].score, 5);
   });
+
+  it("defaults a missing leg weight to 1 instead of producing a NaN score", () => {
+    // weights is shorter than legs — the third leg has no entry. It must default to 1,
+    // not `undefined` (which makes w/(k+rank) === NaN, sorting unpredictably and failing
+    // the downstream minRelevance filter). Reachable only via the public applyRRF API.
+    const results = applyRRF(
+      [
+        { items: [{ id: "V", content: "V", sourceType: "faq", sourceId: "1", metadata: "{}" }] },
+        { items: [{ id: "K", content: "K", sourceType: "faq", sourceId: "2", metadata: "{}" }] },
+        { items: [{ id: "F", content: "F", sourceType: "faq", sourceId: "3", metadata: "{}" }] },
+      ],
+      60,
+      10,
+      [1, 1], // only two weights for three legs
+    );
+    expect(results).toHaveLength(3);
+    for (const r of results) {
+      expect(Number.isFinite(r.score)).toBe(true);
+    }
+    // The unweighted third leg must score the same as the two weight-1 legs (all rank 0).
+    const f = results.find((r) => r.content === "F");
+    expect(f?.score).toBeCloseTo(1 / 61, 5);
+  });
 });

@@ -63,12 +63,23 @@ export class Chunker implements ChunkingProvider {
   constructor(chunkSize?: number, overlap?: number);
   constructor(configOrSize?: ChunkerConfig | number, overlap?: number) {
     if (typeof configOrSize === "object" && configOrSize !== null && "tokenLimit" in configOrSize) {
+      // !(x > 0) rejects 0, negatives, and NaN — all of which yield effectiveSize 0 and emit
+      // empty/one-code-point-per-chunk garbage downstream. Fail loudly at construction instead.
+      if (!(configOrSize.tokenLimit > 0)) {
+        throw new Error(
+          `Chunker tokenLimit must be a positive number, got ${configOrSize.tokenLimit}`,
+        );
+      }
       this.tokenLimit = configOrSize.tokenLimit;
       this.chunkSize = undefined;
       this.overlap = configOrSize.overlap ?? DEFAULT_OVERLAP;
       this.prefixFn = configOrSize.prefixFn;
     } else {
-      this.chunkSize = (configOrSize as number | undefined) ?? DEFAULT_CHUNK_SIZE;
+      const size = (configOrSize as number | undefined) ?? DEFAULT_CHUNK_SIZE;
+      if (!(size > 0)) {
+        throw new Error(`Chunker chunkSize must be a positive number, got ${size}`);
+      }
+      this.chunkSize = size;
       this.tokenLimit = undefined;
       this.overlap = overlap ?? DEFAULT_OVERLAP;
       this.prefixFn = undefined;

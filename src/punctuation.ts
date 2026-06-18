@@ -1,8 +1,9 @@
 /**
  * Trailing punctuation regex covering all supported scripts:
- * Latin (?.!,;:), Hindi (।॥), Arabic (؟،؛), CJK (。！？、；：)
+ * Latin (?.!,;:), Hindi (।॥), Arabic (؟،؛), CJK (。！？、；：),
+ * plus common closing marks: brackets )]} , straight/curly quotes "'’” , and the … ellipsis.
  */
-export const TRAILING_PUNCTUATION = /[?.!,;:।॥؟،؛。！？、；：]+$/;
+export const TRAILING_PUNCTUATION = /[?.!,;:।॥؟،؛。！？、；：)\]}"'…’”]+$/;
 
 /** Strip trailing punctuation from a string. */
 export function stripTrailingPunctuation(text: string): string {
