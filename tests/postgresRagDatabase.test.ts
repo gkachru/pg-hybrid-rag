@@ -451,6 +451,54 @@ describe("PostgresRagDatabase.replaceSource", () => {
       .catch((e) => e);
     expect((err as Error).message).toBe("insert boom");
   });
+
+  // --- Finding #1 × #5: with manageTransaction: false the consumer's withConnection already
+  // opened an interactive transaction (e.g. postgres.js withTenantSql for RLS). replaceSource
+  // must run DELETE+INSERT in that ambient transaction WITHOUT its own BEGIN/COMMIT — an inner
+  // COMMIT would end the consumer's tenant transaction (and discard SET LOCAL) mid-index, the
+  // exact anti-pattern runTuned was changed to avoid. Atomicity still holds: a thrown INSERT
+  // propagates and the consumer's transaction rolls the DELETE back. ---
+
+  it("runs DELETE+INSERT in the ambient transaction (no BEGIN/COMMIT) when manageTransaction: false", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider, { manageTransaction: false }).replaceSource(
+      "t1",
+      "faq",
+      "doc-1",
+      [chunk],
+    );
+    const sqls = calls.map((c) => c.sql.trim());
+    expect(sqls).not.toContain("BEGIN");
+    expect(sqls).not.toContain("COMMIT");
+    expect(sqls).not.toContain("ROLLBACK");
+    // DELETE still precedes INSERT, both run on the consumer's connection.
+    const iDelete = sqls.findIndex((s) => s.startsWith("DELETE FROM rag_documents"));
+    const iInsert = sqls.findIndex((s) => s.startsWith("INSERT INTO rag_documents"));
+    expect(iDelete).toBeGreaterThanOrEqual(0);
+    expect(iInsert).toBeGreaterThan(iDelete);
+  });
+
+  it("rethrows without ROLLBACK when the INSERT throws and manageTransaction: false (consumer owns rollback)", async () => {
+    const calls: string[] = [];
+    const client: SqlClient = {
+      query: async <T>(sql: string): Promise<T[]> => {
+        calls.push(sql);
+        if (sql.startsWith("INSERT INTO rag_documents")) throw new Error("insert boom");
+        return [] as T[];
+      },
+    };
+    const txProvider: TransactionProvider = {
+      withConnection: async <T>(fn: (c: SqlClient) => Promise<T>) => fn(client),
+    };
+    const err = await new PostgresRagDatabase(txProvider, { manageTransaction: false })
+      .replaceSource("t1", "faq", "doc-1", [chunk])
+      .catch((e) => e);
+    expect((err as Error).message).toBe("insert boom");
+    expect(calls).not.toContain("BEGIN");
+    expect(calls).not.toContain("COMMIT");
+    expect(calls).not.toContain("ROLLBACK");
+    expect(calls.some((s) => s.startsWith("DELETE FROM rag_documents"))).toBe(true);
+  });
 });
 
 // --- runTuned applies planner GUCs inside BEGIN/COMMIT and must ROLLBACK + rethrow the

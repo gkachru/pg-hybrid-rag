@@ -295,10 +295,17 @@ export class PostgresRagDatabase implements RagDatabase {
 
   /**
    * Atomically replace a source's chunks: DELETE the source's existing rows then INSERT the new
-   * ones inside a single BEGIN/COMMIT (ROLLBACK on error), pinned to one connection. Mirrors
-   * runTuned's transaction shape (no planner GUCs needed here). Re-indexing routes through this so
-   * a failed INSERT rolls the DELETE back rather than leaving the source with zero chunks — the
-   * old data gone and the new data never landed.
+   * ones in one transaction, pinned to one connection. Re-indexing routes through this so a failed
+   * INSERT rolls the DELETE back rather than leaving the source with zero chunks — the old data
+   * gone and the new data never landed.
+   *
+   * Honors `manageTransaction` exactly like runTuned. By default we own the BEGIN/COMMIT (ROLLBACK
+   * on error). When it is false the consumer's withConnection already opened an interactive
+   * transaction (e.g. postgres.js withTenantSql's `SET LOCAL app.current_tenant_id` for RLS): we
+   * run DELETE+INSERT inside that ambient transaction and rethrow on error WITHOUT our own
+   * BEGIN/COMMIT/ROLLBACK. Atomicity still holds — a thrown INSERT propagates and the consumer's
+   * transaction rolls the DELETE back; issuing our own COMMIT would end their transaction (and
+   * discard SET LOCAL) mid-index, and our own ROLLBACK would abort their whole transaction.
    */
   async replaceSource(
     tenantId: string,
@@ -315,8 +322,7 @@ export class PostgresRagDatabase implements RagDatabase {
     }>,
   ): Promise<void> {
     return this.txProvider.withConnection(async (client) => {
-      await client.query("BEGIN", []);
-      try {
+      const runReplace = async () => {
         await client.query(
           `DELETE FROM rag_documents WHERE tenant_id = $1 AND source_type = $2 AND source_id = $3`,
           [tenantId, sourceType, sourceId],
@@ -327,6 +333,16 @@ export class PostgresRagDatabase implements RagDatabase {
           const { sql, params } = this.buildInsert(tenantId, chunks);
           await client.query(sql, params);
         }
+      };
+
+      // Ambient-transaction mode: run inside the consumer's open transaction, no control of our own.
+      if (!this.manageTransaction) {
+        return runReplace();
+      }
+
+      await client.query("BEGIN", []);
+      try {
+        await runReplace();
         await client.query("COMMIT", []);
       } catch (err) {
         try {

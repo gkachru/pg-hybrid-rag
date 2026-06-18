@@ -1,3 +1,10 @@
+-- CAVEAT — fresh installs only. ragMigrate records this file in _rag_migrations and skips it on
+-- later runs, and the policies below use bare CREATE POLICY (no CREATE OR REPLACE). A database that
+-- already applied the earlier single-arg version keeps that policy; to adopt the fail-closed form on
+-- an existing deployment, recreate the three policies by hand:
+--   DROP POLICY <name> ON <table>;
+--   CREATE POLICY <name> ON <table> USING (tenant_id = current_setting('app.current_tenant_id', true)::uuid);
+
 -- Row-Level Security for rag_documents
 -- 2-arg current_setting(name, true): a connection that never set the GUC gets NULL -> matches zero
 -- rows (fail-closed) instead of erroring "unrecognized configuration parameter". The caching

@@ -21,82 +21,114 @@ export interface MigrateOptions {
  * SQL files are read from the `sql/` directory.
  */
 /**
- * Split SQL text into statements on `;` at end-of-line,
- * but skip semicolons inside dollar-quoted blocks (PL/pgSQL functions).
+ * Split SQL text into individual statements on top-level `;` terminators, skipping any `;` that is
+ * not really a terminator. A single left-to-right character scan tracks the three contexts where a
+ * `;` (or `--`, or `$$`) must be treated as literal:
  *
- * Handles both bare `$$` and named tags (`$func$`, `$do$`). A block opens on
- * the first dollar-quote tag and closes only on the matching tag, so a body
- * delimited by `$func$ … $func$` is preserved intact even if it contains
- * line-ending semicolons or a differently-named nested tag (`$$`, `$other$`).
+ *   - dollar-quoted blocks  — `$$ … $$` / `$func$ … $func$` (PL/pgSQL bodies). A block opens on the
+ *     first tag and closes only on the matching tag, so a body with line-ending semicolons or a
+ *     differently-named inner tag (`$$`, `$other$`) is preserved intact.
+ *   - single-quoted strings — `'…'`, with `''` an escaped quote. A `;` or `--` inside a string
+ *     literal is data, not a terminator/comment.
+ *   - `--` line comments    — outside a string/block, `--` runs to end-of-line and is dropped, so a
+ *     `;` inside a comment never truncates a statement and a comment containing `$$` never opens a
+ *     spurious block. Inside a dollar body, `--` is literal text and is kept.
  *
- * Each line is walked once left-to-right, interleaving dollar-tag toggling with
- * `--` line-comment detection (matching Postgres semantics). While OUTSIDE a
- * dollar-quoted block, an unquoted `--` starts a comment: it and the rest of the
- * line are dropped before the end-of-line `;` check, so a `;` inside a comment
- * never truncates a statement and a comment containing `$$` never opens a
- * spurious block. INSIDE a dollar-quoted body, `--` is literal text and is kept,
- * so a PL/pgSQL body comment never alters splitting. C-style block comments
- * are intentionally not handled — out of scope and not used in the repo's SQL.
+ * C-style block comments (slash-star) are intentionally not handled — out of scope and unused in
+ * the repo's SQL.
  */
 function splitStatements(text: string): string[] {
-  const lines = text.split("\n");
   const statements: string[] = [];
   let current = "";
-  // The currently-open dollar-quote tag (e.g. "$$" or "$func$"), or null when
-  // outside any block. Open on the first tag seen, close only on a matching tag.
-  let openTag: string | null = null;
-  const tagPattern = /\$[A-Za-z_]\w*\$|\$\$/g;
+  // Persistent scan state — all three contexts can span newlines:
+  let openTag: string | null = null; // open dollar-quote tag ("$$"/"$func$"), or null when outside
+  let inString = false; // inside a '…' single-quoted string literal
+  // Sticky matcher for a dollar-quote tag anchored exactly at a given offset.
+  const tagAt = /\$[A-Za-z_]\w*\$|\$\$/y;
+  const matchTag = (pos: number): string | null => {
+    tagAt.lastIndex = pos;
+    const m = tagAt.exec(text);
+    return m ? m[0] : null;
+  };
 
-  for (const rawLine of lines) {
-    // One left-to-right scan: toggle dollar-quote tags AND honor `--` line comments.
-    // The `--`-vs-tag ordering is decided in this single pass so an unquoted `--`
-    // (outside a block) wins only when it precedes the next tag on the line; a tag
-    // that opens first makes a following `--` body text that must be kept.
-    let line = rawLine;
-    let cursor = 0;
-    const tags = [...rawLine.matchAll(tagPattern)];
-    let tagPos = 0;
-    while (cursor < rawLine.length) {
-      const nextTag = tagPos < tags.length ? tags[tagPos] : undefined;
-      const tagIdx = nextTag
-        ? (nextTag.index ?? Number.POSITIVE_INFINITY)
-        : Number.POSITIVE_INFINITY;
-      // Only honor `--` while outside a block — inside a body it is literal text.
-      const commentIdx = openTag === null ? rawLine.indexOf("--", cursor) : -1;
-      if (commentIdx !== -1 && commentIdx < tagIdx) {
-        // Comment begins before any remaining tag while outside a block: drop it
-        // and the rest of the line.
-        line = rawLine.slice(0, commentIdx);
-        break;
+  const flush = () => {
+    const clean = current.trim();
+    if (clean) statements.push(clean);
+    current = "";
+  };
+
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+
+    // Inside a dollar-quoted body: only the matching close tag matters; `;`, `--`, `'` are literal.
+    if (openTag !== null) {
+      if (ch === "$") {
+        const tag = matchTag(i);
+        if (tag !== null) {
+          current += tag;
+          if (tag === openTag) openTag = null;
+          i += tag.length;
+          continue;
+        }
       }
-      if (!nextTag) break;
-      const tag = nextTag[0];
-      if (openTag === null) {
+      current += ch;
+      i++;
+      continue;
+    }
+
+    // Inside a single-quoted string: `''` is an escaped quote (stay in the string); a lone `'` ends
+    // it. `;`, `--`, `$$` inside are all literal data.
+    if (inString) {
+      if (ch === "'") {
+        if (text[i + 1] === "'") {
+          current += "''";
+          i += 2;
+          continue;
+        }
+        inString = false;
+      }
+      current += ch;
+      i++;
+      continue;
+    }
+
+    // Normal context.
+    if (ch === "-" && text[i + 1] === "-") {
+      // Line comment: drop `--` through end-of-line (leave the newline for the next iteration so
+      // multi-line statements keep their structure).
+      let j = i + 2;
+      while (j < text.length && text[j] !== "\n") j++;
+      i = j;
+      continue;
+    }
+    if (ch === "'") {
+      inString = true;
+      current += ch;
+      i++;
+      continue;
+    }
+    if (ch === "$") {
+      const tag = matchTag(i);
+      if (tag !== null) {
+        current += tag;
         openTag = tag;
-      } else if (tag === openTag) {
-        openTag = null;
+        i += tag.length;
+        continue;
       }
-      // A non-matching tag while a block is open is body text — ignore it.
-      cursor = tagIdx + tag.length;
-      tagPos++;
     }
-
-    current += (current ? "\n" : "") + line;
-
-    // Only split on trailing semicolons when outside a dollar-quoted block.
-    if (openTag === null && line.trimEnd().endsWith(";")) {
-      const stmt = current.trim();
-      // Remove trailing semicolons for execution
-      const clean = stmt.replace(/;\s*$/, "").trim();
-      if (clean) statements.push(clean);
-      current = "";
+    if (ch === ";") {
+      // Top-level terminator: end the statement (the `;` itself is dropped, not executed).
+      flush();
+      i++;
+      continue;
     }
+    current += ch;
+    i++;
   }
 
-  // Flush any remaining text
-  const remaining = current.trim().replace(/;\s*$/, "").trim();
-  if (remaining) statements.push(remaining);
-
+  // Flush a trailing statement that has no terminating `;`.
+  flush();
   return statements;
 }
 

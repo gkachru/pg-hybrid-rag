@@ -529,20 +529,41 @@ const chunks = chunker.chunk(productText, { name: "Product", language: "en" });
 await indexer.index("product", productId, chunks, "en");
 ```
 
+### node-postgres (pg) Example
+
+```typescript
+const txProvider: TransactionProvider = {
+  // pool.connect() reserves ONE connection for the whole callback, pinning every query to it
+  // WITHOUT opening a transaction — so the default manageTransaction (each tuned leg wraps its
+  // own BEGIN/COMMIT) is correct. Always release in finally.
+  withConnection: async (fn) => {
+    const client = await pool.connect();
+    try {
+      return await fn({ query: (sql, params) => client.query(sql, params).then((r) => r.rows) });
+    } finally {
+      client.release();
+    }
+  },
+};
+const db = new PostgresRagDatabase(txProvider); // manageTransaction defaults to true
+```
+
 ### Prisma Example
 
 ```typescript
 const txProvider: TransactionProvider = {
   withConnection: (fn) =>
-    // $transaction(fn) reserves ONE pooled connection for the whole callback, so the
-    // BEGIN / set_config(LOCAL) / SELECT / COMMIT that PostgresRagDatabase issues for the
-    // tuned search legs all land on the same connection (see the pinning note below).
-    // Use the interactive-transaction client `tx` here — a top-level prisma.$queryRawUnsafe
-    // would escape back to the pool and defeat the pinning.
+    // $transaction(fn) reserves ONE pooled connection for the whole callback AND wraps it in its
+    // own BEGIN/COMMIT, so every query the search legs issue lands on the same connection. Use the
+    // interactive-transaction client `tx` — a top-level prisma.$queryRawUnsafe would escape back
+    // to the pool and defeat the pinning.
     prisma.$transaction((tx) =>
       fn({ query: (sql, params) => tx.$queryRawUnsafe(sql, ...params) }),
     ),
 };
+// $transaction already opens a transaction, so disable the legs' own BEGIN/COMMIT (a nested BEGIN
+// warns and the inner COMMIT would end Prisma's transaction early) — exactly like postgres.js below.
+const db = new PostgresRagDatabase(txProvider, { manageTransaction: false });
 ```
 
 ### postgres.js Example
@@ -563,7 +584,12 @@ const db = new PostgresRagDatabase(txProvider, { manageTransaction: false });
 
 > **Connection pinning (required).** `withConnection` MUST run every query in its callback on a single, pinned connection. The search path applies planner GUCs transaction-locally (`ivfflat.probes`, trigram `word_similarity_threshold`); if a pooled provider hands out a different connection per query, those `SET LOCAL` settings land on a connection that the actual search query never uses — vector recall silently drops to `probes = 1` and you get stray "no transaction in progress" warnings. With node-postgres reserve the connection via `pool.connect()`; with Prisma wrap the callback in `prisma.$transaction(...)` as shown above. Indexing and delete are single-statement and unaffected, so this fails silently on search quality only.
 
-> **Transaction ownership (`manageTransaction`).** By default the tuned search legs wrap their `set_config` + SELECT in their own `BEGIN`/`COMMIT` (so the consumer's `withConnection` only needs to pin a connection, as with node-postgres `pool.connect()` or Prisma `$transaction`). When the provider itself opens an interactive transaction for RLS — e.g. postgres.js `withTenantSql` doing `SET LOCAL app.current_tenant_id` — construct the adapter with `new PostgresRagDatabase(txProvider, { manageTransaction: false })`. The legs then run `set_config(..., is_local => true)` and the SELECT in that ambient transaction (the GUCs stay transaction-local to it) and never issue `BEGIN`/`COMMIT`/`ROLLBACK`; on error they rethrow and the consumer's transaction owns rollback. RLS itself fails closed: the policies use the 2-arg `current_setting('app.current_tenant_id', true)`, so a connection that never set the tenant GUC matches zero rows instead of erroring.
+> **Transaction ownership (`manageTransaction`).** Two ways to pin a connection, two settings:
+>
+> - **Pin only, no ambient transaction** — node-postgres `pool.connect()`. Keep the default: the tuned search legs *and* `replaceSource` (re-indexing) wrap their work in their own `BEGIN`/`COMMIT` (`ROLLBACK` on error).
+> - **Pin via an interactive transaction** — Prisma `prisma.$transaction(...)` or postgres.js `withTenantSql` (the latter also does `SET LOCAL app.current_tenant_id` for RLS). Construct the adapter with `new PostgresRagDatabase(txProvider, { manageTransaction: false })`. The legs and `replaceSource` then run `set_config(..., is_local => true)` and their SQL in that ambient transaction (GUCs stay transaction-local to it) and never issue `BEGIN`/`COMMIT`/`ROLLBACK`; on error they rethrow and the consumer's transaction owns rollback. Passing an interactive-transaction provider but leaving `manageTransaction` at its default makes the legs nest a `BEGIN` (which warns "transaction already in progress") and `COMMIT` the consumer's transaction early — discarding any `SET LOCAL`.
+>
+> RLS itself fails closed: the policies use the 2-arg `current_setting('app.current_tenant_id', true)`, so a connection that never set the tenant GUC matches zero rows instead of erroring.
 
 ## Default Adapters
 

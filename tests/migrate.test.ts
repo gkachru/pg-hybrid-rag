@@ -351,4 +351,39 @@ describe("ragMigrate dollar-quote splitting", () => {
     expect(statements).toContain("SELECT 9");
     expect(statements.length).toBe(2);
   });
+
+  it("does not treat -- inside a single-quoted string literal as a comment", async () => {
+    const sql = ["INSERT INTO t (note) VALUES ('a -- b');", "SELECT 1;"].join("\n");
+    const statements = await runFixture(sql);
+    expect(statements.length).toBe(2);
+    const insert = statements.find((s) => s.startsWith("INSERT INTO t"));
+    expect(insert).toBeDefined();
+    // The -- is data inside the string, not a comment: it and the rest of the value survive.
+    expect(insert).toContain("'a -- b'");
+    expect(statements).toContain("SELECT 1");
+  });
+
+  it("does not split on a line-ending semicolon inside a single-quoted string literal", async () => {
+    // The first line ENDS with `;`, but it is inside the still-open '...' literal.
+    const sql = ["INSERT INTO t (note) VALUES ('semi;", "colon');", "SELECT 2;"].join("\n");
+    const statements = await runFixture(sql);
+    expect(statements.length).toBe(2);
+    const insert = statements.find((s) => s.startsWith("INSERT INTO t"));
+    expect(insert).toBeDefined();
+    expect(insert).toContain("'semi;");
+    expect(insert).toContain("colon'");
+    expect(statements).toContain("SELECT 2");
+  });
+
+  it("treats '' as an escaped quote inside a string (does not end the literal early)", async () => {
+    const sql = ["INSERT INTO t (note) VALUES ('it''s -- ok; still data');", "SELECT 3;"].join(
+      "\n",
+    );
+    const statements = await runFixture(sql);
+    expect(statements.length).toBe(2);
+    const insert = statements.find((s) => s.startsWith("INSERT INTO t"));
+    expect(insert).toBeDefined();
+    expect(insert).toContain("'it''s -- ok; still data'");
+    expect(statements).toContain("SELECT 3");
+  });
 });
