@@ -76,7 +76,7 @@ describe("RagPipeline", () => {
   });
 
   it("should embed query and return hybrid search results", async () => {
-    const results = await pipeline.search("return policy");
+    const results = await pipeline.search("return policy", { language: "en" });
     expect(mockEmbedQuery).toHaveBeenCalledWith("return policy");
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].content).toBe("Return policy: 30 days");
@@ -91,16 +91,17 @@ describe("RagPipeline", () => {
     expect(lastSearchParams.query).toBe("test");
   });
 
-  it("defaults language to en when not provided", async () => {
-    await pipeline.search("test");
-    expect(lastSearchParams.language).toBe("en");
+  it("throws when no explicit query language is provided", async () => {
+    // The implicit "en" default was removed (CODE_REVIEW #12): callers must declare the
+    // query language so a non-English corpus isn't silently stemmed/scoped as English.
+    await expect(pipeline.search("test")).rejects.toThrow(/language/);
   });
 
   it("should return empty array when no results from all legs", async () => {
     vectorRows = [];
     keywordRows = [];
     ftsRows = [];
-    const results = await pipeline.search("nonexistent topic");
+    const results = await pipeline.search("nonexistent topic", { language: "en" });
     expect(results).toHaveLength(0);
   });
 
@@ -115,7 +116,7 @@ describe("RagPipeline", () => {
     ];
     keywordRows = [];
     ftsRows = [];
-    const results = await pipeline.search("test");
+    const results = await pipeline.search("test", { language: "en" });
     expect(results[0].metadata).toEqual({});
   });
 
@@ -129,7 +130,7 @@ describe("RagPipeline", () => {
       { content: "Keyword only doc", sourceType: "faq", sourceId: "f-3", metadata: "{}" },
     ];
     ftsRows = [];
-    const results = await pipeline.search("test");
+    const results = await pipeline.search("test", { language: "en" });
     expect(results[0].content).toBe("Both legs doc");
     expect(results[0].score).toBeGreaterThan(results[1].score);
   });
@@ -142,22 +143,22 @@ describe("RagPipeline", () => {
     ];
     keywordRows = [];
     ftsRows = [];
-    const results = await pipeline.search("test", { topK: 2 });
+    const results = await pipeline.search("test", { topK: 2, language: "en" });
     expect(results).toHaveLength(2);
   });
 
   it("passes sourceTypes to db.hybridSearch", async () => {
-    await pipeline.search("test", { sourceTypes: ["product", "faq"] });
+    await pipeline.search("test", { sourceTypes: ["product", "faq"], language: "en" });
     expect(lastSearchParams.sourceTypes).toEqual(["product", "faq"]);
   });
 
   it("passes languages to db.hybridSearch", async () => {
-    await pipeline.search("test", { languages: ["en", "hi"] });
+    await pipeline.search("test", { languages: ["en", "hi"], language: "en" });
     expect(lastSearchParams.languages).toEqual(["en", "hi"]);
   });
 
   it("omits languages when not specified", async () => {
-    await pipeline.search("test", {});
+    await pipeline.search("test", { language: "en" });
     expect(lastSearchParams.languages).toBeUndefined();
   });
 
@@ -166,9 +167,9 @@ describe("RagPipeline", () => {
     expect(lastSearchParams.language).toBe("es");
   });
 
-  it("does not infer query language when languages has multiple entries", async () => {
-    await pipeline.search("test", { languages: ["en", "hi"] });
-    expect(lastSearchParams.language).toBe("en");
+  it("throws for a multi-entry languages filter without an explicit language", async () => {
+    // A multi-entry filter is ambiguous for query stemming — require an explicit `language`.
+    await expect(pipeline.search("test", { languages: ["en", "hi"] })).rejects.toThrow(/language/);
   });
 
   it("explicit language takes precedence over a single-entry languages filter", async () => {
@@ -190,7 +191,7 @@ describe("RagPipeline", () => {
   });
 
   it("passes a synonymLookup to db.hybridSearch", async () => {
-    await pipeline.search("test");
+    await pipeline.search("test", { language: "en" });
     expect(lastSearchParams.synonymLookup).toBeInstanceOf(Map);
   });
 
@@ -205,7 +206,7 @@ describe("RagPipeline", () => {
       embedder: mockEmbedder,
       synonyms,
     });
-    await pipelineWithSyn.search("phones");
+    await pipelineWithSyn.search("phones", { language: "en" });
     const lookup = lastSearchParams.synonymLookup as Map<string, Map<string, string[]>>;
     expect(lookup.get("en")?.get("phones")).toEqual(["smartphones"]);
   });
@@ -217,7 +218,7 @@ describe("RagPipeline", () => {
     ];
     keywordRows = [{ content: "Top match", sourceType: "product", sourceId: "1", metadata: "{}" }];
     ftsRows = [];
-    const results = await pipeline.search("test", { minRelevance: 0.8 });
+    const results = await pipeline.search("test", { minRelevance: 0.8, language: "en" });
     expect(results.length).toBe(1);
     expect(results[0].content).toBe("Top match");
   });
@@ -226,7 +227,7 @@ describe("RagPipeline", () => {
     vectorRows = [];
     keywordRows = [];
     ftsRows = [{ content: "FTS only doc", sourceType: "faq", sourceId: "fts-1", metadata: "{}" }];
-    const results = await pipeline.search("test");
+    const results = await pipeline.search("test", { language: "en" });
     expect(results).toHaveLength(1);
     expect(results[0].content).toBe("FTS only doc");
   });
@@ -244,7 +245,7 @@ describe("RagPipeline", () => {
       { content: "All three", sourceType: "faq", sourceId: "1", metadata: "{}" },
       { content: "FTS only", sourceType: "faq", sourceId: "4", metadata: "{}" },
     ];
-    const results = await pipeline.search("test");
+    const results = await pipeline.search("test", { language: "en" });
     expect(results[0].content).toBe("All three");
     const singleLegDocs = results.filter((r) => r.content !== "All three");
     for (const doc of singleLegDocs) {
@@ -261,6 +262,7 @@ describe("RagPipeline", () => {
       vectorWeight: 5,
       keywordWeight: 0.1,
       ftsWeight: 0.1,
+      language: "en",
     });
     expect(heavyVector[0].content).toBe("V doc");
 
@@ -268,6 +270,7 @@ describe("RagPipeline", () => {
       vectorWeight: 0.1,
       keywordWeight: 0.1,
       ftsWeight: 5,
+      language: "en",
     });
     expect(heavyFts[0].content).toBe("F doc");
   });
@@ -317,7 +320,7 @@ describe("RagPipeline", () => {
       embedder: mockEmbedder,
       stopWords,
     });
-    await pipelineWithStops.search("the best phone in a store");
+    await pipelineWithStops.search("the best phone in a store", { language: "en" });
     // Vector leg embeds the natural-language query — stop words preserved for dense retrieval
     expect(mockEmbedQuery).toHaveBeenCalledWith("the best phone in a store");
     // Keyword + FTS legs receive the stop-word-stripped query
@@ -356,7 +359,7 @@ describe("RagPipeline", () => {
       embedder: mockEmbedder,
       stopWords,
     });
-    await pipelineWithStops.search("the a an");
+    await pipelineWithStops.search("the a an", { language: "en" });
     expect(mockEmbedQuery).toHaveBeenCalledWith("the a an");
   });
 
@@ -374,17 +377,17 @@ describe("RagPipeline", () => {
       embedder: mockEmbedder,
       stopWords,
     });
-    await pipelineWithStops.search("The Dog!");
+    await pipelineWithStops.search("The Dog!", { language: "en" });
     expect(lastSearchParams.query).toBe("the dog");
   });
 
   it("strips trailing punctuation from query words", async () => {
-    await pipeline.search("phones? price!");
+    await pipeline.search("phones? price!", { language: "en" });
     expect(mockEmbedQuery).toHaveBeenCalledWith("phones price");
   });
 
   it("strips Hindi and Arabic trailing punctuation", async () => {
-    await pipeline.search("फोन। هاتف؟");
+    await pipeline.search("फोन। هاتف؟", { language: "hi" });
     expect(mockEmbedQuery).toHaveBeenCalledWith("फोन هاتف");
   });
 
@@ -412,7 +415,7 @@ describe("RagPipeline", () => {
         embedder: mockEmbedder,
         reranker,
       });
-      const results = await pipelineWithReranker.search("test", { rerank: true });
+      const results = await pipelineWithReranker.search("test", { rerank: true, language: "en" });
       expect(reranker.rerank).toHaveBeenCalled();
       expect(results[0].content).toBe("B");
       expect(results[0].score).toBe(0.9);
@@ -428,7 +431,7 @@ describe("RagPipeline", () => {
         embedder: mockEmbedder,
         reranker,
       });
-      await pipelineWithReranker.search("test");
+      await pipelineWithReranker.search("test", { language: "en" });
       expect(reranker.rerank).not.toHaveBeenCalled();
     });
 
@@ -447,7 +450,7 @@ describe("RagPipeline", () => {
         embedder: mockEmbedder,
         reranker,
       });
-      const results = await pipelineWithReranker.search("test", { rerank: true });
+      const results = await pipelineWithReranker.search("test", { rerank: true, language: "en" });
       expect(results).toHaveLength(1);
       expect(results[0].content).toBe("A");
     });
@@ -475,6 +478,7 @@ describe("RagPipeline", () => {
         rerank: true,
         rerankerMinRelativeScore: 0, // isolate the absolute floor
         rerankerMinAbsoluteScore: 0.01,
+        language: "en",
       });
       expect(results).toHaveLength(1);
       expect(results[0].content).toBe("High");
@@ -516,6 +520,7 @@ describe("RagPipeline", () => {
       threeDocs();
       const results = await pipelineWith(rerankerWithScores(SCORES)).search("test", {
         rerank: true,
+        language: "en",
       });
       const contents = results.map((r) => r.content);
       expect(contents).toContain("A relevant");
@@ -528,6 +533,7 @@ describe("RagPipeline", () => {
       const results = await pipelineWith(rerankerWithScores(SCORES)).search("test", {
         rerank: true,
         rerankerMinRelativeScore: 0,
+        language: "en",
       });
       expect(results).toHaveLength(3);
     });
@@ -538,6 +544,7 @@ describe("RagPipeline", () => {
         rerank: true,
         rerankerMinRelativeScore: 0.01, // threshold 0.000711 → A, B pass
         rerankerMinAbsoluteScore: 0.01, // → only A clears the absolute floor
+        language: "en",
       });
       expect(results.map((r) => r.content)).toEqual(["A relevant"]);
     });
@@ -546,7 +553,7 @@ describe("RagPipeline", () => {
       threeDocs();
       const results = await pipelineWith(
         rerankerWithScores({ "A relevant": -2.25, "B relevant": -4.82, "C noise": -9.77 }),
-      ).search("test", { rerank: true });
+      ).search("test", { rerank: true, language: "en" });
       // Fraction-of-top is meaningless for negative scores → no relative drop.
       expect(results).toHaveLength(3);
     });
@@ -565,7 +572,7 @@ describe("RagPipeline", () => {
       embedder: mockEmbedder,
       stopWords,
     });
-    await pipelineWithMerged.search("the best phone in a store");
+    await pipelineWithMerged.search("the best phone in a store", { language: "en" });
     expect(loadMergedMock).toHaveBeenCalledWith("tenant-1");
     expect(stopWords.load).not.toHaveBeenCalled();
     // Lexical legs get the stripped query; vector leg keeps the natural query

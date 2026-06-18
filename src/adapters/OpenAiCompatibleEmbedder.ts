@@ -85,6 +85,17 @@ export class OpenAiCompatibleEmbedder implements EmbeddingProvider {
     this.documentPrefix = config.documentPrefix ?? "passage";
     this.batchSize = config.batchSize ?? 32;
     this.concurrency = config.concurrency ?? 1;
+    // !(x > 0) rejects 0, negatives, and NaN — each makes a batching loop's `i += x` spin forever.
+    if (!(this.batchSize > 0)) {
+      throw new Error(
+        `OpenAiCompatibleEmbedder batchSize must be a positive number, got ${this.batchSize}`,
+      );
+    }
+    if (!(this.concurrency > 0)) {
+      throw new Error(
+        `OpenAiCompatibleEmbedder concurrency must be a positive number, got ${this.concurrency}`,
+      );
+    }
     this.timeoutMs = config.timeoutMs ?? 30_000;
     this.maxRetries = config.maxRetries ?? 2;
     this.retryBaseDelayMs = config.retryBaseDelayMs ?? 250;

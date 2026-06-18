@@ -30,7 +30,9 @@ export interface RagSearchOptions {
   minRelevance?: number;
   /**
    * Language code for FTS stemming and keyword search (e.g. 'en', 'en-US', 'fr-FR').
-   * Defaults to a single-entry `languages` filter when present, otherwise 'en'.
+   * Required: set this, or pass a single-entry `languages` filter (which is then used as the
+   * query language). `search()` throws if neither is provided — there is no default, so a
+   * non-English corpus is never silently stemmed/scoped as English.
    */
   language?: string;
   /** Optional normalizer for abbreviation expansion before search. */

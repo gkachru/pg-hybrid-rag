@@ -276,3 +276,17 @@ describe("OpenAiCompatibleEmbedder timeout and retry", () => {
     await expect(newEmbedder({ timeoutMs: 10, maxRetries: 0 }).embedQuery("hi")).rejects.toThrow();
   });
 });
+
+describe("OpenAiCompatibleEmbedder config validation", () => {
+  it("throws on a non-positive batchSize", () => {
+    // batchSize 0 makes the embedDocuments batching loop (i += batchSize) spin forever.
+    expect(() => makeEmbedder({ batchSize: 0 })).toThrow(/batchSize/);
+    expect(() => makeEmbedder({ batchSize: -1 })).toThrow(/batchSize/);
+  });
+
+  it("throws on a non-positive concurrency", () => {
+    // concurrency 0 makes the outer batch loop (i += concurrency) spin forever.
+    expect(() => makeEmbedder({ concurrency: 0 })).toThrow(/concurrency/);
+    expect(() => makeEmbedder({ concurrency: -1 })).toThrow(/concurrency/);
+  });
+});

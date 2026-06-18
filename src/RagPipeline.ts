@@ -84,6 +84,21 @@ export class RagPipeline {
         span.setAttribute("topK", opts.topK);
         span.setAttribute("searchMode", "hybrid-rrf-3way");
 
+        // Resolve the query language for FTS stemming + keyword/BM25 scoping. Use the explicit
+        // option, else infer it from a single-entry `languages` filter (so "search only Spanish
+        // docs" also stems the query as Spanish). Required (CODE_REVIEW #12): fail fast — before
+        // any embedding/DB work — rather than silently defaulting to English, which mis-stemmed
+        // and mis-scoped non-English corpora.
+        const queryLanguage =
+          opts.language ?? (opts.languages?.length === 1 ? opts.languages[0] : undefined);
+        if (!queryLanguage) {
+          throw new Error(
+            "RagPipeline.search requires an explicit query language: set `language` (e.g. 'en') " +
+              "or pass a single-entry `languages` filter. The implicit 'en' default was removed.",
+          );
+        }
+        span.setAttribute("language", queryLanguage);
+
         // Auto-load merged stop words for the tenant (uses cached Set when available)
         let allStopWords: Set<string>;
         if (this.stopWords?.loadMerged) {
@@ -107,14 +122,9 @@ export class RagPipeline {
           .filter(Boolean)
           .join(" ");
 
-        // The query's language for FTS stemming + normalization. Use the explicit option,
-        // else infer it from a single-entry `languages` filter (so "search only Spanish docs"
-        // also stems the query as Spanish), else leave undefined until the search boundary.
-        const queryLanguage =
-          opts.language ?? (opts.languages?.length === 1 ? opts.languages[0] : undefined);
-
-        // Apply NLP normalization (abbreviation expansion) before stop-word removal
-        if (opts.normalizer && queryLanguage) {
+        // Apply NLP normalization (abbreviation expansion) before stop-word removal.
+        // queryLanguage is guaranteed defined here (resolved + validated above).
+        if (opts.normalizer) {
           const preNormalized = searchQuery;
           searchQuery = opts.normalizer.normalize(searchQuery, queryLanguage);
           // Fallback to the pre-normalization string (already lowercased + punctuation-stripped),
@@ -157,8 +167,6 @@ export class RagPipeline {
         span.setAttribute("synonymsApplied", synonymLookup.size > 0);
         const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
-        const language = queryLanguage ?? "en";
-
         // Run 3-way hybrid search
         const results = await this.tracer.startActiveSpan("rag.dbSearch", async (dbSpan) => {
           try {
@@ -167,7 +175,7 @@ export class RagPipeline {
               embeddingStr,
               query: searchQuery,
               synonymLookup,
-              language,
+              language: queryLanguage,
               candidateLimit,
               vectorMinScore: opts.vectorMinScore,
               keywordMinScore: opts.keywordMinScore,

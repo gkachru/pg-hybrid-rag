@@ -144,7 +144,7 @@ const results = await pipeline.search(query, {
   sourceIds?: string[],            // filter by source ID
   languages?: string[],            // filter by document language (omit for cross-language)
   minRelevance?: number,           // 0-1, drop below top * threshold
-  language?: string,               // for FTS stemming + keyword search (default: "en")
+  language?: string,               // REQUIRED (or a single-entry `languages`); no default
   normalizer?: { normalize(text, lang): string },
   rerank?: boolean,                // default: false
   rerankerMinRelativeScore?: number, // fraction of top reranked score, default: 0.01
@@ -177,9 +177,9 @@ The search pipeline processes a query through these stages in order:
 | `rrfK` | `60` | Smoothing constant in the RRF formula: `score = weight / (rrfK + rank)`. Higher values flatten score differences between ranks (all results score similarly). Lower values amplify the gap between top-ranked and lower-ranked results. `60` is the standard value from the original RRF paper. |
 | `sourceTypes` | — | Filter results to specific source types (e.g. `["product", "article"]`). Applied as a SQL WHERE clause before search, not post-filter. |
 | `sourceIds` | — | Filter results to specific source IDs. Useful for scoping search to a known set of documents. |
-| `languages` | — | Filter results to specific document languages (e.g. `["en", "hi"]`). Applied as a SQL WHERE clause in all three search legs. Omit for cross-language search (default). When exactly one language is given and `language` is not set, it is also used as the query `language` (FTS stemming) so the FTS leg stays effective. |
+| `languages` | — | Filter results to specific document languages (e.g. `["en", "hi"]`). Applied as a SQL WHERE clause in all three search legs. Omit for cross-language search (default). When exactly one language is given and `language` is not set, it is also used as the query `language` (FTS stemming) so the FTS leg stays effective. A multi-entry filter does **not** infer a query language — pass `language` explicitly, or `search()` throws. |
 | `minRelevance` | — | Fraction of the top result's RRF score used as a floor (0–1). For example, `0.5` drops any result scoring below 50% of the best result. Applied after RRF fusion but before reranking. |
-| `language` | `"en"` | Language code for FTS stemming (Postgres `regconfig`) and keyword search. Accepts short codes (`en`) or BCP-47 (`en-US`). Determines which Postgres stemmer is used — e.g. `english` stems "running" → "run", while `simple` does lowercase-only tokenization. If unset, falls back to a single-entry `languages` filter when present, otherwise `"en"`. |
+| `language` | **required** | Language code for FTS stemming (Postgres `regconfig`) and keyword search. Accepts short codes (`en`) or BCP-47 (`en-US`). Determines which Postgres stemmer is used — e.g. `english` stems "running" → "run", while `simple` does lowercase-only tokenization. Required: set this, or pass a single-entry `languages` filter (used as the query language). `search()` throws if neither is given — there is no `"en"` default, so a non-English corpus is never silently stemmed/scoped as English. |
 | `normalizer` | — | Optional pre-processing hook called before stop-word removal. Receives the cleaned query and language. Useful for expanding abbreviations (e.g. "dept" → "department") or domain-specific normalization. |
 | `rerank` | `false` | Enable cross-encoder reranking after RRF fusion. A cross-encoder scores each query-document pair jointly, which is more accurate than the independent scoring of the three search legs, but slower. Requires a `RerankerProvider` on the pipeline. If the reranker throws, results gracefully fall back to RRF order. |
 | `rerankerMinRelativeScore` | `0.01` | Relative reranker cutoff: drop reranked results scoring below this fraction of the top reranked score. Model-agnostic — it keys off the gap between relevant and unrelated results rather than an absolute scale, so it works across rerankers. This is the everyday "drop unrelated results" knob. Set to `0` to disable. Skipped when the top score is not positive (e.g. raw logits). Only applies when reranking is active. |
@@ -624,7 +624,7 @@ const reranker: RerankerProvider = {
 };
 
 const pipeline = new RagPipeline({ tenantId, db, embedder, reranker });
-const results = await pipeline.search("blue shirt", { rerank: true });
+const results = await pipeline.search("blue shirt", { rerank: true, language: "en" });
 ```
 
 Reranking is opt-in (`rerank: false` by default). If the reranker throws, the pipeline gracefully falls back to RRF results.
