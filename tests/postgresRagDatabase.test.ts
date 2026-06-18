@@ -69,6 +69,8 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     expect(keywordLeg?.sql).toContain("show_bigm($2)");
     expect(keywordLeg?.sql).toContain("INTERSECT");
     expect(keywordLeg?.sql).not.toContain("bigm_similarity");
+    // Boundary (space-padded) bigrams are stripped from the query set so short queries aren't sunk.
+    expect(keywordLeg?.sql).toContain("NOT LIKE '% %'");
   });
 
   it("delegates the FTS leg to the injected strategy with a mapped context", async () => {

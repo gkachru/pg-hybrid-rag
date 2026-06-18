@@ -80,10 +80,18 @@ function buildTrigramKeywordSql(params: HybridSearchParams): KeywordLegSql {
 
 /**
  * pg_bigm keyword leg for CJK: scores by query-bigram COVERAGE
- * (|query∩doc bigrams| / |query bigrams|) — length-independent, the pg_bigm analog of
- * pg_trgm word_similarity. The `=%` operator is demoted to a pure gin_bigm_ops index probe
- * (candidate net, gated by the low CJK_BIGM_CANDIDATE_FLOOR); coverage (>= keywordMinScore) is
- * the relevance filter AND the rank order. Query bigrams are computed once in the `q` CTE.
+ * (shared bigrams / query bigrams) — length-independent, the pg_bigm analog of pg_trgm
+ * word_similarity. The `=%` operator is demoted to a pure gin_bigm_ops index probe (candidate
+ * net, gated by the low CJK_BIGM_CANDIDATE_FLOOR); coverage (>= keywordMinScore) is the relevance
+ * filter AND the rank order.
+ *
+ * The `q` CTE drops show_bigm's space-padded BOUNDARY bigrams (`" X"`, `"X "`) from the query set.
+ * pg_bigm pads only the whole string, so a boundary bigram can match only at a chunk's first/last
+ * character — never an interior occurrence — yet it would otherwise inflate the denominator and
+ * sink short queries (a mid-text 2-char hit like 手机 scores 1/3 ≈ 0.33, below threshold). Counting
+ * only interior character bigrams fixes that. Two tradeoffs, both softened by RRF + the other legs:
+ * a cross-word substring (价格 inside 评价格外) still matches — inherent to any non-segmenting
+ * matcher — and a space-separated multi-token query OR-matches its tokens (rare in CJK).
  */
 function buildBigmCoverageKeywordSql(params: HybridSearchParams): KeywordLegSql {
   // $1 tenant, $2 query, $3 candidateLimit, $4 coverage threshold (keywordMinScore); filters from $5.
@@ -95,7 +103,9 @@ function buildBigmCoverageKeywordSql(params: HybridSearchParams): KeywordLegSql 
   ];
   const f = buildFilters(params, 5);
   const sql = `
-          WITH q AS (SELECT show_bigm($2) AS qb)
+          WITH q AS (
+            SELECT ARRAY(SELECT b FROM unnest(show_bigm($2)) AS b WHERE b NOT LIKE '% %') AS qb
+          )
           SELECT id, content, source_type, source_id, metadata, score FROM (
             SELECT id, content, source_type, source_id, metadata,
                    cardinality(ARRAY(SELECT unnest(q.qb)
