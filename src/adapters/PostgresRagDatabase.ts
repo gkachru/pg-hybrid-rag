@@ -8,6 +8,15 @@ const CJK_LANGUAGES = new Set(["zh", "zh-CN", "ja", "ja-JP", "ko", "ko-KR"]);
 /** Default number of IVFFlat lists to probe per vector search (postgres default is 1). */
 const DEFAULT_IVFFLAT_PROBES = 10;
 
+/**
+ * Internal candidate-generation floor for the CJK bigram index probe (`content =% $2`).
+ * NOT the relevance threshold — relevance is the query-bigram coverage gate (keywordMinScore).
+ * Kept low so the `=%` GIN probe never excludes a doc that meets the coverage threshold for
+ * realistic chunk sizes (~512-token chunks ≈ ≤~500 bigrams; a coverage-0.35 match then has
+ * symmetric similarity ≳ 0.002, comfortably above this floor). Verified empirically against pg_bigm.
+ */
+const CJK_BIGM_CANDIDATE_FLOOR = 0.001;
+
 export interface PostgresRagDatabaseOptions {
   /** Enable pg_bigm for CJK keyword search. Requires the pg_bigm extension. Default: false. */
   cjk?: boolean;
@@ -31,6 +40,77 @@ export interface PostgresRagDatabaseOptions {
    * responsibility — the adapter rethrows without issuing ROLLBACK.
    */
   manageTransaction?: boolean;
+}
+
+interface KeywordLegSql {
+  sql: string;
+  params: unknown[];
+  /** Planner GUCs applied transaction-locally before the SELECT (name is a trusted constant). */
+  gucs: Array<{ name: string; value: string }>;
+}
+
+/**
+ * pg_trgm keyword leg: asymmetric word-similarity, index-driven via the `<%` operator.
+ * Threshold (keywordMinScore) is applied via the pg_trgm.word_similarity_threshold GUC.
+ */
+function buildTrigramKeywordSql(params: HybridSearchParams): KeywordLegSql {
+  const baseParams: unknown[] = [params.tenantId, params.query, params.candidateLimit];
+  const f = buildFilters(params, 4);
+  const sql = `
+          SELECT id, content, source_type, source_id, metadata,
+                 word_similarity($2, content) as score
+          FROM rag_documents
+          WHERE tenant_id = $1
+            AND $2 <% content
+            ${f.clause}
+          ORDER BY word_similarity($2, content) DESC
+          LIMIT $3
+        `;
+  return {
+    sql,
+    params: [...baseParams, ...f.params],
+    gucs: [{ name: "pg_trgm.word_similarity_threshold", value: String(params.keywordMinScore) }],
+  };
+}
+
+/**
+ * pg_bigm keyword leg for CJK: scores by query-bigram COVERAGE
+ * (|query∩doc bigrams| / |query bigrams|) — length-independent, the pg_bigm analog of
+ * pg_trgm word_similarity. The `=%` operator is demoted to a pure gin_bigm_ops index probe
+ * (candidate net, gated by the low CJK_BIGM_CANDIDATE_FLOOR); coverage (>= keywordMinScore) is
+ * the relevance filter AND the rank order. Query bigrams are computed once in the `q` CTE.
+ */
+function buildBigmCoverageKeywordSql(params: HybridSearchParams): KeywordLegSql {
+  // $1 tenant, $2 query, $3 candidateLimit, $4 coverage threshold (keywordMinScore); filters from $5.
+  const baseParams: unknown[] = [
+    params.tenantId,
+    params.query,
+    params.candidateLimit,
+    params.keywordMinScore,
+  ];
+  const f = buildFilters(params, 5);
+  const sql = `
+          WITH q AS (SELECT show_bigm($2) AS qb)
+          SELECT id, content, source_type, source_id, metadata, score FROM (
+            SELECT id, content, source_type, source_id, metadata,
+                   cardinality(ARRAY(SELECT unnest(q.qb)
+                                     INTERSECT
+                                     SELECT unnest(show_bigm(content))))::float
+                     / NULLIF(cardinality(q.qb), 0) AS score
+            FROM rag_documents, q
+            WHERE tenant_id = $1
+              AND content =% $2
+              ${f.clause}
+          ) c
+          WHERE score >= $4
+          ORDER BY score DESC
+          LIMIT $3
+        `;
+  return {
+    sql,
+    params: [...baseParams, ...f.params],
+    gucs: [{ name: "pg_bigm.similarity_limit", value: String(CJK_BIGM_CANDIDATE_FLOOR) }],
+  };
 }
 
 /**
@@ -102,41 +182,10 @@ export class PostgresRagDatabase implements RagDatabase {
         return rows.map(toRankedCandidate);
       }),
 
-      // --- Keyword leg (pg_trgm or pg_bigm) ---
+      // --- Keyword leg (pg_trgm word-similarity, or pg_bigm query-bigram coverage for CJK) ---
       this.txProvider.withConnection(async (client) => {
-        // The keyword threshold is applied via the per-extension GUC below (set transaction-
-        // locally), NOT as a bound parameter — so it is intentionally absent from baseParams.
-        // Binding it as an unreferenced $N would make Postgres reject the statement with
-        // "could not determine data type of parameter $N".
-        const baseParams: unknown[] = [params.tenantId, params.query, params.candidateLimit];
-        const f = buildFilters(params, 4);
-        // Drive the trigram GIN index via the (in)equality-style operators rather than a bare
-        // word_similarity()/bigm_similarity() > threshold comparison, which the planner can't turn
-        // into an index condition. The threshold moves into the per-extension GUC (set transaction-
-        // locally below); the similarity function stays only in SELECT/ORDER BY for the score.
-        //   pg_trgm: `$2 <% content` ≡ word_similarity($2, content) >= pg_trgm.word_similarity_threshold
-        //   pg_bigm: `content =% $2` ≡ bigm_similarity(...) >= pg_bigm.similarity_limit
-        const similarityFn = useBigm ? "bigm_similarity" : "word_similarity";
-        const matchExpr = useBigm ? "content =% $2" : "$2 <% content";
-        const thresholdGuc = useBigm
-          ? "pg_bigm.similarity_limit"
-          : "pg_trgm.word_similarity_threshold";
-        const sql = `
-          SELECT id, content, source_type, source_id, metadata,
-                 ${similarityFn}($2, content) as score
-          FROM rag_documents
-          WHERE tenant_id = $1
-            AND ${matchExpr}
-            ${f.clause}
-          ORDER BY ${similarityFn}($2, content) DESC
-          LIMIT $3
-        `;
-        const rows = await this.runTuned(
-          client,
-          [{ name: thresholdGuc, value: String(params.keywordMinScore) }],
-          sql,
-          [...baseParams, ...f.params],
-        );
+        const leg = useBigm ? buildBigmCoverageKeywordSql(params) : buildTrigramKeywordSql(params);
+        const rows = await this.runTuned(client, leg.gucs, leg.sql, leg.params);
         return rows.map(toRankedCandidate);
       }),
 

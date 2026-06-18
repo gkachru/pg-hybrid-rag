@@ -57,13 +57,18 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     expect(keywordLeg?.sql).toContain("SELECT id, content");
   });
 
-  it("uses bigm_similarity for CJK when cjk: true", async () => {
+  it("scores the CJK keyword leg by query-bigram coverage (show_bigm), not bigm_similarity", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider, { cjk: true }).hybridSearch({
       ...params,
       language: "ja",
     });
-    expect(calls.some((c) => c.sql.includes("bigm_similarity($2, content)"))).toBe(true);
+    const keywordLeg = calls.find((c) => c.sql.includes("show_bigm(content)"));
+    expect(keywordLeg).toBeDefined();
+    // Coverage = |query∩doc bigrams| / |query bigrams|, computed via show_bigm + INTERSECT.
+    expect(keywordLeg?.sql).toContain("show_bigm($2)");
+    expect(keywordLeg?.sql).toContain("INTERSECT");
+    expect(keywordLeg?.sql).not.toContain("bigm_similarity");
   });
 
   it("delegates the FTS leg to the injected strategy with a mapped context", async () => {
@@ -120,19 +125,33 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     expect(calls.some((c) => c.sql === "COMMIT")).toBe(true);
   });
 
-  it("CJK keyword leg uses the bigm =% operator and pg_bigm.similarity_limit", async () => {
+  it("CJK keyword leg keeps the =% index probe and sets the pg_bigm floor (not keywordMinScore)", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider, { cjk: true }).hybridSearch({
       ...params,
       language: "ja",
     });
-    const keywordLeg = calls.find((c) => c.sql.includes("bigm_similarity($2, content)"));
-    expect(keywordLeg?.sql).toContain("content =% $2");
-    expect(keywordLeg?.sql).not.toContain("bigm_similarity($2, content) >");
+    const keywordLeg = calls.find((c) => c.sql.includes("show_bigm(content)"));
+    expect(keywordLeg?.sql).toContain("content =% $2"); // gin_bigm_ops index probe retained
+    expect(keywordLeg?.sql).toContain("score >= $4"); // coverage threshold predicate
     const setCall = calls.find(
       (c) => typeof c.sql === "string" && c.sql.includes("pg_bigm.similarity_limit"),
     );
     expect(setCall?.sql).toContain("set_config('pg_bigm.similarity_limit'");
+    // The GUC is the low candidate-generation floor, NOT the relevance threshold.
+    expect(setCall?.params).toContain("0.001");
+    expect(setCall?.params).not.toContain(String(params.keywordMinScore));
+  });
+
+  it("CJK keyword leg binds keywordMinScore as the coverage threshold ($4)", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider, { cjk: true }).hybridSearch({
+      ...params,
+      language: "ja",
+    });
+    const keywordLeg = calls.find((c) => c.sql.includes("show_bigm(content)"));
+    expect(keywordLeg?.sql).toContain("WHERE score >= $4");
+    expect(keywordLeg?.params[3]).toBe(params.keywordMinScore); // $4 === keywordMinScore (0.35)
   });
 
   // --- Finding #10: vector leg must set ivfflat.probes ---
