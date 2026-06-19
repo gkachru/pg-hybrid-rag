@@ -1,4 +1,4 @@
-import type { EmbeddingProvider, RagDatabase, RagLogger } from "./interfaces.js";
+import type { EmbeddingProvider, Normalizer, RagDatabase, RagLogger } from "./interfaces.js";
 import type { Chunk } from "./types.js";
 
 const noopLogger: RagLogger = {
@@ -10,6 +10,8 @@ export interface RagIndexerConfig {
   tenantId: string;
   db: RagDatabase;
   embedder: EmbeddingProvider;
+  /** Optional lexical normalizer; applied to content for the `content_normalized` column. */
+  normalizer?: Normalizer;
   logger?: RagLogger;
 }
 
@@ -17,12 +19,14 @@ export class RagIndexer {
   private tenantId: string;
   private db: RagDatabase;
   private embedder: EmbeddingProvider;
+  private normalizer?: Normalizer;
   private logger: RagLogger;
 
   constructor(config: RagIndexerConfig) {
     this.tenantId = config.tenantId;
     this.db = config.db;
     this.embedder = config.embedder;
+    this.normalizer = config.normalizer;
     this.logger = config.logger ?? noopLogger;
   }
 
@@ -51,18 +55,29 @@ export class RagIndexer {
       );
     }
 
-    // Build the chunk rows (Postgres handles stemming via tsvector trigger).
+    // Build the chunk rows. content stays raw (display + dense embedding); content_normalized
+    // feeds the lexical legs. Identity when no normalizer is injected (non-Arabic unaffected).
     // Prefer each chunk's own language (the Chunker sizes chunks from it) so the
     // tsvector trigger stems correctly and the `languages` filter stays accurate.
-    const values = chunks.map((chunk, i) => ({
-      sourceType,
-      sourceId,
-      chunkIndex: String(chunk.index),
-      content: chunk.content,
-      language: chunk.metadata.language ?? language,
-      embedding: embeddings[i],
-      metadata: JSON.stringify(chunk.metadata),
-    }));
+    const values = await Promise.all(
+      chunks.map(async (chunk, i) => {
+        const lang = chunk.metadata.language ?? language;
+        const content = chunk.content;
+        const contentNormalized = this.normalizer
+          ? await this.normalizer.normalize(content, lang)
+          : content;
+        return {
+          sourceType,
+          sourceId,
+          chunkIndex: String(chunk.index),
+          content,
+          contentNormalized,
+          language: lang,
+          embedding: embeddings[i],
+          metadata: JSON.stringify(chunk.metadata),
+        };
+      }),
+    );
 
     // Replace the source's chunks atomically: the DELETE of the old chunks and the INSERT of the
     // new ones happen in one transaction, so a failed INSERT rolls the DELETE back rather than

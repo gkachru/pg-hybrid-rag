@@ -162,4 +162,39 @@ describe("RagIndexer", () => {
     expect(rows[0].language).toBe("hi");
     expect(rows[1].language).toBe("en");
   });
+
+  it("computes content_normalized via the injected normalizer", async () => {
+    capturedInsertChunks = [];
+    const indexer = new RagIndexer({
+      tenantId: "t-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      normalizer: { normalize: (t: string) => `N:${t}` },
+    });
+    await indexer.index("faq", "f-1", [{ index: 0, content: "raw", metadata: {} }], "ar");
+    const rows = capturedInsertChunks as Array<Record<string, unknown>>;
+    expect(rows[0].content).toBe("raw"); // raw preserved
+    expect(rows[0].contentNormalized).toBe("N:raw"); // normalized stored separately
+  });
+
+  it("defaults content_normalized to raw content when no normalizer is injected", async () => {
+    capturedInsertChunks = [];
+    const indexer = new RagIndexer({ tenantId: "t-1", db: mockDb, embedder: mockEmbedder });
+    await indexer.index("faq", "f-1", [{ index: 0, content: "raw", metadata: {} }], "en");
+    const rows = capturedInsertChunks as Array<Record<string, unknown>>;
+    expect(rows[0].contentNormalized).toBe("raw");
+  });
+
+  it("awaits an async normalizer (external-service shape)", async () => {
+    capturedInsertChunks = [];
+    const indexer = new RagIndexer({
+      tenantId: "t-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      normalizer: { normalize: async (t: string) => `A:${t}` },
+    });
+    await indexer.index("faq", "f-1", [{ index: 0, content: "raw", metadata: {} }], "ar");
+    const rows = capturedInsertChunks as Array<Record<string, unknown>>;
+    expect(rows[0].contentNormalized).toBe("A:raw");
+  });
 });
