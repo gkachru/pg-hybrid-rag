@@ -324,6 +324,7 @@ describe("PostgresRagDatabase.insertChunks", () => {
     sourceId: "doc-1",
     chunkIndex: "0",
     content: "hello world",
+    contentNormalized: "hello world",
     language: "en",
     embedding: [0.1, 0.2, 0.3],
     metadata: '{"k":"v"}',
@@ -340,11 +341,11 @@ describe("PostgresRagDatabase.insertChunks", () => {
     await new PostgresRagDatabase(txProvider).insertChunks("t1", [chunk]);
     expect(calls).toHaveLength(1);
     expect(calls[0].sql).toContain(
-      "INSERT INTO rag_documents (tenant_id, source_type, source_id, chunk_index, content, language, embedding, metadata)",
+      "INSERT INTO rag_documents (tenant_id, source_type, source_id, chunk_index, content, language, embedding, metadata, content_normalized)",
     );
   });
 
-  it("binds the 8 columns per chunk in order and serializes the embedding as a vector literal", async () => {
+  it("binds the 9 columns per chunk in order and serializes the embedding as a vector literal", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider).insertChunks("t1", [chunk]);
     expect(calls[0].params).toEqual([
@@ -356,27 +357,29 @@ describe("PostgresRagDatabase.insertChunks", () => {
       "en",
       "[0.1,0.2,0.3]",
       '{"k":"v"}',
+      "hello world",
     ]);
-    // The embedding column carries the ::vector cast (7th of each row's 8 placeholders).
+    // The embedding column carries the ::vector cast (7th of each row's 9 placeholders).
     expect(calls[0].sql).toContain("$7::vector");
   });
 
   it("batches multiple chunks into one INSERT with sequential placeholders", async () => {
     const { txProvider, calls } = recordingTx();
-    const second = { ...chunk, sourceId: "doc-2", chunkIndex: "1", embedding: [0.4, 0.5, 0.6] };
+    const second = {
+      ...chunk,
+      sourceId: "doc-2",
+      chunkIndex: "1",
+      embedding: [0.4, 0.5, 0.6],
+    };
     await new PostgresRagDatabase(txProvider).insertChunks("t1", [chunk, second]);
     expect(calls).toHaveLength(1);
-    // 8 params per chunk, flattened in row order.
-    expect(calls[0].params).toHaveLength(16);
-    expect(calls[0].params?.[14]).toBe("[0.4,0.5,0.6]"); // 2nd row's embedding ($15)
-    // Each row's embedding keeps its ::vector cast at the right offset: $7 and $15.
+    expect(calls[0].params).toHaveLength(18); // 9 per chunk
+    expect(calls[0].params?.[15]).toBe("[0.4,0.5,0.6]"); // 2nd row embedding ($16)
     expect(calls[0].sql).toContain("$7::vector");
-    expect(calls[0].sql).toContain("$15::vector");
-    // Guard the `$${offset + n}` arithmetic: every bound $n in {1..16} is referenced, and the
-    // SQL references nothing beyond what it binds (catches off-by-one in the placeholder math).
+    expect(calls[0].sql).toContain("$16::vector");
     const refs = referencedPlaceholders(calls[0].sql);
-    for (let n = 1; n <= 16; n++) expect(refs.has(n)).toBe(true);
-    for (const ref of refs) expect(ref).toBeLessThanOrEqual(16);
+    for (let n = 1; n <= 18; n++) expect(refs.has(n)).toBe(true);
+    for (const ref of refs) expect(ref).toBeLessThanOrEqual(18);
   });
 });
 
@@ -401,6 +404,7 @@ describe("PostgresRagDatabase.replaceSource", () => {
     sourceId: "doc-1",
     chunkIndex: "0",
     content: "hi",
+    contentNormalized: "hi",
     language: "en",
     embedding: [0.1, 0.2, 0.3],
     metadata: '{"k":"v"}',

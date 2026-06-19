@@ -92,6 +92,7 @@ export interface RagDatabase {
       sourceId: string;
       chunkIndex: string;
       content: string;
+      contentNormalized: string;
       language: string;
       embedding: number[];
       metadata: string;
@@ -116,6 +117,7 @@ export interface RagDatabase {
       sourceId: string;
       chunkIndex: string;
       content: string;
+      contentNormalized: string;
       language: string;
       embedding: number[];
       metadata: string;

@@ -304,6 +304,7 @@ export class PostgresRagDatabase implements RagDatabase {
       sourceId: string;
       chunkIndex: string;
       content: string;
+      contentNormalized: string;
       language: string;
       embedding: number[];
       metadata: string;
@@ -324,14 +325,15 @@ export class PostgresRagDatabase implements RagDatabase {
         chunk.language,
         embeddingStr,
         chunk.metadata,
+        chunk.contentNormalized,
       );
       valueClauses.push(
-        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}::vector, $${offset + 8})`,
+        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}::vector, $${offset + 8}, $${offset + 9})`,
       );
     }
 
     return {
-      sql: `INSERT INTO rag_documents (tenant_id, source_type, source_id, chunk_index, content, language, embedding, metadata)
+      sql: `INSERT INTO rag_documents (tenant_id, source_type, source_id, chunk_index, content, language, embedding, metadata, content_normalized)
          VALUES ${valueClauses.join(", ")}`,
       params,
     };
@@ -344,6 +346,7 @@ export class PostgresRagDatabase implements RagDatabase {
       sourceId: string;
       chunkIndex: string;
       content: string;
+      contentNormalized: string;
       language: string;
       embedding: number[];
       metadata: string;
@@ -380,6 +383,7 @@ export class PostgresRagDatabase implements RagDatabase {
       sourceId: string;
       chunkIndex: string;
       content: string;
+      contentNormalized: string;
       language: string;
       embedding: number[];
       metadata: string;
