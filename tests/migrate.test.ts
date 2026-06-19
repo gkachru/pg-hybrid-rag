@@ -146,6 +146,12 @@ describe("ragMigrate", () => {
     expect(appliedMigrations).toContain("011_pg_textsearch.sql");
   });
 
+  it("applies the content_normalized migration (013) by default", async () => {
+    const { client, appliedMigrations } = createMockClient();
+    await ragMigrate(client, { sqlDir });
+    expect(appliedMigrations).toContain("013_normalization.sql");
+  });
+
   it("does not emit transaction control for a bare SqlClient (backward compatible)", async () => {
     const { client, executedQueries } = createMockClient();
     await ragMigrate(client, { sqlDir });
