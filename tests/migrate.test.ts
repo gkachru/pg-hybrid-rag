@@ -152,6 +152,12 @@ describe("ragMigrate", () => {
     expect(appliedMigrations).toContain("013_normalization.sql");
   });
 
+  it("applies the Arabic FTS migration (014) by default", async () => {
+    const { client, appliedMigrations } = createMockClient();
+    await ragMigrate(client, { sqlDir });
+    expect(appliedMigrations).toContain("014_arabic_fts.sql");
+  });
+
   it("does not emit transaction control for a bare SqlClient (backward compatible)", async () => {
     const { client, executedQueries } = createMockClient();
     await ragMigrate(client, { sqlDir });
