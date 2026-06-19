@@ -20,6 +20,9 @@ describe("normalizeForLanguage (Arabic)", () => {
   it("folds Arabic-Indic and extended digits to ASCII", () => {
     expect(normalizeForLanguage("٣٥٠ ۹", "ar")).toBe("350 9");
   });
+  it("keeps non-tashkeel marks in U+0660-066F (tashkeel class is not contiguous to U+0670)", () => {
+    expect(normalizeForLanguage("٪", "ar")).toBe("٪"); // U+066A Arabic percent sign survives
+  });
   it("is idempotent", () => {
     const once = normalizeForLanguage("الأسْعار ٣٥٠", "ar");
     expect(normalizeForLanguage(once, "ar")).toBe(once);

@@ -1,7 +1,10 @@
 import type { Normalizer } from "./interfaces.js";
 
 // Tashkeel/harakat (U+064B–U+065F) + superscript alef (U+0670).
-const TASHKEEL = /[ً-ٰٟ]/g;
+// Explicit escapes, not a literal class: a contiguous range U+064B–U+0670 would
+// over-match, swallowing Arabic-Indic digits (U+0660–0669) and punctuation /
+// dotless letters (U+066A–066F). The class is harakat plus superscript alef only.
+const TASHKEEL = /[ً-ٰٟ]/g;
 // Tatweel/kashida (U+0640), ZWNJ (U+200C), ZWJ (U+200D).
 const TATWEEL_ZW = /[ـ‌‍]/g;
 // Alef variants: madda (آ), hamza-above (أ), hamza-below (إ), wasla (ٱ) → bare alef (ا).
@@ -23,14 +26,12 @@ export interface ArabicNormalizeOptions {
 
 function normalizeArabic(text: string, opts: ArabicNormalizeOptions): string {
   let s = text.normalize("NFC");
-  // Digit replacement must precede tashkeel stripping because the tashkeel regex
-  // range U+064B–U+0670 spans the Arabic-Indic digit range U+0660–U+0669.
-  s = s.replace(ARABIC_INDIC, (d) => String(d.charCodeAt(0) - 0x0660));
-  s = s.replace(EXT_ARABIC_INDIC, (d) => String(d.charCodeAt(0) - 0x06f0));
   s = s.replace(TASHKEEL, "").replace(TATWEEL_ZW, "");
   s = s.replace(ALEF, ALEF_BARE);
   if (opts.foldAlefMaqsura !== false) s = s.replace(ALEF_MAQSURA, YEH);
   if (opts.foldTaaMarbuta !== false) s = s.replace(TAA_MARBUTA, HEH);
+  s = s.replace(ARABIC_INDIC, (d) => String(d.charCodeAt(0) - 0x0660));
+  s = s.replace(EXT_ARABIC_INDIC, (d) => String(d.charCodeAt(0) - 0x06f0));
   return s.normalize("NFC");
 }
 
