@@ -37,6 +37,11 @@ export class Bm25Fts implements FtsStrategy {
           LIMIT $3
         `;
     const rows = await client.query<Record<string, unknown>>(sql, [...baseParams, ...f.params]);
-    return rows.map(toRankedCandidate);
+    // pg_textsearch scores docs with zero matching terms as exactly 0 (real matches score > 0)
+    // and pads the top-K up to LIMIT with those non-matches. RRF fuses by rank, not score, so
+    // returning the padding would inject spurious lexical signal for documents that share no
+    // term with the query. Drop it here — the score gate, applied post-fetch, preserves the
+    // bare ORDER BY...LIMIT that enables pg_textsearch's Block-Max WAND top-K optimization.
+    return rows.filter((r) => Number(r.score) > 0).map(toRankedCandidate);
   }
 }
