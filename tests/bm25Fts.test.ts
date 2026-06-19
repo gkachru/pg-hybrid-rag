@@ -20,8 +20,12 @@ describe("Bm25Fts", () => {
     const { client, calls } = capturingClient();
     await new Bm25Fts().search(client, { ...base, query: "best phones", synonyms: new Map() });
     expect(calls).toHaveLength(1);
-    expect(calls[0].sql).toContain("-(content <@> to_bm25query($2, 'idx_rag_bm25_en')) as score");
-    expect(calls[0].sql).toContain("ORDER BY content <@> to_bm25query($2, 'idx_rag_bm25_en')");
+    expect(calls[0].sql).toContain(
+      "-(content_normalized <@> to_bm25query($2, 'idx_rag_bm25_en')) as score",
+    );
+    expect(calls[0].sql).toContain(
+      "ORDER BY content_normalized <@> to_bm25query($2, 'idx_rag_bm25_en')",
+    );
     expect(calls[0].sql).toContain("language IN ('en', 'en-US', 'en-IN')");
     expect(calls[0].params[1]).toBe("best phones");
   });

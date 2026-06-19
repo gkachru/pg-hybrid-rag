@@ -61,13 +61,14 @@ Three-way hybrid search fused via RRF:
 | `src/adapters/CachingStopWordsLoader.ts` | 30s TTL per-tenant stop words cache |
 | `src/adapters/CachingSynonymLoader.ts` | 30s TTL per-tenant synonym cache |
 | `src/adapters/fts/TsvectorFts.ts` | Default FTS strategy (tsvector/tsquery) |
-| `src/adapters/fts/Bm25Fts.ts` | BM25 FTS strategy (pg_textsearch) |
+| `src/adapters/fts/Bm25Fts.ts` | BM25 FTS strategy (pg_textsearch); matches `content_normalized`, drops zero-score non-matches |
 | `src/adapters/fts/bm25LanguageGroups.ts` | BM25 language groups + partial-index predicate |
 | `src/adapters/sqlHelpers.ts` | Shared filter-clause + row-mapping helpers |
 | `sql/010_vectorchord.sql` | Optional vchordrq index (gated by `vectorchord`) |
 | `sql/011_pg_textsearch.sql` | Optional BM25 indexes (gated by `bm25`) |
 | `sql/012_drop_dead_index.sql` | Drops the unused `content_stemmed` index + column (dead since migration 008) |
-| `sql/001-012_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK) |
+| `sql/015_bm25_normalized_textsearch.sql` | Rebuilds the BM25 indexes on `content_normalized` (gated by `bm25`) |
+| `sql/001-015_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK, normalization) |
 
 ## Design patterns
 
@@ -88,8 +89,8 @@ Three-way hybrid search fused via RRF:
 - **Pluggable chunker** — `ChunkingProvider` interface lets consumers swap in alternative chunking libraries (e.g. chonkie).
 - **Batch inserts** — PostgresRagDatabase inserts all chunks in a single INSERT statement.
 - **Punctuation handling** — trailing punctuation stripped before matching (Latin, Hindi, Arabic, CJK).
-- **Pluggable FTS strategy** — the FTS leg is an injectable `FtsStrategy` on `PostgresRagDatabase` (`fts` option). `TsvectorFts` (default) uses tsvector/tsquery + `rag_fts_config()`; `Bm25Fts` uses pg_textsearch BM25 (`content <@> query`). The pipeline passes `synonymLookup` (not a pre-built tsquery); the strategy builds its own query form (`buildFtsQuery` vs `buildBm25Query`).
-- **BM25 per-language partial indexes** — `Bm25Fts` scopes the FTS leg to `params.language`'s group via `bm25LanguagePredicate()` so the planner uses the matching partial `bm25` index. `BM25_LANGUAGE_GROUPS` (TS) and `sql/011_pg_textsearch.sql` literals are kept in sync by a test.
+- **Pluggable FTS strategy** — the FTS leg is an injectable `FtsStrategy` on `PostgresRagDatabase` (`fts` option). `TsvectorFts` (default) uses tsvector/tsquery + `rag_fts_config()`; `Bm25Fts` uses pg_textsearch BM25 (`content_normalized <@> query`, dropping zero-score non-matches so only genuine lexical hits feed RRF — pg_textsearch otherwise pads top-K up to LIMIT, and RRF fuses by rank). The pipeline passes `synonymLookup` (not a pre-built tsquery); the strategy builds its own query form (`buildFtsQuery` vs `buildBm25Query`).
+- **BM25 per-language partial indexes** — `Bm25Fts` scopes the FTS leg to `params.language`'s group via `bm25LanguagePredicate()` so the planner uses the matching partial `bm25` index. The bm25 indexes match `content_normalized` (migration 015 rebuilds migration 011's raw-`content` indexes on the normalized column, so a normalized query — e.g. Arabic orthographic folds — aligns with indexed content like the pg_trgm/tsvector legs). `BM25_LANGUAGE_GROUPS` (TS) and the `sql/011` + `sql/015` literals are kept in sync by a test.
 - **Gated optional extensions** — `ragMigrate` flags `vectorchord` (migration 010, `vchordrq` index swap) and `bm25` (migration 011, pg_textsearch). Both require `shared_preload_libraries` + restart (ops prerequisite, not in the migration).
 
 ## Schema

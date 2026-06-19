@@ -8,9 +8,10 @@ import { bm25IndexName, bm25LanguagePredicate } from "./bm25LanguageGroups.js";
  * BM25 FTS strategy backed by pg_textsearch. Uses a flat term list and the `<@>`
  * BM25 distance operator. `<@>` returns negative BM25 distance (lower = better),
  * so we ORDER BY ascending and negate for a positive score. A language-group
- * predicate steers the planner to the matching partial BM25 index (sql/011).
+ * predicate steers the planner to the matching partial BM25 index (sql/011, rebuilt on
+ * content_normalized by sql/015).
  *
- * Requires migration 011 + shared_preload_libraries includes 'pg_textsearch'.
+ * Requires migrations 011 + 015 + shared_preload_libraries includes 'pg_textsearch'.
  */
 export class Bm25Fts implements FtsStrategy {
   async search(client: SqlClient, ctx: FtsContext): Promise<RankedCandidate[]> {
@@ -26,14 +27,17 @@ export class Bm25Fts implements FtsStrategy {
     // as a SQL literal is safe.
     const idxName = bm25IndexName(ctx.language);
 
+    // Match BM25 against content_normalized (orthographically folded, same as the pg_trgm leg and
+    // the tsvector source) — the lexical query reaching ctx.query is normalized the same way, so
+    // e.g. Arabic taa-marbuta/alef variants align. Raw `content` is still SELECTed for display.
     const sql = `
           SELECT id, content, source_type, source_id, metadata,
-                 -(content <@> to_bm25query($2, '${idxName}')) as score
+                 -(content_normalized <@> to_bm25query($2, '${idxName}')) as score
           FROM rag_documents
           WHERE tenant_id = $1
             AND ${langPredicate}
             ${f.clause}
-          ORDER BY content <@> to_bm25query($2, '${idxName}')
+          ORDER BY content_normalized <@> to_bm25query($2, '${idxName}')
           LIMIT $3
         `;
     const rows = await client.query<Record<string, unknown>>(sql, [...baseParams, ...f.params]);
