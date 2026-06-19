@@ -45,14 +45,14 @@ describe("PostgresRagDatabase.hybridSearch", () => {
   it("runs the keyword leg with word_similarity by default", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider).hybridSearch(params);
-    expect(calls.some((c) => c.sql.includes("word_similarity($2, content)"))).toBe(true);
+    expect(calls.some((c) => c.sql.includes("word_similarity($2, content_normalized)"))).toBe(true);
   });
 
   it("selects the chunk id in the vector and keyword legs (for RRF dedup)", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider).hybridSearch(params);
     const vectorLeg = calls.find((c) => c.sql.includes("embedding <=> $2::vector"));
-    const keywordLeg = calls.find((c) => c.sql.includes("word_similarity($2, content)"));
+    const keywordLeg = calls.find((c) => c.sql.includes("word_similarity($2, content_normalized)"));
     expect(vectorLeg?.sql).toContain("SELECT id, content");
     expect(keywordLeg?.sql).toContain("SELECT id, content");
   });
@@ -101,13 +101,14 @@ describe("PostgresRagDatabase.hybridSearch", () => {
   it("keyword leg uses the index-friendly word-similarity operator ($2 <% content)", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider).hybridSearch(params);
-    const keywordLeg = calls.find((c) => c.sql.includes("word_similarity($2, content)"));
-    // The WHERE clause drives the GIN index via the operator, not a bare function comparison.
-    expect(keywordLeg?.sql).toContain("$2 <% content");
-    expect(keywordLeg?.sql).not.toContain("word_similarity($2, content) >");
-    // word_similarity stays in SELECT and ORDER BY for the score.
-    expect(keywordLeg?.sql).toContain("word_similarity($2, content) as score");
-    expect(keywordLeg?.sql).toContain("ORDER BY word_similarity($2, content) DESC");
+    const keywordLeg = calls.find((c) => c.sql.includes("word_similarity($2, content_normalized)"));
+    // WHERE drives the GIN index on content_normalized via the operator.
+    expect(keywordLeg?.sql).toContain("$2 <% content_normalized");
+    expect(keywordLeg?.sql).not.toContain("word_similarity($2, content_normalized) >");
+    expect(keywordLeg?.sql).toContain("word_similarity($2, content_normalized) as score");
+    expect(keywordLeg?.sql).toContain("ORDER BY word_similarity($2, content_normalized) DESC");
+    // The SELECT list still returns the raw content column for display.
+    expect(keywordLeg?.sql).toContain("SELECT id, content,");
   });
 
   it("keyword leg sets the trigram word-similarity threshold transaction-locally", async () => {
@@ -212,7 +213,7 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     ).toBe(true);
     // The tuned SELECTs still ran on the ambient connection.
     expect(calls.some((c) => c.sql.includes("embedding <=> $2::vector"))).toBe(true);
-    expect(calls.some((c) => c.sql.includes("word_similarity($2, content)"))).toBe(true);
+    expect(calls.some((c) => c.sql.includes("word_similarity($2, content_normalized)"))).toBe(true);
   });
 
   // --- Every bound parameter must be referenced by the SQL ---
@@ -276,7 +277,7 @@ describe("PostgresRagDatabase.hybridSearch leg-failure handling", () => {
     const slow = () => new Promise<void>((r) => setTimeout(r, slowMs));
     const client: SqlClient = {
       query: async <T>(sql: string): Promise<T[]> => {
-        if (sql.includes("word_similarity($2, content) as score")) {
+        if (sql.includes("word_similarity($2, content_normalized) as score")) {
           throw new Error("keyword leg boom");
         }
         if (sql.includes("embedding <=> $2::vector") || sql.includes("tsquery(")) {

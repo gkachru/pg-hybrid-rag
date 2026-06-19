@@ -63,12 +63,12 @@ function buildTrigramKeywordSql(params: HybridSearchParams): KeywordLegSql {
   const f = buildFilters(params, 4);
   const sql = `
           SELECT id, content, source_type, source_id, metadata,
-                 word_similarity($2, content) as score
+                 word_similarity($2, content_normalized) as score
           FROM rag_documents
           WHERE tenant_id = $1
-            AND $2 <% content
+            AND $2 <% content_normalized
             ${f.clause}
-          ORDER BY word_similarity($2, content) DESC
+          ORDER BY word_similarity($2, content_normalized) DESC
           LIMIT $3
         `;
   return {
