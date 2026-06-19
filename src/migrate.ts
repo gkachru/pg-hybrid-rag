@@ -13,6 +13,12 @@ export interface MigrateOptions {
   bm25?: boolean;
   /** Custom path to SQL directory. Default: auto-detected from package. */
   sqlDir?: string;
+  /**
+   * Embedding vector dimension for the rag_documents.embedding column (migration 002).
+   * Substituted for the `__EMBEDDING_DIM__` token. Default: 384. Only affects fresh installs —
+   * changing this on an existing DB requires a manual ALTER + full re-embed.
+   */
+  embeddingDimensions?: number;
 }
 
 /**
@@ -209,7 +215,10 @@ export async function ragMigrate(
   for (const file of filesToApply) {
     if (appliedSet.has(file)) continue;
 
-    const sql = readFileSync(join(sqlDir, file), "utf-8");
+    const sql = readFileSync(join(sqlDir, file), "utf-8").replaceAll(
+      "__EMBEDDING_DIM__",
+      String(options.embeddingDimensions ?? 384),
+    );
 
     // Split on semicolons at end-of-line, but preserve $$-delimited blocks intact
     const statements = splitStatements(sql);

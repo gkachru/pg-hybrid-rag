@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS rag_documents (
   content TEXT NOT NULL,
   content_stemmed TEXT,
   language VARCHAR(10) NOT NULL DEFAULT 'en',
-  embedding vector(384) NOT NULL,
+  embedding vector(__EMBEDDING_DIM__) NOT NULL,
   metadata TEXT DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

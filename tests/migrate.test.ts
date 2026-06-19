@@ -186,6 +186,20 @@ describe("ragMigrate", () => {
     expect(executedQueries).toContain("ROLLBACK");
     expect(executedQueries.filter((q) => q === "COMMIT").length).toBe(1);
   });
+
+  it("defaults the embedding dimension to 384", async () => {
+    const { client, executedQueries } = createMockClient();
+    await ragMigrate(client, { sqlDir });
+    expect(executedQueries.some((q) => q.includes("vector(384)"))).toBe(true);
+    expect(executedQueries.some((q) => q.includes("__EMBEDDING_DIM__"))).toBe(false);
+  });
+
+  it("substitutes a custom embedding dimension", async () => {
+    const { client, executedQueries } = createMockClient();
+    await ragMigrate(client, { sqlDir, embeddingDimensions: 1024 });
+    expect(executedQueries.some((q) => q.includes("vector(1024)"))).toBe(true);
+    expect(executedQueries.some((q) => q.includes("vector(384)"))).toBe(false);
+  });
 });
 
 /**
