@@ -110,7 +110,12 @@ export function createEmbedder(): EmbeddingProvider {
     );
   }
 
-  return new OpenAiCompatibleEmbedder({ baseUrl, apiKey, model });
+  // Many TEI-style embedding servers cap the request batch (often 8); the default 32 triggers
+  // HTTP 422 on a real corpus. Default to 8 (override via EMBEDDING_BATCH_SIZE), with modest
+  // concurrency so indexing 1000+ chunks isn't fully serial.
+  const envBatch = Number(process.env.EMBEDDING_BATCH_SIZE);
+  const batchSize = Number.isFinite(envBatch) && envBatch > 0 ? envBatch : 8;
+  return new OpenAiCompatibleEmbedder({ baseUrl, apiKey, model, batchSize, concurrency: 4 });
 }
 
 // ── Reranker (optional) ─────────────────────────────────────────────────────
