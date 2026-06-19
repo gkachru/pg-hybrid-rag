@@ -19,6 +19,8 @@ import {
   CachingStopWordsLoader,
   CachingSynonymLoader,
   Chunker,
+  LanguageNormalizer,
+  normalizeForLanguage,
   OpenAiCompatibleEmbedder,
   PostgresRagDatabase,
   RagIndexer,
@@ -125,6 +127,8 @@ const embedder = new OpenAiCompatibleEmbedder({
   apiKey: EMBEDDING_API_KEY,
   model: EMBEDDING_MODEL,
 });
+
+const normalizer = new LanguageNormalizer();
 
 // ── Reranker (optional) ───────────────────────────────────────────────────────
 // HuggingFace TEI cross-encoder /rerank endpoint. Enabled with --rerank when the
@@ -533,6 +537,7 @@ async function main() {
       tenantId: TENANT_ID,
       db,
       embedder,
+      normalizer,
       logger,
     });
 
@@ -580,12 +585,16 @@ async function main() {
 
     // Step 6: Build the search pipeline
     console.log("\n6. Setting up search pipeline...");
-    const stopWords = new CachingStopWordsLoader({ txProvider });
+    const stopWords = new CachingStopWordsLoader({
+      txProvider,
+      normalizeWord: normalizeForLanguage,
+    });
     const synonyms = new CachingSynonymLoader({ txProvider });
     const pipeline = new RagPipeline({
       tenantId: TENANT_ID,
       db,
       embedder,
+      normalizer,
       stopWords,
       synonyms,
       logger,
@@ -623,6 +632,11 @@ async function main() {
       { q: "دلة قهوة كهربائية", lang: "ar", desc: "AR keyword" },
       { q: "سياسة الإرجاع", lang: "ar", desc: "AR FAQ" },
       { q: "هل يتوفر الدفع عند الاستلام", lang: "ar", desc: "AR FAQ semantic" },
+      {
+        q: "سياسه الارجاع",
+        lang: "ar",
+        desc: "AR normalization (taa-marbuta + alef fold -> matches 'سياسة الإرجاع')",
+      },
       // Spanish
       { q: "café colombiano arábica", lang: "es", desc: "ES product search" },
       { q: "hamaca artesanal tejida", lang: "es", desc: "ES keyword" },
