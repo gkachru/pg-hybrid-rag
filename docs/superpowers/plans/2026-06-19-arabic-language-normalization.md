@@ -61,6 +61,9 @@ describe("normalizeForLanguage (Arabic)", () => {
   it("folds Arabic-Indic and extended digits to ASCII", () => {
     expect(normalizeForLanguage("٣٥٠ ۹", "ar")).toBe("350 9");
   });
+  it("keeps non-tashkeel marks in U+0660-066F (tashkeel class is not contiguous to U+0670)", () => {
+    expect(normalizeForLanguage("\u066A", "ar")).toBe("\u066A"); // Arabic percent sign survives
+  });
   it("is idempotent", () => {
     const once = normalizeForLanguage("الأسْعار ٣٥٠", "ar");
     expect(normalizeForLanguage(once, "ar")).toBe(once);
@@ -124,7 +127,7 @@ export interface Normalizer {
 import type { Normalizer } from "./interfaces.js";
 
 // Tashkeel/harakat (U+064B–U+065F) + superscript alef (U+0670).
-const TASHKEEL = /[ً-ٰٟ]/g;
+const TASHKEEL = /[\u064B-\u065F\u0670]/g; // explicit escapes (a literal range would span U+064B-U+0670 and swallow digits/punctuation)
 // Tatweel/kashida (U+0640), ZWNJ (U+200C), ZWJ (U+200D).
 const TATWEEL_ZW = /[ـ‌‍]/g;
 // Alef variants: madda (آ), hamza-above (أ), hamza-below (إ), wasla (ٱ) → bare alef (ا).
