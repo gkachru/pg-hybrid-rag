@@ -24,6 +24,7 @@ export type {
   EmbeddingProvider,
   FtsContext,
   FtsStrategy,
+  Normalizer,
   RagDatabase,
   RagLogger,
   RagSpan,
@@ -37,6 +38,8 @@ export type {
 export { detectLanguage } from "./language.js";
 export type { MigrateOptions } from "./migrate.js";
 export { ragMigrate } from "./migrate.js";
+export type { ArabicNormalizeOptions } from "./normalize.js";
+export { LanguageNormalizer, normalizeForLanguage } from "./normalize.js";
 export { stripTrailingPunctuation, TRAILING_PUNCTUATION } from "./punctuation.js";
 export type { RagIndexerConfig } from "./RagIndexer.js";
 export { RagIndexer } from "./RagIndexer.js";

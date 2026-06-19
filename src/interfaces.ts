@@ -145,3 +145,15 @@ export interface FtsStrategy {
   /** Run the FTS leg against one connection and return ranked candidates (best first). */
   search(client: SqlClient, ctx: FtsContext): Promise<RankedCandidate[]>;
 }
+
+/**
+ * Lexical text normalization, applied symmetrically to indexed content and the lexical query.
+ * Orthographic folding now (pure TS); a future external CAMeL/Farasa service is a drop-in impl.
+ * Async-capable so an HTTP-backed implementation needs no other code changes.
+ *
+ * NOTE: distinct from the per-search `RagSearchOptions.normalizer` (a synchronous semantic
+ * query-rewriter that also feeds the embedding). This provider feeds the LEXICAL legs only.
+ */
+export interface Normalizer {
+  normalize(text: string, language: string): string | Promise<string>;
+}
