@@ -43,6 +43,7 @@ export function withDatabase(url: string, dbName: string): string {
 
 // ── DB bootstrap ────────────────────────────────────────────────────────────
 
+// dbName must be a safe SQL identifier — the caller sanitizes it (admin DDL can't be parameterized).
 /** Connect to adminUrl, drop (if exists) and re-create dbName. */
 export async function createDatabase(adminUrl: string, dbName: string): Promise<void> {
   const admin = postgres(adminUrl, { max: 1 });
@@ -52,6 +53,7 @@ export async function createDatabase(adminUrl: string, dbName: string): Promise<
   await admin.end();
 }
 
+// dbName must be a safe SQL identifier — the caller sanitizes it (admin DDL can't be parameterized).
 /** Connect to adminUrl, terminate lingering connections, then drop dbName. */
 export async function dropDatabase(adminUrl: string, dbName: string): Promise<void> {
   const admin = postgres(adminUrl, { max: 1 });
@@ -138,8 +140,6 @@ export function createReranker(): RerankerProvider | undefined {
 
   if (!baseUrl) return undefined;
 
-  const batchSize = RERANK_BATCH_SIZE;
-
   // Returns scores aligned to the input `texts` order.
   async function scoreBatch(query: string, texts: string[]): Promise<number[]> {
     const res = await fetch(`${baseUrl}/rerank`, {
@@ -160,8 +160,8 @@ export function createReranker(): RerankerProvider | undefined {
   return {
     async rerank(query, results, topN) {
       const batches: RagResult[][] = [];
-      for (let i = 0; i < results.length; i += batchSize) {
-        batches.push(results.slice(i, i + batchSize));
+      for (let i = 0; i < results.length; i += RERANK_BATCH_SIZE) {
+        batches.push(results.slice(i, i + RERANK_BATCH_SIZE));
       }
       const batchScores = await Promise.all(
         batches.map((batch) =>

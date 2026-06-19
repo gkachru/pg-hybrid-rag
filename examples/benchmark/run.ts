@@ -49,7 +49,7 @@ import {
 } from "./infra.js";
 import { judgeEnabledFromEnv, judgeResults } from "./judge.js";
 import { type MetricSummary, type QueryOutcome, sliceBy, summarize } from "./metrics.js";
-import { loadQueries, resolveQueries } from "./qrels.js";
+import { loadQueries, resolveQueries, snippetPresent } from "./qrels.js";
 import type { BenchmarkQuery, CorpusChunk, Dialect } from "./types.js";
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -232,6 +232,7 @@ interface RunOneResult {
     sql: postgres.Sql;
     dbName: string;
     adminUrl: string;
+    rerank: boolean;
   };
 }
 
@@ -375,7 +376,7 @@ async function runConfig(
 
     if (keepForJudge) {
       // Defer cleanup so the judge pass can use this pipeline's live DB.
-      return { result, keep: { pipeline, sql, dbName, adminUrl } };
+      return { result, keep: { pipeline, sql, dbName, adminUrl, rerank: config.rerank } };
     }
 
     await cleanup();
@@ -483,6 +484,29 @@ async function main(): Promise<void> {
   const docIdByUuid = new Map<string, string>();
   for (const doc of docOrder) docIdByUuid.set(docIdToUuid(doc.doc_id), doc.doc_id);
 
+  // Corpus-level snippet validation — warn if a query's target_snippet is missing from its
+  // target doc's indexed chunk text (catches extraction drift / empty docs).
+  const docTextMap = new Map<string, string>();
+  for (const doc of docOrder) {
+    docTextMap.set(doc.doc_id, doc.chunks.map((c) => c.content).join(" "));
+  }
+  const missingSnippetIds: string[] = [];
+  for (const q of selectedQueries) {
+    const present = snippetPresent(q.target_snippet, docTextMap.get(q.target_doc) ?? "", (s) =>
+      normalizeForLanguage(s, "ar"),
+    );
+    if (!present) missingSnippetIds.push(q.id);
+  }
+  if (missingSnippetIds.length === 0) {
+    console.log(
+      `Snippet validation: all ${selectedQueries.length} target snippets found in their target docs.`,
+    );
+  } else {
+    console.warn(
+      `Snippet validation: ${missingSnippetIds.length}/${selectedQueries.length} target snippets NOT found in their target doc's chunks (possible extraction drift): ${missingSnippetIds.join(", ")}`,
+    );
+  }
+
   // Shared embedder (cache shared across configs so each unique chunk/query embeds once total).
   const embedder = withEmbeddingCache(createEmbedder());
   const reranker = createReranker();
@@ -542,6 +566,7 @@ async function main(): Promise<void> {
           const searchResults = await judgeKeep.pipeline.search(variant, {
             topK: args.topK,
             language: "ar",
+            rerank: judgeKeep.rerank,
           });
           if (searchResults.length === 0) continue;
           const scores = await judgeResults(variant, searchResults, cfg);

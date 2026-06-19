@@ -11,11 +11,16 @@ const CORPUS = join(CACHE_DIR, "corpus.jsonl");
 
 function readJsonl<T>(path: string): T[] {
   if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8")
-    .trim()
-    .split("\n")
-    .filter((l) => l.length > 0)
-    .map((l) => JSON.parse(l) as T);
+  const results: T[] = [];
+  for (const l of readFileSync(path, "utf8").trim().split("\n")) {
+    if (l.length === 0) continue;
+    try {
+      results.push(JSON.parse(l) as T);
+    } catch {
+      console.warn(`skipping malformed line in ${path}`);
+    }
+  }
+  return results;
 }
 
 export function buildCorpus(includeQuestion = false): CorpusChunk[] {
