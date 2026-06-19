@@ -12,6 +12,8 @@ export interface CachingStopWordsLoaderConfig {
   txProvider: TransactionProvider;
   /** Optional custom load function. Defaults to querying rag_stop_words. */
   loadFn?: (client: SqlClient, tenantId: string) => Promise<StopWordRow[]>;
+  /** Optional per-language word normalizer (e.g. normalizeForLanguage) applied at load. */
+  normalizeWord?: (word: string, language: string) => string;
 }
 
 /**
@@ -26,6 +28,7 @@ export class CachingStopWordsLoader implements StopWordsProvider {
   private inflight = new Map<string, Promise<Map<string, Set<string>>>>();
   private txProvider: TransactionProvider;
   private loadFn: (client: SqlClient, tenantId: string) => Promise<StopWordRow[]>;
+  private normalizeWord?: (word: string, language: string) => string;
 
   constructor(config: CachingStopWordsLoaderConfig) {
     this.txProvider = config.txProvider;
@@ -36,6 +39,7 @@ export class CachingStopWordsLoader implements StopWordsProvider {
           `SELECT language, word FROM rag_stop_words WHERE tenant_id = $1`,
           [tenantId],
         ));
+    this.normalizeWord = config.normalizeWord;
   }
 
   async load(tenantId: string): Promise<Map<string, Set<string>>> {
@@ -53,7 +57,9 @@ export class CachingStopWordsLoader implements StopWordsProvider {
       const map = new Map<string, Set<string>>();
       for (const row of rows) {
         if (!map.has(row.language)) map.set(row.language, new Set());
-        map.get(row.language)?.add(row.word.toLowerCase());
+        const lowered = row.word.toLowerCase();
+        const word = this.normalizeWord ? this.normalizeWord(lowered, row.language) : lowered;
+        map.get(row.language)?.add(word);
       }
 
       this.cache.set(tenantId, { data: map, loadedAt: Date.now() });

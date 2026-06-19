@@ -1,7 +1,21 @@
 import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 import { CachingStopWordsLoader } from "../src/adapters/CachingStopWordsLoader.js";
 import type { SqlClient, TransactionProvider } from "../src/interfaces.js";
+import { normalizeForLanguage } from "../src/normalize.js";
 import type { StopWordRow } from "../src/types.js";
+
+it("normalizes stop words at load when normalizeWord is provided", async () => {
+  const loader = new CachingStopWordsLoader({
+    txProvider: {
+      withConnection: async <T>(fn: (c: SqlClient) => Promise<T>) => fn({} as SqlClient),
+    },
+    loadFn: async () => [{ language: "ar", word: "الْعِطْر" }],
+    normalizeWord: normalizeForLanguage,
+  });
+  const map = await loader.load("t-1");
+  // Diacritics folded → matches the normalized query token "العطر".
+  expect(map.get("ar")?.has("العطر")).toBe(true);
+});
 
 describe("CachingStopWordsLoader.loadMerged", () => {
   afterEach(() => {
