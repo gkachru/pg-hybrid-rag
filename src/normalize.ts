@@ -4,7 +4,7 @@ import type { Normalizer } from "./interfaces.js";
 // Explicit escapes, not a literal class: a contiguous range U+064B–U+0670 would
 // over-match, swallowing Arabic-Indic digits (U+0660–0669) and punctuation /
 // dotless letters (U+066A–066F). The class is harakat plus superscript alef only.
-const TASHKEEL = /[ً-ٰٟ]/g;
+const TASHKEEL = /[\u064B-\u065F\u0670]/g; // harakat U+064B-065F + superscript alef U+0670 (escapes: auditable, avoids the RTL literal trap)
 // Tatweel/kashida (U+0640), ZWNJ (U+200C), ZWJ (U+200D).
 const TATWEEL_ZW = /[ـ‌‍]/g;
 // Alef variants: madda (آ), hamza-above (أ), hamza-below (إ), wasla (ٱ) → bare alef (ا).
