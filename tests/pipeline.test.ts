@@ -391,6 +391,37 @@ describe("RagPipeline", () => {
     expect(mockEmbedQuery).toHaveBeenCalledWith("फोन هاتف");
   });
 
+  it("applies the injected normalizer to the lexical query but not the embedding", async () => {
+    const pipelineWithNorm = new RagPipeline({
+      tenantId: "tenant-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      // Uppercase stand-in for orthographic folding, so the effect is observable.
+      normalizer: { normalize: (t: string) => t.toUpperCase() },
+    });
+    await pipelineWithNorm.search("alef test", { language: "ar" });
+    // Lexical legs get the normalized query…
+    expect(lastSearchParams.query).toBe("ALEF TEST");
+    // …but the embedding sees the un-folded (natural) query.
+    expect(mockEmbedQuery).toHaveBeenCalledWith("alef test");
+  });
+
+  it("awaits an async normalizer for the lexical query", async () => {
+    const pipelineWithNorm = new RagPipeline({
+      tenantId: "tenant-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      normalizer: { normalize: async (t: string) => `A:${t}` },
+    });
+    await pipelineWithNorm.search("hi", { language: "ar" });
+    expect(lastSearchParams.query).toBe("A:hi");
+  });
+
+  it("no injected normalizer leaves the lexical query unchanged", async () => {
+    await pipeline.search("plain query", { language: "en" });
+    expect(lastSearchParams.query).toBe("plain query");
+  });
+
   describe("reranking", () => {
     it("applies reranker when rerank=true and reranker is configured", async () => {
       const reranker = {

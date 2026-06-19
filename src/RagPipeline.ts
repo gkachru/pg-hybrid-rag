@@ -1,5 +1,6 @@
 import type {
   EmbeddingProvider,
+  Normalizer,
   RagDatabase,
   RagLogger,
   RagSpan,
@@ -48,6 +49,8 @@ export interface RagPipelineConfig {
   tenantId: string;
   db: RagDatabase;
   embedder: EmbeddingProvider;
+  /** Lexical normalizer applied to the keyword/FTS query (not the embedding). */
+  normalizer?: Normalizer;
   stopWords?: StopWordsProvider;
   synonyms?: SynonymProvider;
   reranker?: RerankerProvider;
@@ -59,6 +62,7 @@ export class RagPipeline {
   private tenantId: string;
   private db: RagDatabase;
   private embedder: EmbeddingProvider;
+  private normalizer?: Normalizer;
   private stopWords?: StopWordsProvider;
   private synonyms?: SynonymProvider;
   private reranker?: RerankerProvider;
@@ -69,6 +73,7 @@ export class RagPipeline {
     this.tenantId = config.tenantId;
     this.db = config.db;
     this.embedder = config.embedder;
+    this.normalizer = config.normalizer;
     this.stopWords = config.stopWords;
     this.synonyms = config.synonyms;
     this.reranker = config.reranker;
@@ -139,13 +144,23 @@ export class RagPipeline {
         // embedding models (e.g. e5), which expect natural language.
         const naturalQuery = searchQuery;
 
-        if (allStopWords.size > 0) {
-          searchQuery = removeStopWords(searchQuery, allStopWords);
-          // Fallback to the pre-removal normalized query (naturalQuery), not the raw `query`,
-          // so the lexical legs match normalized text rather than re-introduced casing/punctuation.
-          if (!searchQuery.trim()) searchQuery = naturalQuery;
+        // Orthographic normalization for the LEXICAL legs only (never the embedding/reranker).
+        let lexicalQuery = naturalQuery;
+        if (this.normalizer) {
+          const preOrtho = lexicalQuery;
+          lexicalQuery = await this.normalizer.normalize(lexicalQuery, queryLanguage);
+          // A folding normalizer never empties text, but guard anyway.
+          if (!lexicalQuery.trim()) lexicalQuery = preOrtho;
+          span.setAttribute("orthographicNormalizerApplied", true);
         }
-        span.setAttribute("stopWordsApplied", searchQuery !== query);
+
+        if (allStopWords.size > 0) {
+          const preStop = lexicalQuery;
+          lexicalQuery = removeStopWords(lexicalQuery, allStopWords);
+          // Fall back to the normalized (pre-stop-word) form, not the raw query.
+          if (!lexicalQuery.trim()) lexicalQuery = preStop;
+        }
+        span.setAttribute("stopWordsApplied", lexicalQuery !== query);
 
         const candidateLimit = opts.topK * opts.candidateMultiplier;
 
@@ -173,7 +188,7 @@ export class RagPipeline {
             return await this.db.hybridSearch({
               tenantId: this.tenantId,
               embeddingStr,
-              query: searchQuery,
+              query: lexicalQuery,
               synonymLookup,
               language: queryLanguage,
               candidateLimit,
@@ -265,7 +280,7 @@ export class RagPipeline {
 
         if (filtered.length === 0) {
           this.logger.debug?.(
-            { tenantId: this.tenantId, query: searchQuery },
+            { tenantId: this.tenantId, query: lexicalQuery },
             "Search returned 0 results",
           );
         }
