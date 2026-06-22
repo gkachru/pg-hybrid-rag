@@ -71,6 +71,23 @@ const MATRIX: BenchConfig[] = [
 
 const DIALECTS: Dialect[] = ["msa", "saudi", "darija"];
 
+// Embedder head-to-head subset (--matrix --lean): only the two configs that distinguish
+// embedders — baseline (vector+trgm) and +rerank. Skips bm25/vectorchord/all, which the
+// prior matrix already settled (bm25 hurts, vectorchord neutral).
+const LEAN_MATRIX: BenchConfig[] = [
+  { name: "baseline", bm25: false, vectorchord: false, rerank: false },
+  { name: "+rerank", bm25: false, vectorchord: false, rerank: true },
+];
+
+// Queries searched concurrently. Each search reserves up to one pooled connection per leg
+// (vector/keyword/fts) with its own transaction-local planner GUCs, so concurrent searches
+// stay isolated; the Postgres pool is sized to ~3×this (see createAdapter call below).
+// Env-tunable: drop it for slow CPU/ONNX backends so query-embeds don't pile up and time out.
+const SEARCH_CONCURRENCY = (() => {
+  const n = Number(process.env.SEARCH_CONCURRENCY);
+  return Number.isFinite(n) && n > 0 ? n : 8;
+})();
+
 // ── doc_id ↔ UUID mapping ─────────────────────────────────────────────────────
 // rag_documents.source_id is a UUID column, but the benchmark's doc_ids are strings like
 // "faq:abk:0". We index each doc under a deterministic UUIDv5 derived from its doc_id and
@@ -97,6 +114,7 @@ interface Args {
   cjk: boolean;
   judge: boolean;
   matrix: boolean;
+  lean: boolean;
   topK: number;
   limitQueries?: number;
 }
@@ -116,6 +134,7 @@ function parseArgs(argv: string[]): Args {
     cjk: has("--cjk"),
     judge: has("--judge"),
     matrix: has("--matrix"),
+    lean: has("--lean"),
     topK: numAfter("--topk") ?? 10,
     limitQueries: numAfter("--limit-queries"),
   };
@@ -222,6 +241,28 @@ function printComparison(results: ConfigResult[]): void {
   console.log(`${"═".repeat(80)}`);
 }
 
+// ── Bounded-concurrency map ───────────────────────────────────────────────────
+// Runs `fn` over items with at most `limit` in flight, preserving input order in the
+// output. Each search is independent (its own reserved per-leg connections + transaction-
+// local GUCs), so they parallelize safely as long as the pool is sized to ~3×limit.
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 // ── Core: run one config end-to-end ───────────────────────────────────────────
 
 interface RunOneResult {
@@ -269,7 +310,11 @@ async function runConfig(
   createdDbs.add(dbName);
 
   const dbUrl = withDatabase(adminUrl, dbName);
-  const { txProvider, migrationProvider, sql } = createAdapter(postgres(dbUrl, { max: 5 }));
+  // Pool sized to ~3×SEARCH_CONCURRENCY: each concurrent search reserves one connection per
+  // leg (vector/keyword/fts), plus margin for the admin/indexer paths.
+  const { txProvider, migrationProvider, sql } = createAdapter(
+    postgres(dbUrl, { max: SEARCH_CONCURRENCY * 3 + 4 }),
+  );
 
   // Bounded cleanup: close the pool, then drop the DB. Mirrors the playground's pattern so
   // an errored search leg (fail-fast Promise.all) cannot hang cleanup forever.
@@ -288,6 +333,9 @@ async function runConfig(
       vectorchord: config.vectorchord,
       bm25: config.bm25,
       cjk,
+      // Embedding column dimension. Defaults to 384 (multilingual-e5-small); override via
+      // EMBEDDING_DIM for SOTA head-to-heads (e.g. 1024 for e5-large / BGE-M3).
+      embeddingDimensions: Number(process.env.EMBEDDING_DIM) || 384,
     });
 
     console.log("  Seeding Arabic stop words...");
@@ -337,18 +385,60 @@ async function runConfig(
       console.warn("  --rerank requested but no RERANKER_BASE_URL; running without reranker.");
     }
 
-    console.log(`  Scoring ${queries.length} queries × ${DIALECTS.length} dialects...`);
-    const outcomes: QueryOutcome[] = [];
-    for (const query of queries) {
-      for (const dialect of DIALECTS) {
+    // Vector-leg similarity floor. The library default (0.8) is calibrated for e5-style
+    // INFLATED cosine similarities; better-calibrated embedders (e.g. BGE-M3, related≈0.6-0.75)
+    // have almost nothing clear 0.8, which silently zeroes the dense leg. Override via
+    // VECTOR_MIN_SCORE for cross-model head-to-heads (0 disables the floor entirely).
+    const envVms = process.env.VECTOR_MIN_SCORE;
+    const vectorMinScore =
+      envVms !== undefined && envVms !== "" && Number.isFinite(Number(envVms))
+        ? Number(envVms)
+        : undefined;
+    if (vectorMinScore !== undefined) {
+      console.log(`  Using vectorMinScore=${vectorMinScore} (VECTOR_MIN_SCORE override).`);
+    }
+
+    // Rerank-the-union depth + per-leg candidate depth (the experiment knobs). RERANK_CANDIDATES
+    // is how many fused candidates the cross-encoder scores (default topK); set it higher to
+    // rerank a bounded union. CANDIDATE_MULTIPLIER controls how many rows each leg returns
+    // (candidateLimit = topK × multiplier), so it must be ≥ RERANK_CANDIDATES/topK for the union
+    // to actually contain that many candidates.
+    const posIntEnv = (name: string): number | undefined => {
+      const n = Number(process.env[name]);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    };
+    const rerankCandidates = posIntEnv("RERANK_CANDIDATES");
+    const candidateMultiplier = posIntEnv("CANDIDATE_MULTIPLIER");
+    if (rerankCandidates !== undefined || candidateMultiplier !== undefined) {
+      console.log(
+        `  Rerank depth: rerankCandidates=${rerankCandidates ?? `topK(${topK})`}, ` +
+          `candidateMultiplier=${candidateMultiplier ?? "default(2)"}.`,
+      );
+    }
+
+    console.log(
+      `  Scoring ${queries.length} queries × ${DIALECTS.length} dialects (concurrency=${SEARCH_CONCURRENCY})...`,
+    );
+    // Flatten to one task per (query, dialect) variant, then run with bounded concurrency.
+    const searchTasks = queries.flatMap((query) =>
+      DIALECTS.flatMap((dialect) => {
         const variant = query.variants[dialect];
-        if (!variant) continue;
+        return variant ? [{ query, dialect, variant }] : [];
+      }),
+    );
+    const outcomes: QueryOutcome[] = await mapWithConcurrency(
+      searchTasks,
+      SEARCH_CONCURRENCY,
+      async ({ query, dialect, variant }): Promise<QueryOutcome> => {
         const results = await pipeline.search(variant, {
           topK,
           language: "ar",
           rerank: config.rerank,
+          ...(vectorMinScore !== undefined ? { vectorMinScore } : {}),
+          ...(rerankCandidates !== undefined ? { rerankCandidates } : {}),
+          ...(candidateMultiplier !== undefined ? { candidateMultiplier } : {}),
         });
-        outcomes.push({
+        return {
           // Translate the returned UUID source_id back to the original doc_id ground-truth key.
           rankedDocIds: results.map((r) =>
             r.sourceId ? (docIdByUuid.get(r.sourceId) ?? r.sourceId) : "",
@@ -358,9 +448,9 @@ async function runConfig(
           domain: query.domain,
           provider: query.provider,
           source: "faq",
-        });
-      }
-    }
+        };
+      },
+    );
 
     const overall = summarize(outcomes);
     const byDialect = sliceBy(outcomes, (o) => o.dialect);
@@ -440,7 +530,9 @@ async function main(): Promise<void> {
   const adminUrl = buildDatabaseUrl();
 
   const configs: BenchConfig[] = args.matrix
-    ? MATRIX
+    ? args.lean
+      ? LEAN_MATRIX
+      : MATRIX
     : [
         {
           name: "custom",

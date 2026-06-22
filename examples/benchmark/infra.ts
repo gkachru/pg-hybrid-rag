@@ -117,26 +117,44 @@ export function createEmbedder(): EmbeddingProvider {
   // concurrency so indexing 1000+ chunks isn't fully serial.
   const envBatch = Number(process.env.EMBEDDING_BATCH_SIZE);
   const batchSize = Number.isFinite(envBatch) && envBatch > 0 ? envBatch : 8;
-  return new OpenAiCompatibleEmbedder({ baseUrl, apiKey, model, batchSize, concurrency: 4 });
+  // Concurrency + per-request timeout are env-tunable: slow CPU/ONNX (int8) backends need
+  // lower concurrency and a longer/disabled timeout, else requests pile up past the default
+  // 30s and abort. EMBEDDING_TIMEOUT_MS=0 disables the timeout entirely.
+  const envConc = Number(process.env.EMBEDDING_CONCURRENCY);
+  const concurrency = Number.isFinite(envConc) && envConc > 0 ? envConc : 4;
+  const envTimeout = Number(process.env.EMBEDDING_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(envTimeout) && envTimeout >= 0 ? envTimeout : 30_000;
+  return new OpenAiCompatibleEmbedder({
+    baseUrl,
+    apiKey,
+    model,
+    batchSize,
+    concurrency,
+    timeoutMs,
+  });
 }
 
 // ── Reranker (optional) ─────────────────────────────────────────────────────
-// HuggingFace TEI cross-encoder /rerank endpoint. Enabled when RERANKER_BASE_URL
-// is set. The cross-encoder reads candidate text directly — it does not use
-// embeddings, so it is independent of the embedding model above.
-
-// TEI caps texts per /rerank call (its `max_client_batch_size`, often 8). Sending more
-// returns HTTP 422, which surfaces as a reranker failure → silent fallback to RRF order.
-// So split candidates into batches, score each, and merge by original index.
-const RERANK_BATCH_SIZE = 8;
+// Infinity cross-encoder /rerank endpoint (Cohere-style). Enabled when RERANKER_BASE_URL
+// is set. The cross-encoder reads candidate text directly — it does not use embeddings,
+// so it is independent of the embedding model above. RERANKER_MODEL selects which loaded
+// model handles the request (infinity serves several models on one port).
+//
+//   request:  { model, query, documents: string[], return_documents: false }
+//   response: { results: Array<{ index, relevance_score }> }   (order NOT guaranteed)
+//
+// Infinity batches internally on the GPU; RERANK_BATCH_SIZE just bounds the request
+// payload so an unexpectedly large candidate pool can't exceed a server-side doc cap.
+const RERANK_BATCH_SIZE = 32;
 
 /**
- * Create a TEI /rerank batched reranker from env vars.
+ * Create an Infinity /rerank batched reranker from env vars.
  * Returns undefined if RERANKER_BASE_URL is not set.
  */
 export function createReranker(): RerankerProvider | undefined {
   const baseUrl = process.env.RERANKER_BASE_URL;
   const apiKey = process.env.RERANKER_API_KEY;
+  const model = process.env.RERANKER_MODEL;
 
   if (!baseUrl) return undefined;
 
@@ -148,12 +166,27 @@ export function createReranker(): RerankerProvider | undefined {
         "Content-Type": "application/json",
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
-      body: JSON.stringify({ query, texts, truncate: true }),
+      body: JSON.stringify({
+        ...(model ? { model } : {}),
+        query,
+        documents: texts,
+        return_documents: false,
+      }),
     });
-    if (!res.ok) throw new Error(`Reranker error ${res.status}`);
-    const ranked = (await res.json()) as Array<{ index: number; score: number }>;
+    if (!res.ok) {
+      throw new Error(`Reranker error ${res.status}: ${await res.text().catch(() => "")}`);
+    }
+    const json = (await res.json()) as {
+      results?: Array<{ index: number; relevance_score: number }>;
+    };
+    // Infinity may return results out of input order, so map relevance_score back by
+    // index; a candidate missing from the response keeps score 0.
     const scores = new Array<number>(texts.length).fill(0);
-    for (const { index, score } of ranked) scores[index] = score;
+    for (const r of json.results ?? []) {
+      if (Number.isInteger(r.index) && r.index >= 0 && r.index < texts.length) {
+        scores[r.index] = r.relevance_score;
+      }
+    }
     return scores;
   }
 

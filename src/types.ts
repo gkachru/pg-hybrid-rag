@@ -40,6 +40,16 @@ export interface RagSearchOptions {
   /** Enable cross-encoder reranking (default: false). Requires a RerankerProvider. */
   rerank?: boolean;
   /**
+   * How many fused candidates to feed the cross-encoder when reranking ("rerank depth").
+   * Default: `topK` — i.e. rerank only the RRF top-K. Set higher (e.g. 30) to rerank a
+   * BOUNDED UNION of the legs: the reranker scores up to `max(topK, rerankCandidates)` fused
+   * candidates and still returns `topK`. This lets a true positive the lexical legs surfaced
+   * (but RRF ranked below topK) be recovered by the reranker, instead of being cut pre-rerank.
+   * Bounded by what the legs actually return (see `candidateMultiplier`). Only applies when
+   * reranking is active.
+   */
+  rerankCandidates?: number;
+  /**
    * Relative reranker cutoff: drop results scoring below this fraction of the top reranked
    * score (default: 0.01). Model-agnostic — keys off the gap between relevant and unrelated
    * results rather than an absolute scale, so it works across rerankers. Set to 0 to disable.

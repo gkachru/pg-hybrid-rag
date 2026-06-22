@@ -452,6 +452,48 @@ describe("RagPipeline", () => {
       expect(results[0].score).toBe(0.9);
     });
 
+    it("reranks only topK by default, but a bounded union when rerankCandidates is set", async () => {
+      // 6 distinct vector docs; topK=2.
+      vectorRows = Array.from({ length: 6 }, (_, i) => ({
+        content: `doc-${i}`,
+        sourceType: "faq",
+        sourceId: `faq-${i}`,
+        metadata: "{}",
+      }));
+      keywordRows = [];
+      ftsRows = [];
+
+      let rerankInputCount = -1;
+      const reranker = {
+        rerank: mock(async (_q: string, results: RagResult[], topN: number) => {
+          rerankInputCount = results.length;
+          return results.slice(0, topN);
+        }),
+      };
+      const p = new RagPipeline({
+        tenantId: "tenant-1",
+        db: mockDb,
+        embedder: mockEmbedder,
+        reranker,
+      });
+
+      // Default: reranker sees only the RRF top-K (2).
+      const def = await p.search("test", { rerank: true, language: "en", topK: 2 });
+      expect(rerankInputCount).toBe(2);
+      expect(def).toHaveLength(2);
+
+      // rerankCandidates=5: reranker sees the bounded union (5), still returns topK (2).
+      const union = await p.search("test", {
+        rerank: true,
+        language: "en",
+        topK: 2,
+        rerankCandidates: 5,
+        candidateMultiplier: 5,
+      });
+      expect(rerankInputCount).toBe(5);
+      expect(union).toHaveLength(2);
+    });
+
     it("does not rerank when rerank=false (default)", async () => {
       const reranker = {
         rerank: mock(async (_q: string, results: unknown[]) => results),

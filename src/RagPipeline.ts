@@ -28,7 +28,13 @@ const DEFAULTS = {
   rerankerMinAbsoluteScore: 0,
 } satisfies Omit<
   Required<RagSearchOptions>,
-  "sourceTypes" | "sourceIds" | "languages" | "minRelevance" | "language" | "normalizer"
+  | "sourceTypes"
+  | "sourceIds"
+  | "languages"
+  | "minRelevance"
+  | "language"
+  | "normalizer"
+  | "rerankCandidates"
 >;
 
 const noopSpan: RagSpan = {
@@ -203,6 +209,14 @@ export class RagPipeline {
           }
         });
 
+        // Rerank the BOUNDED UNION, not just the RRF top-K: when reranking, fuse up to
+        // max(topK, rerankCandidates) candidates so the cross-encoder can recover a true
+        // positive a leg surfaced but RRF ranked below topK (instead of cutting it pre-rerank).
+        // The reranker still returns topK. When not reranking, fuse exactly topK (unchanged).
+        const shouldRerank = opts.rerank === true && this.reranker != null;
+        const fusedLimit = shouldRerank
+          ? Math.max(opts.topK, opts.rerankCandidates ?? opts.topK)
+          : opts.topK;
         const fused = applyRRF(
           [
             { items: results.vectorRows },
@@ -210,7 +224,7 @@ export class RagPipeline {
             { items: results.ftsRows },
           ],
           opts.rrfK,
-          opts.topK,
+          fusedLimit,
           [opts.vectorWeight, opts.keywordWeight, opts.ftsWeight],
         );
 
@@ -222,11 +236,11 @@ export class RagPipeline {
         }
 
         // Cross-encoder reranking: reorder by joint query-document relevance
-        const shouldRerank = opts.rerank === true && this.reranker != null;
-
         span.setAttribute("rerankerApplied", shouldRerank);
 
+        let rerankInputCount = 0;
         if (shouldRerank && filtered.length > 0) {
+          rerankInputCount = filtered.length;
           filtered = await this.tracer.startActiveSpan("rag.rerank", async (rerankSpan) => {
             try {
               rerankSpan.setAttribute("inputCount", filtered.length);
@@ -293,6 +307,7 @@ export class RagPipeline {
             keywordCandidates: results.keywordRows.length,
             ftsCandidates: results.ftsRows.length,
             rerankerApplied: shouldRerank,
+            rerankInputCount,
             stopWordsApplied: allStopWords.size > 0,
             synonymsApplied: synonymLookup.size > 0,
           },
