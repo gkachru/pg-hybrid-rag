@@ -1,3 +1,9 @@
+/** Fusion method for combining the search legs. */
+export type FusionMethod = "rrf" | "linear";
+
+/** Per-leg score normalization for linear fusion. */
+export type FusionNormalizer = "minmax" | "l2";
+
 /** Result from a RAG search query. */
 export interface RagResult {
   content: string;

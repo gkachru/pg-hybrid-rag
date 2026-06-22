@@ -36,6 +36,8 @@ export type {
   TransactionProvider,
 } from "./interfaces.js";
 export { detectLanguage } from "./language.js";
+// Utilities
+export { applyLinearFusion } from "./linearFusion.js";
 export type { MigrateOptions } from "./migrate.js";
 export { ragMigrate } from "./migrate.js";
 export type { ArabicNormalizeOptions } from "./normalize.js";
@@ -45,7 +47,6 @@ export type { RagIndexerConfig } from "./RagIndexer.js";
 export { RagIndexer } from "./RagIndexer.js";
 export type { RagPipelineConfig } from "./RagPipeline.js";
 export { RagPipeline } from "./RagPipeline.js";
-// Utilities
 export { applyRRF } from "./rrf.js";
 export { removeStopWords } from "./stopWords.js";
 export { buildBm25Query, buildFtsQuery, expandQueryWithSynonyms } from "./synonymExpander.js";
@@ -53,6 +54,8 @@ export { buildBm25Query, buildFtsQuery, expandQueryWithSynonyms } from "./synony
 // Types
 export type {
   Chunk,
+  FusionMethod,
+  FusionNormalizer,
   HybridSearchParams,
   RagResult,
   RagSearchOptions,
