@@ -77,6 +77,21 @@ describe("applyLinearFusion", () => {
     expect(out.map((r) => r.content)).toEqual(["A", "B"]);
   });
 
+  it("minmax: a lone doc in a single-item leg gets full 1.0 endorsement (documented sharp edge)", () => {
+    // vector leg: strong (0.9) -> minmax 1.0, weak (0.1) -> minmax 0.0
+    // keyword leg: a DIFFERENT, lone doc -> minmax max===min -> 1.0
+    // equal weights: irrelevant ties strong at 1.0, both above weak (0.0)
+    const out = applyLinearFusion(
+      [{ items: [c("strong", 0.9), c("weak", 0.1)] }, { items: [c("irrelevant", 0.3)] }],
+      10,
+    );
+    const irrelevant = out.find((r) => r.content === "irrelevant");
+    const weak = out.find((r) => r.content === "weak");
+    expect(irrelevant?.score).toBeCloseTo(1.0, 6); // full leg endorsement despite being a lone weak hit
+    expect(weak?.score).toBeCloseTo(0.0, 6);
+    expect(irrelevant?.score ?? 0).toBeGreaterThan(weak?.score ?? 1); // lone hit outranks the weak vector hit
+  });
+
   it("parses metadata via the shared mapper", () => {
     const out = applyLinearFusion(
       [

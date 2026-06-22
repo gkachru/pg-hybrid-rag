@@ -96,7 +96,7 @@ export class RagPipeline {
         const opts = { ...DEFAULTS, ...options };
         span.setAttribute("tenantId", this.tenantId);
         span.setAttribute("topK", opts.topK);
-        span.setAttribute("searchMode", "hybrid-rrf-3way");
+        span.setAttribute("searchMode", `hybrid-${opts.fusion}-3way`);
 
         // Resolve the query language for FTS stemming + keyword/BM25 scoping. Use the explicit
         // option, else infer it from a single-entry `languages` filter (so "search only Spanish
