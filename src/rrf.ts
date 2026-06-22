@@ -1,22 +1,5 @@
+import { toRagResult } from "./fusionShared.js";
 import type { RagResult, RankedCandidate } from "./types.js";
-
-/**
- * Parse a candidate's metadata JSON, falling back to {} on malformed input.
- * applyRRF is public and may receive arbitrary rows, so a bad value must not throw.
- */
-function parseMetadata(raw: string | null | undefined): Record<string, string> {
-  try {
-    const parsed = JSON.parse(raw || "{}");
-    // Reject valid-but-non-object JSON (numbers, arrays, null) so it isn't returned
-    // typed as Record<string, string>. Library rows are always objects, but applyRRF is public.
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      return parsed;
-    }
-    return {};
-  } catch {
-    return {};
-  }
-}
 
 /**
  * Reciprocal Rank Fusion: merge ranked lists into a single score.
@@ -55,11 +38,5 @@ export function applyRRF(
   return Array.from(scoreMap.values())
     .sort((a, b) => b.score - a.score)
     .slice(0, topK)
-    .map(({ score, candidate }) => ({
-      content: candidate.content,
-      sourceType: candidate.sourceType,
-      sourceId: candidate.sourceId,
-      score,
-      metadata: parseMetadata(candidate.metadata),
-    }));
+    .map(({ score, candidate }) => toRagResult(candidate, score));
 }
