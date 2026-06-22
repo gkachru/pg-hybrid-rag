@@ -9,6 +9,7 @@ import type {
   StopWordsProvider,
   SynonymProvider,
 } from "./interfaces.js";
+import { applyLinearFusion } from "./linearFusion.js";
 import { stripTrailingPunctuation } from "./punctuation.js";
 import { applyRRF } from "./rrf.js";
 import { removeStopWords } from "./stopWords.js";
@@ -26,6 +27,8 @@ const DEFAULTS = {
   rerank: false,
   rerankerMinRelativeScore: 0.01,
   rerankerMinAbsoluteScore: 0,
+  fusion: "rrf",
+  fusionNormalizer: "minmax",
 } satisfies Omit<
   Required<RagSearchOptions>,
   | "sourceTypes"
@@ -217,16 +220,17 @@ export class RagPipeline {
         const fusedLimit = shouldRerank
           ? Math.max(opts.topK, opts.rerankCandidates ?? opts.topK)
           : opts.topK;
-        const fused = applyRRF(
-          [
-            { items: results.vectorRows },
-            { items: results.keywordRows },
-            { items: results.ftsRows },
-          ],
-          opts.rrfK,
-          fusedLimit,
-          [opts.vectorWeight, opts.keywordWeight, opts.ftsWeight],
-        );
+        const legsForFusion = [
+          { items: results.vectorRows },
+          { items: results.keywordRows },
+          { items: results.ftsRows },
+        ];
+        const fusionWeights = [opts.vectorWeight, opts.keywordWeight, opts.ftsWeight];
+        const fused =
+          opts.fusion === "linear"
+            ? applyLinearFusion(legsForFusion, fusedLimit, fusionWeights, opts.fusionNormalizer)
+            : applyRRF(legsForFusion, opts.rrfK, fusedLimit, fusionWeights);
+        span.setAttribute("fusion", opts.fusion);
 
         // Post-RRF relevance cutoff
         let filtered = fused;

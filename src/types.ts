@@ -22,6 +22,17 @@ export interface RagSearchOptions {
   keywordWeight?: number;
   ftsWeight?: number;
   rrfK?: number;
+  /**
+   * How the search legs are fused. "rrf" (default) = Reciprocal Rank Fusion (rank-only).
+   * "linear" = per-leg score normalization + weighted sum (uses the legs' actual relevance
+   * magnitudes). Reuses vectorWeight/keywordWeight/ftsWeight as the linear weights.
+   */
+  fusion?: FusionMethod;
+  /**
+   * Per-leg score normalization for linear fusion: "minmax" (default) or "l2". Ignored when
+   * fusion is "rrf".
+   */
+  fusionNormalizer?: FusionNormalizer;
   candidateMultiplier?: number;
   sourceTypes?: string[];
   /** Filter results to specific source IDs. */

@@ -632,6 +632,31 @@ describe("RagPipeline", () => {
     });
   });
 
+  describe("fusion option", () => {
+    it("defaults to RRF (rank-based) and ignores leg scores", async () => {
+      // vector leg: 'lo' at position 0, 'hi' at position 1. RRF ranks by position → 'lo' first.
+      vectorRows = [
+        { content: "lo", sourceType: "faq", sourceId: "lo", metadata: "{}", score: 0.1 },
+        { content: "hi", sourceType: "faq", sourceId: "hi", metadata: "{}", score: 0.9 },
+      ] as typeof vectorRows;
+      keywordRows = [];
+      ftsRows = [];
+      const out = await pipeline.search("q", { language: "en", topK: 2 });
+      expect(out[0].content).toBe("lo");
+    });
+
+    it("fusion:'linear' orders by normalized score, not rank position", async () => {
+      vectorRows = [
+        { content: "lo", sourceType: "faq", sourceId: "lo", metadata: "{}", score: 0.1 },
+        { content: "hi", sourceType: "faq", sourceId: "hi", metadata: "{}", score: 0.9 },
+      ] as typeof vectorRows;
+      keywordRows = [];
+      ftsRows = [];
+      const out = await pipeline.search("q", { language: "en", topK: 2, fusion: "linear" });
+      expect(out[0].content).toBe("hi");
+    });
+  });
+
   it("uses loadMerged when available on stop words provider", async () => {
     const loadMergedMock = mock(async () => new Set(["the", "in", "a"]));
     const stopWords = {
