@@ -71,5 +71,8 @@ export function toRankedCandidate(row: Record<string, unknown>): RankedCandidate
     sourceType: row.source_type as string,
     sourceId: row.source_id as string | null,
     metadata: (row.metadata as string) || "{}",
+    // Carry the leg's score only when present, so candidates built without a score column
+    // (and existing exact-match test fixtures) keep the key absent rather than NaN.
+    ...(row.score != null ? { score: Number(row.score) } : {}),
   };
 }

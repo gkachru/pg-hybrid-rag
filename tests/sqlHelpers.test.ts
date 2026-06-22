@@ -75,4 +75,27 @@ describe("toRankedCandidate", () => {
       metadata: '{"a":"b"}',
     });
   });
+
+  it("maps a numeric score when the row has one", () => {
+    const c = toRankedCandidate({
+      id: "chunk-3",
+      content: "c",
+      source_type: "faq",
+      source_id: "1",
+      metadata: "{}",
+      score: "0.42", // pg float may arrive as a string
+    });
+    expect(c.score).toBe(0.42);
+  });
+
+  it("omits score when the row has none", () => {
+    const c = toRankedCandidate({
+      id: "chunk-4",
+      content: "c",
+      source_type: "faq",
+      source_id: "1",
+      metadata: "{}",
+    });
+    expect("score" in c).toBe(false);
+  });
 });

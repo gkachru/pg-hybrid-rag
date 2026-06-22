@@ -83,6 +83,12 @@ export interface RankedCandidate {
   sourceType: string;
   sourceId: string | null;
   metadata: string;
+  /**
+   * Per-leg relevance score from the producing SQL (vector cosine, trgm word_similarity,
+   * bigm coverage, ts_rank_cd, or bm25). Optional: RRF ignores it (rank-only), linear fusion
+   * consumes it. Absent when a candidate is constructed without a score column.
+   */
+  score?: number;
 }
 
 /** Parameters for hybrid search (passed to RagDatabase). */
