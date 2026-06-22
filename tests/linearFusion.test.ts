@@ -33,6 +33,11 @@ describe("applyLinearFusion", () => {
     expect(out[2].score).toBeCloseTo(0.55 / norm, 6);
   });
 
+  it("l2: a single positive-score leg normalizes to 1.0", () => {
+    const out = applyLinearFusion([{ items: [c("only", 0.42)] }], 10, undefined, "l2");
+    expect(out[0].score).toBeCloseTo(1.0, 6);
+  });
+
   it("weighted sum across legs dedups by id", () => {
     // vector: A=1.0,B=0.0 (minmax of [0.9,0.5]); keyword: A=1.0 (single -> 1.0)
     // weights [1,2]: A = 1*1.0 + 2*1.0 = 3.0; B = 1*0.0 = 0.0
@@ -59,6 +64,8 @@ describe("applyLinearFusion", () => {
     // both scores absent -> [0,0] -> minmax max==min -> both 1.0 (degenerate rule)
     const out = applyLinearFusion([{ items: [c("p"), c("q")] }], 10);
     expect(out.every((r) => Number.isFinite(r.score))).toBe(true);
+    expect(out[0].score).toBeCloseTo(1.0, 6);
+    expect(out[1].score).toBeCloseTo(1.0, 6);
   });
 
   it("skips an empty leg and respects topK", () => {
