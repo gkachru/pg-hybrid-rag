@@ -416,6 +416,22 @@ async function runConfig(
       );
     }
 
+    // Fusion strategy knobs (the linear-fusion experiment). FUSION selects rrf (default) or
+    // linear; NORMALIZER picks minmax (default) or l2 for the linear path. Undefined → pipeline
+    // defaults (rrf / minmax), i.e. unchanged behavior.
+    const fusion = process.env.FUSION === "linear" ? ("linear" as const) : undefined;
+    const fusionNormalizer =
+      process.env.NORMALIZER === "l2"
+        ? ("l2" as const)
+        : process.env.NORMALIZER === "minmax"
+          ? ("minmax" as const)
+          : undefined;
+    if (fusion !== undefined || fusionNormalizer !== undefined) {
+      console.log(
+        `  Fusion: ${fusion ?? "rrf (default)"}, normalizer=${fusionNormalizer ?? "minmax (default)"}.`,
+      );
+    }
+
     console.log(
       `  Scoring ${queries.length} queries × ${DIALECTS.length} dialects (concurrency=${SEARCH_CONCURRENCY})...`,
     );
@@ -437,6 +453,8 @@ async function runConfig(
           ...(vectorMinScore !== undefined ? { vectorMinScore } : {}),
           ...(rerankCandidates !== undefined ? { rerankCandidates } : {}),
           ...(candidateMultiplier !== undefined ? { candidateMultiplier } : {}),
+          ...(fusion !== undefined ? { fusion } : {}),
+          ...(fusionNormalizer !== undefined ? { fusionNormalizer } : {}),
         });
         return {
           // Translate the returned UUID source_id back to the original doc_id ground-truth key.
