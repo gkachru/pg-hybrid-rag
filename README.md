@@ -195,6 +195,18 @@ The search pipeline processes a query through these stages in order:
 - **Semantic-heavy** (natural language questions): set `vectorWeight: 2`
 - **Disable a leg**: set its weight to `0` (e.g. `ftsWeight: 0` to skip full-text search)
 
+#### Recommended configurations
+
+These come from tuning on an Arabic-dialect FAQ benchmark (`bge-m3` embeddings + `bge-reranker-v2-m3`). Treat them as starting points to validate on your own corpus and embedder — not universal defaults.
+
+- **Rerank a bounded union, not just the top-K.** When `rerank: true`, set `rerankCandidates` to roughly 2–3× `topK` (e.g. `rerankCandidates: 30` with `topK: 10`). The default reranks only the RRF top-K, which discards true positives that a leg surfaced but RRF ranked just below the cut — before the cross-encoder ever sees them. Reranking the union recovers them and still returns `topK`. Cost scales with `rerankCandidates` (more cross-encoder calls), so this is the main quality⇄latency lever, especially on CPU-only deployments.
+
+- **Linear fusion can cut rerank depth — when your embedder's scores are calibrated.** With an embedder whose cosine scores cleanly separate relevant from irrelevant (e.g. bge-m3), `fusion: "linear"` (with the default `fusionNormalizer: "minmax"`) reorders the union by actual scores instead of rank, so a *smaller* union reaches the same quality. In our benchmark, `fusion: "linear"` + `rerankCandidates: 20` matched plain RRF + `rerankCandidates: 30` at ~⅓ less rerank work. Validate per embedder: use `"l2"` only if it measures better (it was worse for us), and don't expect linear fusion to replace reranking — it barely moved the no-rerank path.
+
+- **BM25 for low-resource languages/dialects.** The `Bm25Fts` strategy lifts recall where stemming and dense coverage are weak (it recovered low-resource-dialect recall in our tests), but it can add lexical noise where the dense leg is already strong — enable it when you have such content and measure before enabling it broadly. Requires migrations 011 + 015 and `shared_preload_libraries` (see Optional extensions).
+
+- **`vectorMinScore` is embedder-specific.** The `0.8` default is calibrated for e5-family models. Better-calibrated embedders (e.g. bge-m3) place true-positive cosines lower, so `0.8` can silently drop the dense leg — lower it (e.g. `0`–`0.5`) when you change embedders.
+
 ### Index
 
 ```typescript
