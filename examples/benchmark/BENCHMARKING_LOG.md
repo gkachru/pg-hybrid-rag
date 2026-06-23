@@ -243,20 +243,31 @@ still clearly wants it (+.042).
 
 ## Consolidated recommendations
 
-These are reflected in the README "Recommended configurations" section.
+These are reflected in the README "Recommended configurations" section, which groups them by
+**driver** so readers can tell which generalize past Arabic. All numbers here are Arabic-only, but
+most of these are driven by language-independent factors (pipeline mechanics, the embedder, or the
+corpus *shape*) — only BM25's benefit is genuinely language-dependent. The tag on each line below is
+the driver; "generalizes" means the *mechanism* should carry to other languages even though the
+magnitudes need re-measuring.
 
 1. **Embedder:** bge-m3 (1024d) with `vectorMinScore` ≤ 0.4 (or 0). The 0.8 default is e5-only.
+   *(Driver: embedder calibration — generalizes; nothing Arabic about it.)*
 2. **Rerank a bounded union:** `rerankCandidates` ≈ 2–3× topK — the main quality lever; recovers
-   recall RRF-top-K discards.
+   recall RRF-top-K discards. *(Driver: RRF + rerank-window mechanics — generalizes, language- and
+   corpus-independent.)*
 3. **Linear-minmax fusion** to cut rerank depth (RC20 ≈ RC30) when the embedder's scores are
-   calibrated. Never l2. It does not replace reranking.
+   calibrated. Never l2. It does not replace reranking. *(Driver: embedder score calibration —
+   generalizes; validate per embedder, not per language.)*
 4. **For FAQ corpora, index `question` + `answer`** — large, general lift across all legs/dialects,
-   and it makes reranking nearly skippable on CPU (Darija excepted).
+   and it makes reranking nearly skippable on CPU (Darija excepted). *(Driver: corpus shape — the
+   lift rode the dense + trgm legs, so it tracks FAQ-shaped corpora, not Arabic specifically.)*
 5. **BM25 for low-resource languages/dialects** — its value stayed Darija-specific even with the
    question in content; keep it a targeted lever, not a default. Needs migrations 011 + 015 +
-   `shared_preload_libraries`.
+   `shared_preload_libraries`. *(Driver: the language's resource level — **the one genuinely
+   language-dependent recommendation**; revalidate per language.)*
 6. **For the N1 CPU deployment:** fp16 (or int8) embedder + int8 reranker; or, for an FAQ corpus,
-   index the question and skip reranking entirely. Re-benchmark *latency* on real N1.
+   index the question and skip reranking entirely. Re-benchmark *latency* on real N1. *(Driver:
+   deployment hardware — orthogonal to language.)*
 
 ## Open follow-ups
 
