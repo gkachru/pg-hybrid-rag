@@ -7,7 +7,13 @@ import type { CorpusChunk, ExtractedPdf, FaqRecord } from "./types.js";
 const FAQ_DIR = join("datasets", "faqs");
 const CACHE_DIR = join("datasets", "benchmark-cache");
 const EXTRACTED = join(CACHE_DIR, "extracted.jsonl");
-const CORPUS = join(CACHE_DIR, "corpus.jsonl");
+// Two corpus variants, kept as SEPARATE files so building one never overwrites the other:
+//   corpus.jsonl        — FAQ answer only (default)
+//   corpus-withq.jsonl  — FAQ question + answer (raises lexical overlap with the query)
+const CORPUS_ANSWER_ONLY = join(CACHE_DIR, "corpus.jsonl");
+const CORPUS_WITH_QUESTION = join(CACHE_DIR, "corpus-withq.jsonl");
+const corpusPath = (includeQuestion: boolean): string =>
+  includeQuestion ? CORPUS_WITH_QUESTION : CORPUS_ANSWER_ONLY;
 
 function readJsonl<T>(path: string): T[] {
   if (!existsSync(path)) return [];
@@ -66,17 +72,22 @@ export function buildCorpus(includeQuestion = false): CorpusChunk[] {
   }
 
   mkdirSync(CACHE_DIR, { recursive: true });
-  writeFileSync(CORPUS, `${out.map((c) => JSON.stringify(c)).join("\n")}\n`, "utf8");
+  const path = corpusPath(includeQuestion);
+  writeFileSync(path, `${out.map((c) => JSON.stringify(c)).join("\n")}\n`, "utf8");
   const bySource = (s: string) => out.filter((c) => c.source === s).length;
-  console.log(`corpus: ${out.length} chunks (faq=${bySource("faq")}, pdf=${bySource("pdf")})`);
+  console.log(
+    `corpus (${includeQuestion ? "question+answer" : "answer-only"}) -> ${path}: ` +
+      `${out.length} chunks (faq=${bySource("faq")}, pdf=${bySource("pdf")})`,
+  );
   return out;
 }
 
 export function loadOrBuildCorpus(includeQuestion = false): CorpusChunk[] {
-  if (existsSync(CORPUS)) return readJsonl<CorpusChunk>(CORPUS);
+  const path = corpusPath(includeQuestion);
+  if (existsSync(path)) return readJsonl<CorpusChunk>(path);
   return buildCorpus(includeQuestion);
 }
 
 if (import.meta.main) {
-  buildCorpus(process.argv.includes("--include-question-in-doc"));
+  buildCorpus(process.argv.includes("--include-question"));
 }

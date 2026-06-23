@@ -117,6 +117,7 @@ interface Args {
   lean: boolean;
   topK: number;
   limitQueries?: number;
+  includeQuestion: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -137,6 +138,7 @@ function parseArgs(argv: string[]): Args {
     lean: has("--lean"),
     topK: numAfter("--topk") ?? 10,
     limitQueries: numAfter("--limit-queries"),
+    includeQuestion: has("--include-question"),
   };
 }
 
@@ -561,8 +563,10 @@ async function main(): Promise<void> {
       ];
 
   // Load corpus + queries.
-  const corpus = loadOrBuildCorpus();
-  console.log(`Loaded corpus: ${corpus.length} chunks.`);
+  const corpus = loadOrBuildCorpus(args.includeQuestion);
+  console.log(
+    `Loaded corpus (${args.includeQuestion ? "question+answer" : "answer-only"}): ${corpus.length} chunks.`,
+  );
 
   const corpusDocIds = new Set(corpus.map((c) => c.doc_id));
   const { queries } = loadQueries(fileURLToPath(new URL("./queries.json", import.meta.url)));
