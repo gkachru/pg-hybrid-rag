@@ -1,0 +1,37 @@
+# A/B control: same as docker-compose.infinity.yml but WITH bettertransformer enabled
+# (no --no-bettertransformer flag → infinity's default varlen fused kernel). Used only to
+# measure whether disabling bettertransformer changed retrieval quality. bge-m3 + reranker
+# only (faster load). Safe here because the benchmark corpus is <=512 tokens (well under
+# bge-m3's 8192 max), so no over-length input → no device-side assert.
+#
+# Same project name + external cache volume as docker-compose.infinity.yml, so this RECREATES
+# the single infinity container and reuses cached weights. Restore the full fp16 setup with:
+#   podman compose -f docker-compose.infinity.yml up -d
+name: infinity-embed
+
+services:
+  infinity:
+    image: docker.io/michaelf34/infinity:latest
+    ports:
+      - "7997:7997"
+    devices:
+      - nvidia.com/gpu=all
+    environment:
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib
+    volumes:
+      - infinity-cache:/app/.cache
+    command:
+      - v2
+      - --model-id
+      - BAAI/bge-m3
+      - --model-id
+      - BAAI/bge-reranker-v2-m3
+      - --device
+      - cuda
+      - --port
+      - "7997"
+
+volumes:
+  infinity-cache:
+    external: true
+    name: infinity-embed_infinity-cache

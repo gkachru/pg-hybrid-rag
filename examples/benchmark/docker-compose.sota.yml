@@ -1,0 +1,63 @@
+# SOTA Arabic embedder head-to-head — local TEI servers for the benchmark.
+#
+# GPU note: this host is an RTX 5070 Ti Laptop (Blackwell, compute cap 12.0 / sm_120).
+# TEI ships a prebuilt tag for it: 120-1.9. GPU is passed via podman CDI (nvidia.com/gpu=all).
+# Brought up via compose because on this podman/WSL host only compose-published ports forward
+# to the Windows host (standalone `podman run -p` ports do not).
+#
+#   podman compose -f docker-compose.sota.yml up -d tei-bge-m3 tei-reranker
+name: sota-embed
+
+services:
+  # CPU e5-large (kept for reference; unused once GPU runs are done).
+  tei-e5-large:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    ports:
+      - "3334:3334"
+    environment:
+      - API_KEY=local-dev-key
+    volumes:
+      - e5large:/data
+    command:
+      ["--model-id", "intfloat/multilingual-e5-large", "--max-batch-tokens", "4096", "--max-client-batch-size", "8", "--port", "3334"]
+    restart: unless-stopped
+
+  # GPU BGE-M3 embedder (Blackwell 120-1.9 image + CDI GPU). Requires a WSL-aware CDI spec
+  # (must inject /dev/dxg + /usr/lib/wsl/lib, not just nvidia-smi) or CUDA falls back to CPU.
+  tei-bge-m3:
+    # GPU (120-1.9 and cuda-1.9) both fell back to CPU: candle cuInit -> CUDA_ERROR_NO_DEVICE
+    # under rootless podman on WSL2 (management/nvidia-smi works, compute plane doesn't), invariant
+    # to image tag. Using the proven cpu-1.9 (ONNX) image, which ran the matrix cleanly.
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    ports:
+      - "3335:3335"
+    environment:
+      - API_KEY=local-dev-key
+    volumes:
+      - bgem3:/data
+    command:
+      ["--model-id", "BAAI/bge-m3", "--max-batch-tokens", "4096", "--max-client-batch-size", "8", "--port", "3335"]
+    restart: unless-stopped
+
+  # GPU cross-encoder reranker (bge-reranker-v2-m3) — replaces the remote reranker so the
+  # rerank legs run locally on the GPU instead of round-tripping to maxai.knowmax.in.
+  tei-reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cuda-1.9
+    ports:
+      - "3336:3336"
+    environment:
+      - API_KEY=local-dev-key
+    devices:
+      - nvidia.com/gpu=all
+    volumes:
+      - reranker:/data
+    command:
+      ["--model-id", "BAAI/bge-reranker-v2-m3", "--max-batch-tokens", "4096", "--max-client-batch-size", "8", "--port", "3336"]
+    restart: unless-stopped
+
+volumes:
+  e5large:
+    external: true
+    name: tei-e5-large-cache
+  bgem3:
+  reranker:

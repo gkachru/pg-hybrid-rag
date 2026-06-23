@@ -1,0 +1,54 @@
+# Local GPU inference for the Arabic benchmark via Infinity (michaelf34/infinity).
+#
+# Why Infinity (not TEI): on this RTX 5070 Ti Laptop (Blackwell, compute cap 12.0 / sm_120)
+# under rootless podman + WSL2, TEI's candle backend hit CUDA_ERROR_NO_DEVICE / no sm_120
+# kernels regardless of image tag (cpu/cuda/120) AND with LD_LIBRARY_PATH=/usr/lib/wsl/lib
+# added — TEI just isn't stable on sm_120 yet. Infinity is torch-based (torch 2.8+cu128,
+# which ships sm_120 kernels) and runs on the GPU once two things are passed:
+#   devices: nvidia.com/gpu=all       # CDI GPU passthrough
+#   LD_LIBRARY_PATH=/usr/lib/wsl/lib  # exposes the WSL driver libcuda.so to torch
+#
+# One process serves MANY models, selected per-request by the `model` field, so a single
+# container hosts every embedder + the cross-encoder reranker on one port (7997):
+#   POST /embeddings  {model, input}            (OpenAI-compatible)
+#   POST /rerank      {model, query, documents} (Cohere-style)
+#
+# Brought up via compose (NOT `podman run`) because only compose-published ports forward to
+# the Windows host on this podman/WSL setup.
+#
+#   podman compose -f docker-compose.infinity.yml up -d
+#   podman compose -f docker-compose.infinity.yml logs -f infinity   # watch model load
+name: infinity-embed
+
+services:
+  infinity:
+    image: docker.io/michaelf34/infinity:latest
+    ports:
+      - "7997:7997"
+    devices:
+      - nvidia.com/gpu=all
+    environment:
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib
+    volumes:
+      - infinity-cache:/app/.cache
+    command:
+      - v2
+      - --model-id
+      - BAAI/bge-m3
+      - --model-id
+      - intfloat/multilingual-e5-large
+      - --model-id
+      - intfloat/multilingual-e5-small
+      - --model-id
+      - BAAI/bge-reranker-v2-m3
+      - --device
+      - cuda
+      # Disable the bettertransformer varlen (nested-tensor) kernel: on over-length input it
+      # triggers an ASYNC CUDA device-side assert (position-id overflow) that poisons the CUDA
+      # context so all later embeds fail. The standard forward respects tokenizer truncation.
+      - --no-bettertransformer
+      - --port
+      - "7997"
+
+volumes:
+  infinity-cache:

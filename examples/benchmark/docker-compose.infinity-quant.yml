@@ -1,0 +1,72 @@
+# Quantization sweep variant of docker-compose.infinity.yml.
+#
+# Serves the fp16 torch references (GPU) AND the int8 ONNX variants (optimum engine, CPU)
+# in one process, so the benchmark can isolate ONE variable at a time by swapping
+# EMBEDDING_MODEL / RERANKER_MODEL:
+#   - embedder quant run:  EMBEDDING_MODEL=Xenova/bge-m3  + reference torch reranker
+#   - reranker quant run:  reference torch bge-m3 + RERANKER_MODEL=onnx-community/bge-reranker-v2-m3-ONNX
+#
+# infinity-optimum on the `latest` image runs ONNX on CPU (the CUDA EP needs the
+# latest-trt-onnx image), and its get_onnx_files() picks model_quantized.onnx (int8) when
+# --dtype int8 / prefer_quantized, else model.onnx. So this is the "int8-on-CPU vs
+# fp16-on-GPU" comparison.
+#
+# Same project name + external volume as docker-compose.infinity.yml so torch models stay
+# cached; bringing this up RECREATES the single infinity container. Revert with:
+#   podman compose -f docker-compose.infinity.yml up -d
+name: infinity-embed
+
+services:
+  infinity:
+    image: docker.io/michaelf34/infinity:latest
+    ports:
+      - "7997:7997"
+    devices:
+      - nvidia.com/gpu=all
+    environment:
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib
+    volumes:
+      - infinity-cache:/app/.cache
+    command:
+      - v2
+      # model[0..3] — per-model engine/device/dtype align positionally below
+      - --model-id
+      - BAAI/bge-m3
+      - --model-id
+      - BAAI/bge-reranker-v2-m3
+      - --model-id
+      - Xenova/bge-m3
+      - --model-id
+      - onnx-community/bge-reranker-v2-m3-ONNX
+      - --engine
+      - torch
+      - --engine
+      - torch
+      - --engine
+      - optimum
+      - --engine
+      - optimum
+      - --device
+      - cuda
+      - --device
+      - cuda
+      - --device
+      - cpu
+      - --device
+      - cpu
+      - --dtype
+      - float16
+      - --dtype
+      - float16
+      - --dtype
+      - int8
+      - --dtype
+      - int8
+      - --no-bettertransformer
+      - --port
+      - "7997"
+
+volumes:
+  infinity-cache:
+    external: true
+    name: infinity-embed_infinity-cache

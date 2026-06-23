@@ -4,3 +4,4 @@ node_modules/
 .env
 datasets/
 examples/benchmark/results/
+.playwright-mcp/
