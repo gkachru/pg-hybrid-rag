@@ -127,6 +127,7 @@ bun run examples/benchmark-thai/run.ts --matrix
 | `--segmenter none\|intl\|attacut` | `attacut` | Segmenter for a single custom config |
 | `--bm25` / `--vectorchord` / `--rerank` | off | Optional legs for a single custom config |
 | `--topk N` | 10 | Retrieval depth |
+| `--include-question` | off | Index the FAQ question alongside the answer (denser lexical overlap); builds/uses the `corpus-withq.jsonl` cache variant |
 | `--limit-queries N` | all | Run only the first N queries (smoke) |
 | `--judge` | off | Opt-in LLM-judge pass over the first ~15 queries (written variant) |
 
