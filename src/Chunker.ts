@@ -345,9 +345,9 @@ export class Chunker implements ChunkingProvider {
   /**
    * Hard fixed-size slice for text with no usable delimiter. Emits the content of every
    * complete `effectiveSize`-bounded slice via `emit` and returns the trailing remainder
-   * for the caller to merge with following content. Slices are taken on whole code points
-   * (so a surrogate pair is not split), and the configured overlap is carried from each
-   * slice into the next.
+   * for the caller to merge with following content. Slices are taken on whole grapheme
+   * clusters (a base character keeps its combining marks, and a surrogate pair is not
+   * split), and the configured overlap is carried from each slice into the next.
    */
   private splitFixedSize(
     text: string,

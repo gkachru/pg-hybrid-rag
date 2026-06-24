@@ -172,8 +172,11 @@ export interface Normalizer {
  *
  * CONTRACT (space-insertion only): segment() may INSERT whitespace at word boundaries
  * but must otherwise preserve the original non-whitespace characters in order (no
- * reordering, substitution, or dropping). The Chunker relies on this to reconstruct
- * natural (unsegmented) chunk text from the segmented form (see Chunker.chunkSegmented).
+ * reordering, substitution, or dropping). Word boundaries are expected to fall BETWEEN
+ * grapheme clusters (never between a base character and its combining marks) — the shipped
+ * IntlSegmenterAdapter satisfies this; a custom segmenter that splits mid-cluster could let
+ * the Chunker start a chunk with an orphaned mark. The Chunker relies on the space-insertion
+ * contract to reconstruct natural (unsegmented) chunk text (see Chunker.chunkSegmented).
  */
 export interface Segmenter {
   /** Return `text` rewritten as space-joined word tokens, or unchanged for a language
