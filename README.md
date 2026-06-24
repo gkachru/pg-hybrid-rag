@@ -104,9 +104,10 @@ Stemming is handled by Postgres via language-specific FTS configurations. The `r
 | Arabic | `ar`, `ar-SA` | `simple` | No | pg_trgm |
 | Malay | `ms` | `simple` | No | pg_trgm |
 | Sinhalese | `si`, `si-LK` | `simple` | No | pg_trgm |
-| Chinese | `zh`, `zh-CN` | `simple` | No | pg_bigm (requires `cjk: true`) |
-| Japanese | `ja`, `ja-JP` | `simple` | No | pg_bigm (requires `cjk: true`) |
-| Korean | `ko`, `ko-KR` | `simple` | No | pg_bigm (requires `cjk: true`) |
+| Thai | `th`, `th-TH` | `simple` | No | pg_trgm (segmenter-aware; see below) |
+| Chinese | `zh`, `zh-CN` | `simple` | No | pg_bigm (requires `cjk: true`; or trgm with segmenter) |
+| Japanese | `ja`, `ja-JP` | `simple` | No | pg_bigm (requires `cjk: true`; or trgm with segmenter) |
+| Korean | `ko`, `ko-KR` | `simple` | No | pg_bigm (requires `cjk: true`; or trgm with segmenter) |
 | Other | any string | `simple` | No | pg_trgm |
 
 **Notes:**
@@ -266,6 +267,7 @@ Pass `language` in the metadata to activate language-aware sizing:
 | Arabic | `ar` + BCP-47 | ~3 | 1228 chars |
 | Sinhalese | `si` + BCP-47 | ~3 | 1228 chars |
 | Chinese, Japanese, Korean | `zh`, `ja`, `ko` + BCP-47 | ~1.5 | 614 chars |
+| Thai | `th` + BCP-47 | ~1.5 | 614 chars |
 | Unknown | any other | 1 | 512 chars |
 
 To prefix chunks with entity context, pass a `prefixFn` to the constructor. It receives the first chunk's metadata and returns a label string (or `undefined` to skip):
@@ -493,6 +495,68 @@ const pipeline = new RagPipeline({ tenantId, db, embedder });
 ```
 
 > **Note:** `cjk: true` only affects the keyword leg for `zh`, `ja`, and `ko` language codes. The vector and FTS legs are unaffected. Hindi and Arabic separate words with whitespace, so pg_trgm produces meaningful trigram overlap for them and pg_bigm is not needed.
+
+---
+
+#### Word segmentation (Thai/CJK)
+
+Scripts without whitespace between words (Thai, Chinese, Japanese, Korean) need a word segmenter to produce meaningful trigram overlap in the keyword leg, and to find clean word boundaries when chunking. pg-hybrid-rag exposes a `Segmenter` interface so you can inject any segmentation backend — stdlib, dictionary-based, ML, or HTTP.
+
+**The `Segmenter` interface and `segmentsLanguage` routing**
+
+```typescript
+interface Segmenter {
+  /** Return text rewritten as space-joined word tokens, or unchanged for unsupported languages. */
+  segment(text: string, language: string): string | Promise<string>;
+  /** Whether this segmenter rewrites this language. Used for keyword-leg routing ONLY — never segments. */
+  segmentsLanguage(language: string): boolean;
+}
+```
+
+Inject the **same** `Segmenter` instance into `PostgresRagDatabase`, `RagPipeline`, and `RagIndexer` so indexing, querying, and keyword-leg routing all stay consistent. When `segmentsLanguage(language)` returns `true`, `PostgresRagDatabase` routes the keyword leg to trigram-on-`content_normalized` (segmented content) instead of pg_bigm (which assumes raw unsegmented content). When `segmentsLanguage` returns `false` the leg routes to pg_bigm as usual (for CJK without a segmenter) or pg_trgm (for all other languages).
+
+**Index-time: `chunkSegmented` for word-aware boundaries**
+
+When chunking Thai or CJK text, call `chunker.chunkSegmented(text, metadata)` (async) instead of `chunker.chunk()`. It uses the injected segmenter to find word boundaries but emits **natural, unsegmented** chunk content — the segmenter is boundary-finding only. It is safe to call unconditionally: with no segmenter or an unhandled language it falls back to `chunk()`.
+
+**`IntlSegmenterAdapter` — zero-dep stdlib reference implementation**
+
+```typescript
+new IntlSegmenterAdapter({ languages: ["th"] })
+```
+
+Uses the runtime's built-in `Intl.Segmenter` (works on Node 18+ and Bun 1.0+). Zero npm dependencies.
+
+**CAVEAT:** segmentation quality depends on the host ICU break dictionary. ICU's Thai dictionary handles native vocabulary reasonably but shreds loanwords not in its dictionary — verified identical behaviour on Node 24 (full ICU) and Bun 1.3. For loanword-heavy domains this is a runnable reference, not production-grade. For production Thai, inject a dictionary-based (PyThaiNLP-newmm), ML (deepcut/attacut), or HTTP segmenter instead.
+
+**Full Thai setup example**
+
+```ts
+import { IntlSegmenterAdapter, RagPipeline, RagIndexer, PostgresRagDatabase, Chunker } from "pg-hybrid-rag";
+
+const segmenter = new IntlSegmenterAdapter({ languages: ["th"] }); // reference impl; see caveat
+const db = new PostgresRagDatabase(tx, { segmenter });
+const pipeline = new RagPipeline({ tenantId, db, embedder, segmenter });
+const indexer = new RagIndexer({ tenantId, db, embedder, segmenter });
+
+// Index Thai: use chunkSegmented (async) for word-aware boundaries.
+const chunks = await new Chunker({ tokenLimit: 512, segmenter }).chunkSegmented(text, { language: "th" });
+await indexer.index("faq", "f-1", chunks, "th");
+
+// Query Thai: lower vectorMinScore for BGE-M3-class embedders; enable rerank.
+await pipeline.search("ราคาแพ็กเกจอินเทอร์เน็ต", { language: "th", vectorMinScore: 0.4, rerank: true });
+```
+
+**Recommended Thai configuration**
+
+- **Segmenter**: inject a production-grade Thai segmenter (PyThaiNLP-newmm or an HTTP wrapper) for loanword-heavy text; `IntlSegmenterAdapter` is usable as a starting point on native-vocabulary content.
+- **Embedder**: use a strong multilingual embedder such as BGE-M3. The default `multilingual-e5-small` has weaker Thai coverage.
+- **`vectorMinScore`**: lower from the default `0.8` to `0.4` or lower. The `0.8` default is calibrated for e5-family models; better-calibrated embedders (BGE-M3) place true-positive cosines lower and `0.8` silently drops the dense leg.
+- **Reranking**: enable `rerank: true` with `rerankCandidates: 20–30` for best precision.
+
+**CJK opt-in benchmark recipe**
+
+To benchmark CJK with a segmenter instead of pg_bigm, inject the same `IntlSegmenterAdapter` (or your production segmenter) on pipeline + indexer + db, then re-index your content. The keyword leg automatically routes to trigram-on-segmented-content. To revert to pg_bigm, remove the `segmenter` option from all three and re-index — the routing reverts automatically.
 
 ## Adapter Interfaces
 
