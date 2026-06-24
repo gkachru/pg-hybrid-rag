@@ -10,6 +10,7 @@
 
 import {
   Chunker,
+  IntlSegmenterAdapter,
   OpenAiCompatibleEmbedder,
   PostgresRagDatabase,
   RagIndexer,
@@ -58,17 +59,27 @@ function createWorker(deps: {
     model: deps.embeddingModel,
   });
 
-  const db = new PostgresRagDatabase(txProvider);
-  const chunker = new Chunker({ tokenLimit: 512, overlap: 75 });
+  // One segmenter, injected into db + chunker + indexer (Thai/CJK have no word spaces).
+  // IntlSegmenterAdapter is a zero-dependency reference; for production Thai inject a
+  // dictionary/ML/HTTP segmenter. It passes through any language not listed.
+  const segmenter = new IntlSegmenterAdapter({ languages: ["th"] });
+  const db = new PostgresRagDatabase(txProvider, { segmenter });
+  const chunker = new Chunker({ tokenLimit: 512, overlap: 75, segmenter });
   const indexer = new RagIndexer({
     tenantId: "default",
     db,
     embedder,
+    segmenter,
     logger: deps.logger,
   });
 
   return async (job: ReindexJob): Promise<number> => {
-    const chunks = chunker.chunk(job.content, { ...job.metadata, language: job.language });
+    // chunkSegmented = word-aware boundaries for whitespace-less scripts (Thai/CJK);
+    // for spaced languages it transparently falls back to chunk().
+    const chunks = await chunker.chunkSegmented(job.content, {
+      ...job.metadata,
+      language: job.language,
+    });
     return indexer.index(job.sourceType, job.sourceId, chunks, job.language);
   };
 }

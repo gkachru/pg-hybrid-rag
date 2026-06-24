@@ -67,11 +67,26 @@ class SearchService {
    * - "fr" → french (courir → cour)
    * - "hi" → simple (no stemming, fuzzy matching via trigrams)
    * - "zh" → simple (no stemming, bigram matching if cjk enabled)
+   * - "th" → simple FTS + Segmenter-driven word boundaries on the lexical legs
    */
   async search(query: string, language: string): Promise<RagResult[]> {
     return this.pipeline.search(query, {
       language,
       topK: 10,
+    });
+  }
+
+  /**
+   * Thai search. Thai has no word spaces, so a Segmenter (wired into the pipeline/indexer/db)
+   * feeds word tokens to the lexical legs. The dense embedding carries most of the recall, so
+   * lower vectorMinScore for a multilingual embedder (e.g. BGE-M3) and enable reranking.
+   */
+  async searchThai(query: string): Promise<RagResult[]> {
+    return this.pipeline.search(query, {
+      language: "th",
+      topK: 10,
+      vectorMinScore: 0.4, // 0.8 default is e5-calibrated; lower for BGE-M3-class models
+      rerank: true,
     });
   }
 
@@ -182,6 +197,9 @@ export { SearchService, createReranker };
 //
 // // Chinese — uses 'simple' config, pg_bigm handles character matching (if cjk enabled)
 // const zhResults = await search.search("跑步鞋", "zh");
+//
+// // Thai — no word spaces; the Segmenter drives the lexical legs (see searchThai's tuning)
+// const thResults = await search.searchThai("ราคาแพ็กเกจอินเทอร์เน็ต");
 //
 // // With reranking for higher quality
 // const reranked = await search.searchWithReranking("return policy for electronics", "en");

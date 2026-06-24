@@ -19,6 +19,7 @@ import {
   CachingStopWordsLoader,
   CachingSynonymLoader,
   Chunker,
+  IntlSegmenterAdapter,
   LanguageNormalizer,
   normalizeForLanguage,
   OpenAiCompatibleEmbedder,
@@ -129,6 +130,10 @@ const embedder = new OpenAiCompatibleEmbedder({
 });
 
 const normalizer = new LanguageNormalizer();
+
+// Word segmenter for Thai (no inter-word spaces). Reference adapter — weak on Thai loanwords;
+// swap in PyThaiNLP/ML for real quality. Passes through non-Thai languages, so zh/ja keep using --cjk.
+const segmenter = new IntlSegmenterAdapter({ languages: ["th"] });
 
 // ── Reranker (optional) ───────────────────────────────────────────────────────
 // HuggingFace TEI cross-encoder /rerank endpoint. Enabled with --rerank when the
@@ -460,6 +465,24 @@ const FAQ_JA = [
   },
 ];
 
+// ── Thai products & FAQs (no inter-word spaces → needs a Segmenter) ──
+
+const PRODUCTS_TH = [
+  {
+    id: "00000000-0000-0000-0000-000000000061",
+    name: "หูฟังไร้สายรุ่น Pro",
+    brand: "Soundcore",
+    text: `หูฟังไร้สายรุ่น Pro แบตเตอรี่ใช้งานได้ 40 ชั่วโมง ตัดเสียงรบกวนแบบแอ็กทีฟ กันน้ำระดับ IPX5 เชื่อมต่อบลูทูธ 5.3 ราคา 2,990 บาท รับประกัน 1 ปี สีดำ สีขาว และสีน้ำเงิน`,
+  },
+];
+
+const FAQ_TH = [
+  {
+    id: "00000000-0000-0000-0000-f00000000061",
+    text: `นโยบายการคืนสินค้าเป็นอย่างไร? คุณสามารถคืนสินค้าที่ยังไม่ได้ใช้งานได้ภายใน 14 วันหลังจากได้รับสินค้า สินค้าต้องอยู่ในบรรจุภัณฑ์เดิม การคืนเงินจะดำเนินการภายใน 5-7 วันทำการ`,
+  },
+];
+
 // ── English FAQs ────────────────────────────────────────────────────────────
 
 const FAQ_ENTRIES = [
@@ -523,6 +546,7 @@ async function main() {
     // Step 4: Index sample products (all languages)
     console.log("4. Indexing products...");
     const db = new PostgresRagDatabase(txProvider, {
+      segmenter,
       ...(USE_BM25 ? { fts: new Bm25Fts() } : {}),
       ...(USE_CJK ? { cjk: true } : {}),
     });
@@ -538,6 +562,7 @@ async function main() {
       db,
       embedder,
       normalizer,
+      segmenter,
       logger,
     });
 
@@ -554,10 +579,13 @@ async function main() {
       ...PRODUCTS_ES.map((p) => ({ ...p, lang: "es" })),
       ...PRODUCTS_ZH.map((p) => ({ ...p, lang: "zh" })),
       ...PRODUCTS_JA.map((p) => ({ ...p, lang: "ja" })),
+      ...PRODUCTS_TH.map((p) => ({ ...p, lang: "th" })),
     ];
 
     for (const product of allProducts) {
-      const chunks = chunker.chunk(product.text, {
+      // chunkSegmented (async) gives word-aware boundaries for Thai (and CJK); for spaced
+      // languages it falls back to chunk(). Emitted chunk text stays natural/unsegmented.
+      const chunks = await chunker.chunkSegmented(product.text, {
         name: product.name,
         brand: product.brand,
         language: product.lang,
@@ -575,10 +603,11 @@ async function main() {
       ...FAQ_ES.map((f) => ({ ...f, lang: "es" })),
       ...FAQ_ZH.map((f) => ({ ...f, lang: "zh" })),
       ...FAQ_JA.map((f) => ({ ...f, lang: "ja" })),
+      ...FAQ_TH.map((f) => ({ ...f, lang: "th" })),
     ];
 
     for (const faq of allFaqs) {
-      const chunks = chunker.chunk(faq.text, { language: faq.lang });
+      const chunks = await chunker.chunkSegmented(faq.text, { language: faq.lang });
       const count = await indexer.index("faq", faq.id, chunks, faq.lang);
       console.log(`   [${faq.lang}] Indexed FAQ ${faq.id} → ${count} chunks`);
     }
@@ -597,6 +626,7 @@ async function main() {
       normalizer,
       stopWords,
       synonyms,
+      segmenter,
       logger,
       ...(reranker ? { reranker } : {}),
     });
@@ -655,6 +685,9 @@ async function main() {
       { q: "返品できますか", lang: "ja", desc: "JA FAQ keyword" },
       { q: "クレジットカードで支払えますか", lang: "ja", desc: "JA FAQ semantic" },
       { q: "加湿空気清浄機", lang: "ja", desc: "JA short-title exact (pg_bigm coverage)" },
+      // Thai (no word spaces — Segmenter drives the lexical legs)
+      { q: "หูฟังไร้สายกันน้ำ", lang: "th", desc: "TH product search" },
+      { q: "นโยบายการคืนสินค้า", lang: "th", desc: "TH FAQ" },
       // Cross-language (multilingual e5 should handle these)
       { q: "wireless earphones", lang: "en", desc: "EN→HI cross-lang" },
       { q: "coffee beans", lang: "en", desc: "EN→ES cross-lang" },

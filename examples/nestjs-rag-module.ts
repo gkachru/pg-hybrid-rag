@@ -8,6 +8,7 @@
 import {
   CachingStopWordsLoader,
   CachingSynonymLoader,
+  IntlSegmenterAdapter,
   OpenAiCompatibleEmbedder,
   PostgresRagDatabase,
   RagIndexer,
@@ -88,7 +89,14 @@ export function createRagModule(deps: {
     apiKey: deps.embeddingApiKey,
     model: deps.embeddingModel,
   });
-  const db = new PostgresRagDatabase(txProvider);
+  // Optional word segmenter for whitespace-less scripts (Thai/CJK). Inject the SAME instance
+  // into db + pipeline + indexer so indexing, querying, and keyword-leg routing stay consistent.
+  // IntlSegmenterAdapter is a zero-dependency reference (stdlib Intl.Segmenter) — its Thai quality
+  // is weak on loanwords; for production Thai inject a dictionary/ML/HTTP segmenter. It passes
+  // through any language not listed, so it is safe alongside an English/multilingual corpus.
+  const segmenter = new IntlSegmenterAdapter({ languages: ["th"] });
+
+  const db = new PostgresRagDatabase(txProvider, { segmenter });
   // For CJK keyword search: new PostgresRagDatabase(txProvider, { cjk: true });
   const stopWords = new CachingStopWordsLoader({ txProvider });
   const synonyms = new CachingSynonymLoader({ txProvider });
@@ -104,6 +112,7 @@ export function createRagModule(deps: {
     stopWords,
     synonyms,
     logger,
+    segmenter,
   });
 
   const indexer = new RagIndexer({
@@ -111,9 +120,10 @@ export function createRagModule(deps: {
     db,
     embedder,
     logger,
+    segmenter,
   });
 
-  return { pipeline, indexer, stopWords, synonyms, runMigrations };
+  return { pipeline, indexer, stopWords, synonyms, runMigrations, segmenter };
 }
 
 // --- Usage ---
@@ -130,3 +140,9 @@ export function createRagModule(deps: {
 // const chunker = new Chunker({ tokenLimit: 512, overlap: 75 });
 // const chunks = chunker.chunk(productText, { name: "Product Name", language: "en" });
 // await rag.indexer.index("product", productId, chunks, "en");
+//
+// // Index a Thai document — chunkSegmented (async) gives word-aware boundaries; emitted chunk
+// // text stays natural. Pass the module's segmenter into the Chunker too.
+// const chunker = new Chunker({ tokenLimit: 512, overlap: 75, segmenter: rag.segmenter });
+// const thChunks = await chunker.chunkSegmented(thaiText, { language: "th" });
+// await rag.indexer.index("faq", faqId, thChunks, "th");
