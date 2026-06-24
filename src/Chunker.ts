@@ -1,6 +1,15 @@
 import type { ChunkingProvider } from "./interfaces.js";
 import type { Chunk } from "./types.js";
 
+/**
+ * Split into grapheme clusters: a base code point plus any following combining marks, OR a
+ * run of leading marks. Regex-based (no Intl dependency); the `u` flag keeps astral code
+ * points whole. Ensures a fixed-size slice never orphans a Thai/Devanagari/Arabic mark.
+ */
+export function toGraphemes(text: string): string[] {
+  return text.match(/\P{M}\p{M}*|\p{M}+/gu) ?? [];
+}
+
 const DEFAULT_CHUNK_SIZE = 512;
 const DEFAULT_OVERLAP = 75;
 
@@ -103,11 +112,11 @@ export class Chunker implements ChunkingProvider {
   private getOverlapSuffix(text: string): string {
     if (this.overlap <= 0 || text.length <= this.overlap) return "";
     let raw = text.slice(-this.overlap);
-    // slice(-overlap) cuts on a UTF-16 code unit, so it can begin on the low half
-    // of a surrogate pair for the astral/CJK text this library targets. Drop the
-    // orphaned low surrogate so a lone surrogate is never carried into the next chunk.
+    // slice(-overlap) cuts on a UTF-16 code unit: drop an orphaned low surrogate, then any
+    // leading combining marks, so overlap never begins with a mark severed from its base.
     const first = raw.charCodeAt(0);
     if (first >= 0xdc00 && first <= 0xdfff) raw = raw.slice(1);
+    raw = raw.replace(/^\p{M}+/u, "");
     const spaceIdx = raw.indexOf(" ");
     return spaceIdx >= 0 ? raw.slice(spaceIdx + 1) : raw;
   }
@@ -225,13 +234,11 @@ export class Chunker implements ChunkingProvider {
     effectiveSize: number,
     emit: (content: string) => void,
   ): string {
-    const codePoints = Array.from(text);
+    const units = toGraphemes(text);
     let slice = "";
-    for (const cp of codePoints) {
+    for (const cp of units) {
       if (slice.length + cp.length > effectiveSize) {
         emit(slice.trim());
-        // Seed the next slice with overlap, capped so it cannot consume the whole
-        // budget (which would stall forward progress).
         const overlap = this.getOverlapSuffix(slice);
         slice = overlap.length < effectiveSize ? overlap : "";
       }

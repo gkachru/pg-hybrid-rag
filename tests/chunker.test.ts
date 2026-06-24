@@ -293,6 +293,20 @@ describe("Chunker (config validation)", () => {
   });
 });
 
+describe("grapheme-safe hard slicing", () => {
+  it("never orphans a Thai combining mark when hard-slicing a delimiter-free run", () => {
+    // "กิ" = ก (base) + ◌ิ (U+0E34, nonspacing mark). 6 clusters, 12 UTF-16 units, no spaces.
+    const text = "กิ".repeat(6);
+    const chunks = new Chunker(5, 0).chunk(text); // char mode, size 5, no overlap → hard slices
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      expect(/^\p{M}/u.test(c.content)).toBe(false); // no chunk starts with a combining mark
+    }
+    // No data loss (overlap 0): concatenation reconstructs the original.
+    expect(chunks.map((c) => c.content).join("")).toBe(text);
+  });
+});
+
 describe("Chunker (surrogate-pair safety)", () => {
   /** True if the string contains a lone (unpaired) UTF-16 surrogate code unit. */
   const hasLoneSurrogate = (s: string): boolean =>
