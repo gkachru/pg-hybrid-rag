@@ -9,6 +9,9 @@ import type {
 /** Chunking provider — consumers can swap in chonkie or any other chunking library. */
 export interface ChunkingProvider {
   chunk(text: string, metadata?: Record<string, string>): Chunk[];
+  /** Optional async variant using an injected Segmenter for word-aware boundaries on
+   *  whitespace-less scripts (Thai/CJK). Emits natural (unsegmented) chunk content. */
+  chunkSegmented?(text: string, metadata?: Record<string, string>): Promise<Chunk[]>;
 }
 
 /** SQL execution — consumer provides their DB connection. */

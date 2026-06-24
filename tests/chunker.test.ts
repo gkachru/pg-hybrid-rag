@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Chunker } from "../src/Chunker.js";
+import type { Segmenter } from "../src/interfaces.js";
 
 describe("Chunker (character-based)", () => {
   const chunker = new Chunker(100, 20);
@@ -304,6 +305,48 @@ describe("grapheme-safe hard slicing", () => {
     }
     // No data loss (overlap 0): concatenation reconstructs the original.
     expect(chunks.map((c) => c.content).join("")).toBe(text);
+  });
+});
+
+describe("chunkSegmented (word-aware)", () => {
+  // Deterministic mock (NOT ICU): inserts a space every 3 chars → fixed 3-char "words".
+  const seg: Segmenter = {
+    segmentsLanguage: (l) => l === "th",
+    segment: (t, l) => (l === "th" ? (t.match(/.{1,3}/gsu) ?? []).join(" ") : t),
+  };
+
+  it("cuts on segmenter word boundaries and emits natural (space-free) text", async () => {
+    const c = new Chunker({ tokenLimit: 7, overlap: 0, segmenter: seg }); // th ratio 1.5 → size 10
+    const text = "กขคงจฉชญฎฏฐฑ"; // 12 single-unit chars, no spaces
+    const chunks = await c.chunkSegmented(text, { language: "th" });
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const ch of chunks) {
+      expect(ch.content).not.toContain(" "); // natural text — inserted spaces dropped
+      expect(ch.content.length % 3).toBe(0); // cut only on 3-char word boundaries
+    }
+    expect(chunks.map((ch) => ch.content).join("")).toBe(text); // no data loss
+  });
+
+  it("falls back to chunk() when the language is not handled", async () => {
+    const c = new Chunker({ tokenLimit: 100, segmenter: seg });
+    const out = await c.chunkSegmented("hello world", { language: "en" });
+    expect(out).toEqual(c.chunk("hello world", { language: "en" }));
+  });
+
+  it("falls back to chunk() when no segmenter is configured", async () => {
+    const c = new Chunker({ tokenLimit: 100 });
+    const out = await c.chunkSegmented("กขคงจฉ", { language: "th" });
+    expect(out).toEqual(c.chunk("กขคงจฉ", { language: "th" }));
+  });
+
+  it("awaits an async segmenter", async () => {
+    const asyncSeg: Segmenter = {
+      segmentsLanguage: (l) => l === "th",
+      segment: async (t, l) => (l === "th" ? (t.match(/.{1,3}/gsu) ?? []).join(" ") : t),
+    };
+    const c = new Chunker({ tokenLimit: 7, overlap: 0, segmenter: asyncSeg });
+    const chunks = await c.chunkSegmented("กขคงจฉชญ", { language: "th" });
+    expect(chunks.map((ch) => ch.content).join("")).toBe("กขคงจฉชญ");
   });
 });
 

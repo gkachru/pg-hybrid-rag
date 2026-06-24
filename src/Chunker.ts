@@ -1,4 +1,4 @@
-import type { ChunkingProvider } from "./interfaces.js";
+import type { ChunkingProvider, Segmenter } from "./interfaces.js";
 import type { Chunk } from "./types.js";
 
 /**
@@ -8,6 +8,48 @@ import type { Chunk } from "./types.js";
  */
 export function toGraphemes(text: string): string[] {
   return text.match(/\P{M}\p{M}*|\p{M}+/gu) ?? [];
+}
+
+/**
+ * Recover ORIGINAL substrings per word from a segmented form, using non-space character
+ * counts (invariant under the space-insertion-only Segmenter contract). concat(units) ===
+ * original. Any unit longer than maxLen is grapheme-split (the truncation guard).
+ */
+function wordUnits(original: string, segmented: string, maxLen: number): string[] {
+  const breaks = new Set<number>();
+  let nonSpace = 0;
+  for (const ch of segmented) {
+    if (/\s/.test(ch)) breaks.add(nonSpace);
+    else nonSpace++;
+  }
+  const words: string[] = [];
+  let cur = "";
+  let count = 0;
+  for (const ch of original) {
+    cur += ch;
+    if (!/\s/.test(ch)) {
+      count++;
+      if (breaks.has(count)) {
+        words.push(cur);
+        cur = "";
+      }
+    }
+  }
+  if (cur) words.push(cur);
+  return words.flatMap((w) => (w.length > maxLen ? toGraphemes(w) : [w]));
+}
+
+/** Trailing units whose combined length stays within `overlap` chars (word-boundary overlap). */
+function overlapUnits(units: string[], overlap: number): string[] {
+  if (overlap <= 0) return [];
+  const out: string[] = [];
+  let len = 0;
+  for (let i = units.length - 1; i >= 0; i--) {
+    if (out.length > 0 && len + units[i].length > overlap) break;
+    out.unshift(units[i]);
+    len += units[i].length;
+  }
+  return out;
 }
 
 const DEFAULT_CHUNK_SIZE = 512;
@@ -34,6 +76,9 @@ const CHARS_PER_TOKEN: Map<string, number> = new Map([
   ["zh", 1.2],
   ["ja", 1.2],
   ["ko", 1.2],
+  // Thai — heavily fragmented by multilingual subword tokenizers; closer to CJK than Latin.
+  // Conservative (risks small chunks over silent truncation); validate against the embedder.
+  ["th", 1.5],
 ]);
 
 export interface ChunkerConfig {
@@ -48,6 +93,8 @@ export interface ChunkerConfig {
    * effective char limit. Keep labels short, or leave headroom in `tokenLimit`.
    */
   prefixFn?: (metadata: Record<string, string>) => string | undefined;
+  /** Optional word segmenter for chunkSegmented() — word-aware boundaries on Thai/CJK. */
+  segmenter?: Segmenter;
 }
 
 /**
@@ -67,6 +114,7 @@ export class Chunker implements ChunkingProvider {
   private tokenLimit: number | undefined;
   private overlap: number;
   private prefixFn: ((metadata: Record<string, string>) => string | undefined) | undefined;
+  private segmenter: Segmenter | undefined;
 
   constructor(config: ChunkerConfig);
   constructor(chunkSize?: number, overlap?: number);
@@ -83,6 +131,7 @@ export class Chunker implements ChunkingProvider {
       this.chunkSize = undefined;
       this.overlap = configOrSize.overlap ?? DEFAULT_OVERLAP;
       this.prefixFn = configOrSize.prefixFn;
+      this.segmenter = configOrSize.segmenter;
     } else {
       const size = (configOrSize as number | undefined) ?? DEFAULT_CHUNK_SIZE;
       if (!(size > 0)) {
@@ -92,6 +141,7 @@ export class Chunker implements ChunkingProvider {
       this.tokenLimit = undefined;
       this.overlap = overlap ?? DEFAULT_OVERLAP;
       this.prefixFn = undefined;
+      this.segmenter = undefined;
     }
   }
 
@@ -167,6 +217,76 @@ export class Chunker implements ChunkingProvider {
 
     // Prefix subsequent chunks with product name so each chunk is self-identifying
     return this.prefixChunks(chunks);
+  }
+
+  /**
+   * Async, word-aware chunking for whitespace-less scripts (Thai/CJK). Uses the injected
+   * Segmenter to find word boundaries but emits NATURAL (unsegmented) chunk content — the
+   * segmenter is boundary-finding only. Safe to call always: with no segmenter or an
+   * unhandled language it returns the same result as chunk().
+   */
+  async chunkSegmented(text: string, metadata: Record<string, string> = {}): Promise<Chunk[]> {
+    if (!text.trim()) return [];
+    const language = metadata.language;
+    if (!this.segmenter || !language || !this.segmenter.segmentsLanguage(language)) {
+      return this.chunk(text, metadata);
+    }
+
+    const effectiveSize = this.getCharLimit(language);
+    const paragraphs = text.split(/\n\n+/).filter((p) => p.trim());
+    const chunks: Chunk[] = [];
+    let buffer = "";
+    let chunkIndex = 0;
+
+    for (const para of paragraphs) {
+      if (buffer.length + para.length + 2 <= effectiveSize) {
+        buffer = buffer ? `${buffer}\n\n${para}` : para;
+        continue;
+      }
+      if (buffer) {
+        chunks.push({ content: buffer.trim(), index: chunkIndex++, metadata });
+        buffer = "";
+      }
+      if (para.length > effectiveSize) {
+        const segmented = await this.segmenter.segment(para, language);
+        const units = wordUnits(para, segmented, effectiveSize);
+        chunkIndex = this.packWordUnits(units, effectiveSize, metadata, chunkIndex, chunks);
+      } else {
+        buffer = para;
+      }
+    }
+
+    if (buffer.trim()) chunks.push({ content: buffer.trim(), index: chunkIndex, metadata });
+    return this.prefixChunks(chunks);
+  }
+
+  /** Pack word units into <= effectiveSize chunks with word-boundary overlap; pushes onto
+   *  `chunks` and returns the next chunk index. Emits join(units) = natural original text. */
+  private packWordUnits(
+    units: string[],
+    effectiveSize: number,
+    metadata: Record<string, string>,
+    startIndex: number,
+    chunks: Chunk[],
+  ): number {
+    let bufUnits: string[] = [];
+    let bufLen = 0;
+    let idx = startIndex;
+    const flush = () => {
+      const content = bufUnits.join("").trim();
+      if (content) chunks.push({ content, index: idx++, metadata });
+    };
+    for (const u of units) {
+      if (bufLen > 0 && bufLen + u.length > effectiveSize) {
+        flush();
+        bufUnits = overlapUnits(bufUnits, this.overlap);
+        bufLen = bufUnits.reduce((n, s) => n + s.length, 0);
+      }
+      bufUnits.push(u);
+      bufLen += u.length;
+    }
+    flush();
+    return idx;
   }
 
   private prefixChunks(chunks: Chunk[]): Chunk[] {
