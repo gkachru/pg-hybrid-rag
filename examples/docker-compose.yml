@@ -78,6 +78,35 @@ services:
       retries: 3
       start_period: 60s
 
+  thai-segmenter:
+    build:
+      context: ./thai-segmenter
+      dockerfile: Dockerfile
+    image: pg-hybrid-rag-thai-segmenter:latest
+    ports:
+      - "8100:8000"
+    restart: unless-stopped
+    healthcheck:
+      # python:3.11-slim has no curl; use urllib so no extra package is needed.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s # attacut model warmup on first boot
+    # GPU opt-in: this card is Blackwell/sm_120; attacut/PyTorch can use it via a cu128 torch
+    # build + CDI passthrough (see examples/benchmark/docker-compose.infinity.yml). To enable,
+    # change the Dockerfile's torch install to a cu128 wheel, then uncomment:
+    # devices:
+    #   - nvidia.com/gpu=all
+    # environment:
+    #   - LD_LIBRARY_PATH=/usr/lib/wsl/lib
+
 volumes:
   hf-cache:
   pg-data:

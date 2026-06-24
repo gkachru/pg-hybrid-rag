@@ -127,3 +127,30 @@ export class HttpThaiSegmenter implements Segmenter {
     }
   }
 }
+
+// --- Wiring (inject the SAME instance into db + pipeline + indexer) ---
+//
+// import {
+//   PostgresRagDatabase,
+//   RagPipeline,
+//   RagIndexer,
+//   Chunker,
+// } from "pg-hybrid-rag";
+// import { HttpThaiSegmenter } from "./nestjs-thai-segmenter";
+//
+// // Production Thai segmenter. Run the sidecar from examples/thai-segmenter (see
+// // docker-compose.yml). For dev without the sidecar, fall back to the zero-dep
+// // IntlSegmenterAdapter({ languages: ["th"] }) — same interface.
+// const segmenter = new HttpThaiSegmenter({ baseUrl: process.env.THAI_SEGMENTER_URL! });
+//
+// const db = new PostgresRagDatabase(txProvider, { segmenter });
+// const pipeline = new RagPipeline({ tenantId, db, embedder, stopWords, synonyms, logger, segmenter });
+// const indexer = new RagIndexer({ tenantId, db, embedder, logger, segmenter });
+//
+// // Index Thai: chunkSegmented (async) gives word-aware boundaries; chunk text stays natural.
+// const chunker = new Chunker({ tokenLimit: 512, overlap: 75, segmenter });
+// const chunks = await chunker.chunkSegmented(thaiText, { language: "th" });
+// await indexer.index("faq", faqId, chunks, "th");
+//
+// // Query Thai: lower vectorMinScore for a multilingual embedder (e.g. BGE-M3) + enable rerank.
+// const results = await pipeline.search("หูฟังไร้สายกันน้ำ", { language: "th", vectorMinScore: 0.4, rerank: true });

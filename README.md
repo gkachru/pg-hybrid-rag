@@ -554,6 +554,13 @@ await pipeline.search("ราคาแพ็กเกจอินเทอร์
 - **`vectorMinScore`**: lower from the default `0.8` to `0.4` or lower. The `0.8` default is calibrated for e5-family models; better-calibrated embedders (BGE-M3) place true-positive cosines lower and `0.8` silently drops the dense leg.
 - **Reranking**: enable `rerank: true` with `rerankCandidates: 20–30` for best precision.
 
+**Runnable production example.** `examples/thai-segmenter/` ships a self-contained attacut
+sidecar (FastAPI + PyThaiNLP, CPU) plus `examples/nestjs-thai-segmenter.ts` (`HttpThaiSegmenter`,
+an HTTP `Segmenter` with timeout/retry/fail-fast + a space-insertion contract guard). Bring it
+up with `docker compose up -d thai-segmenter` and exercise it via
+`bun run examples/thai-segmenter/smoke.ts`. attacut is a neural tokenizer (good on loanwords,
+no dictionary curation), unlike the ICU-based `IntlSegmenterAdapter`.
+
 **CJK opt-in benchmark recipe**
 
 To benchmark CJK with a segmenter instead of pg_bigm, inject the same `IntlSegmenterAdapter` (or your production segmenter) on pipeline + indexer + db, then re-index your content. The keyword leg automatically routes to trigram-on-segmented-content. To revert to pg_bigm, remove the `segmenter` option from all three and re-index — the routing reverts automatically.
