@@ -258,6 +258,27 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     });
     assertEveryParamReferenced(calls);
   });
+
+  it("routes a segmented CJK language to the trigram leg (not pg_bigm)", async () => {
+    const { txProvider, calls } = recordingTx();
+    const seg = { segmentsLanguage: (l: string) => l === "zh", segment: (t: string) => t };
+    await new PostgresRagDatabase(txProvider, { cjk: true, segmenter: seg }).hybridSearch({
+      ...params,
+      language: "zh",
+    });
+    expect(calls.some((c) => c.sql.includes("show_bigm(content)"))).toBe(false);
+    expect(calls.some((c) => c.sql.includes("word_similarity($2, content_normalized)"))).toBe(true);
+  });
+
+  it("still uses pg_bigm for a CJK language the segmenter does not handle", async () => {
+    const { txProvider, calls } = recordingTx();
+    const seg = { segmentsLanguage: (l: string) => l === "zh", segment: (t: string) => t };
+    await new PostgresRagDatabase(txProvider, { cjk: true, segmenter: seg }).hybridSearch({
+      ...params,
+      language: "ja",
+    });
+    expect(calls.some((c) => c.sql.includes("show_bigm(content)"))).toBe(true);
+  });
 });
 
 // --- A failing leg fails the whole search, but only AFTER every leg settles ---

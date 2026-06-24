@@ -1,4 +1,10 @@
-import type { FtsStrategy, RagDatabase, SqlClient, TransactionProvider } from "../interfaces.js";
+import type {
+  FtsStrategy,
+  RagDatabase,
+  Segmenter,
+  SqlClient,
+  TransactionProvider,
+} from "../interfaces.js";
 import type { HybridSearchParams, RankedCandidate } from "../types.js";
 import { TsvectorFts } from "./fts/TsvectorFts.js";
 import { buildFilters, toRankedCandidate } from "./sqlHelpers.js";
@@ -45,6 +51,13 @@ export interface PostgresRagDatabaseOptions {
    * responsibility — the adapter rethrows without issuing ROLLBACK.
    */
   manageTransaction?: boolean;
+  /**
+   * Optional Segmenter. Used FOR ROUTING ONLY (never segments here): a CJK language the
+   * segmenter handles routes its keyword leg to trgm-on-content_normalized instead of pg_bigm
+   * (which assumes raw, unsegmented content). Pass the SAME instance you inject on RagPipeline
+   * and RagIndexer so indexing, querying, and routing stay consistent.
+   */
+  segmenter?: Segmenter;
 }
 
 interface KeywordLegSql {
@@ -143,6 +156,7 @@ export class PostgresRagDatabase implements RagDatabase {
   private fts: FtsStrategy;
   private ivfflatProbes: number;
   private manageTransaction: boolean;
+  private segmenter?: Segmenter;
 
   constructor(txProvider: TransactionProvider, options?: PostgresRagDatabaseOptions) {
     this.txProvider = txProvider;
@@ -150,6 +164,7 @@ export class PostgresRagDatabase implements RagDatabase {
     this.fts = options?.fts ?? new TsvectorFts();
     this.ivfflatProbes = options?.ivfflatProbes ?? DEFAULT_IVFFLAT_PROBES;
     this.manageTransaction = options?.manageTransaction ?? true;
+    this.segmenter = options?.segmenter;
   }
 
   async hybridSearch(params: HybridSearchParams): Promise<{
@@ -157,7 +172,10 @@ export class PostgresRagDatabase implements RagDatabase {
     keywordRows: RankedCandidate[];
     ftsRows: RankedCandidate[];
   }> {
-    const useBigm = this.cjk && CJK_LANGUAGES.has(params.language);
+    const useBigm =
+      this.cjk &&
+      CJK_LANGUAGES.has(params.language) &&
+      !this.segmenter?.segmentsLanguage(params.language);
 
     // Run all 3 legs in parallel with separate connections for true concurrency.
     // Fail-fast is intentional: if any leg fails (e.g. pg_bigm not installed, a missing
