@@ -1,4 +1,10 @@
-import type { EmbeddingProvider, Normalizer, RagDatabase, RagLogger } from "./interfaces.js";
+import type {
+  EmbeddingProvider,
+  Normalizer,
+  RagDatabase,
+  RagLogger,
+  Segmenter,
+} from "./interfaces.js";
 import type { Chunk } from "./types.js";
 
 const noopLogger: RagLogger = {
@@ -12,6 +18,8 @@ export interface RagIndexerConfig {
   embedder: EmbeddingProvider;
   /** Optional lexical normalizer; applied to content for the `content_normalized` column. */
   normalizer?: Normalizer;
+  /** Optional word segmenter; applied AFTER the normalizer to content_normalized (Thai/CJK). */
+  segmenter?: Segmenter;
   logger?: RagLogger;
 }
 
@@ -20,6 +28,7 @@ export class RagIndexer {
   private db: RagDatabase;
   private embedder: EmbeddingProvider;
   private normalizer?: Normalizer;
+  private segmenter?: Segmenter;
   private logger: RagLogger;
 
   constructor(config: RagIndexerConfig) {
@@ -27,6 +36,7 @@ export class RagIndexer {
     this.db = config.db;
     this.embedder = config.embedder;
     this.normalizer = config.normalizer;
+    this.segmenter = config.segmenter;
     this.logger = config.logger ?? noopLogger;
   }
 
@@ -63,9 +73,12 @@ export class RagIndexer {
       chunks.map(async (chunk, i) => {
         const lang = chunk.metadata.language ?? language;
         const content = chunk.content;
-        const contentNormalized = this.normalizer
+        let contentNormalized = this.normalizer
           ? await this.normalizer.normalize(content, lang)
           : content;
+        if (this.segmenter) {
+          contentNormalized = await this.segmenter.segment(contentNormalized, lang);
+        }
         return {
           sourceType,
           sourceId,

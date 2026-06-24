@@ -197,4 +197,42 @@ describe("RagIndexer", () => {
     const rows = capturedInsertChunks as Array<Record<string, unknown>>;
     expect(rows[0].contentNormalized).toBe("A:raw");
   });
+
+  it("segments content_normalized via the injected segmenter (raw content preserved)", async () => {
+    capturedInsertChunks = [];
+    const seg = {
+      segmentsLanguage: (l: string) => l === "th",
+      segment: (t: string, l: string) => (l === "th" ? `${t}|SEG` : t),
+    };
+    const indexer = new RagIndexer({
+      tenantId: "t-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      segmenter: seg,
+    });
+    await indexer.index(
+      "faq",
+      "f-1",
+      [{ index: 0, content: "ราคา", metadata: { language: "th" } }],
+      "th",
+    );
+    const rows = capturedInsertChunks as Array<Record<string, unknown>>;
+    expect(rows[0].content).toBe("ราคา"); // raw kept for embedding + display
+    expect(rows[0].contentNormalized).toBe("ราคา|SEG"); // segmented for the lexical legs
+  });
+
+  it("applies normalizer THEN segmenter to content_normalized", async () => {
+    capturedInsertChunks = [];
+    const seg = { segmentsLanguage: () => true, segment: (t: string) => `${t}>S` };
+    const indexer = new RagIndexer({
+      tenantId: "t-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      normalizer: { normalize: (t: string) => `N:${t}` },
+      segmenter: seg,
+    });
+    await indexer.index("faq", "f-1", [{ index: 0, content: "x", metadata: {} }], "th");
+    const rows = capturedInsertChunks as Array<Record<string, unknown>>;
+    expect(rows[0].contentNormalized).toBe("N:x>S"); // fold first, then segment
+  });
 });
