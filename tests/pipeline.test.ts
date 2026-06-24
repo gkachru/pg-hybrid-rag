@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-import type { RagDatabase, RerankerProvider } from "../src/interfaces.js";
+import type { RagDatabase, RerankerProvider, Segmenter } from "../src/interfaces.js";
 import { RagPipeline } from "../src/RagPipeline.js";
 import type { RagResult } from "../src/types.js";
 
@@ -676,5 +676,23 @@ describe("RagPipeline", () => {
     // Lexical legs get the stripped query; vector leg keeps the natural query
     expect(lastSearchParams.query).toBe("best phone store");
     expect(mockEmbedQuery).toHaveBeenCalledWith("the best phone in a store");
+  });
+
+  it("segments the lexical query but leaves the embedding query natural", async () => {
+    const seg: Segmenter = {
+      segmentsLanguage: (l) => l === "th",
+      segment: (t, l) => (l === "th" ? (t.match(/.{1,3}/gsu) ?? []).join(" ") : t),
+    };
+    const p = new RagPipeline({
+      tenantId: "tenant-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      segmenter: seg,
+    });
+    await p.search("กขคงจฉ", { language: "th" });
+    // Lexical query handed to the DB legs is segmented (spaces inserted on 3-char boundaries).
+    expect(lastSearchParams.query).toBe("กขค งจฉ");
+    // The dense embedding sees the natural, unsegmented query.
+    expect(mockEmbedQuery).toHaveBeenCalledWith("กขคงจฉ");
   });
 });

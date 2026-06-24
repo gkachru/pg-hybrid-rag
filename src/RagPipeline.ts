@@ -6,6 +6,7 @@ import type {
   RagSpan,
   RagTracer,
   RerankerProvider,
+  Segmenter,
   StopWordsProvider,
   SynonymProvider,
 } from "./interfaces.js";
@@ -60,6 +61,8 @@ export interface RagPipelineConfig {
   embedder: EmbeddingProvider;
   /** Lexical normalizer applied to the keyword/FTS query (not the embedding). */
   normalizer?: Normalizer;
+  /** Lexical word segmenter applied to the keyword/FTS query (not the embedding). */
+  segmenter?: Segmenter;
   stopWords?: StopWordsProvider;
   synonyms?: SynonymProvider;
   reranker?: RerankerProvider;
@@ -72,6 +75,7 @@ export class RagPipeline {
   private db: RagDatabase;
   private embedder: EmbeddingProvider;
   private normalizer?: Normalizer;
+  private segmenter?: Segmenter;
   private stopWords?: StopWordsProvider;
   private synonyms?: SynonymProvider;
   private reranker?: RerankerProvider;
@@ -83,6 +87,7 @@ export class RagPipeline {
     this.db = config.db;
     this.embedder = config.embedder;
     this.normalizer = config.normalizer;
+    this.segmenter = config.segmenter;
     this.stopWords = config.stopWords;
     this.synonyms = config.synonyms;
     this.reranker = config.reranker;
@@ -161,6 +166,16 @@ export class RagPipeline {
           // A folding normalizer never empties text, but guard anyway.
           if (!lexicalQuery.trim()) lexicalQuery = preOrtho;
           span.setAttribute("orthographicNormalizerApplied", true);
+        }
+
+        // Word segmentation for the LEXICAL legs only (Thai/CJK). Boundary-aware tokens let
+        // stop-word removal, synonym n-grams, trigram word_similarity, and tsvector match.
+        // naturalQuery (embedding + reranker) stays UNsegmented.
+        if (this.segmenter) {
+          const preSeg = lexicalQuery;
+          lexicalQuery = await this.segmenter.segment(lexicalQuery, queryLanguage);
+          if (!lexicalQuery.trim()) lexicalQuery = preSeg;
+          span.setAttribute("segmenterApplied", true);
         }
 
         if (allStopWords.size > 0) {
