@@ -1,0 +1,6 @@
+pythainlp==5.0.5
+attacut==1.0.6
+nptyping==1.4.4
+numpy==1.26.4
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
