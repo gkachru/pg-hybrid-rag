@@ -69,7 +69,14 @@ New provider in `src/interfaces.ts`, sibling to `Normalizer`:
  *  segmenter (e.g. a PyThaiNLP service) is a drop-in, exactly like Normalizer. */
 export interface Segmenter {
   /** Return `text` rewritten as space-joined word tokens, or unchanged for a language
-   *  this segmenter does not handle. */
+   *  this segmenter does not handle.
+   *
+   *  CONTRACT — space-insertion only: the implementation may INSERT whitespace at word
+   *  boundaries but must otherwise PRESERVE the original character sequence in order (no
+   *  reordering, substitution, or dropping of non-whitespace characters). The Chunker
+   *  relies on this to align the segmented form back onto the original and emit natural
+   *  (unsegmented) chunk text (see §5). The lexical legs do not need this property, but
+   *  the Chunker does, so it is part of the interface contract. */
   segment(text: string, language: string): string | Promise<string>;
   /** Whether this segmenter rewrites `language`. Lets PostgresRagDatabase route a
    *  segmented language's keyword leg to trgm instead of pg_bigm. Routing only — this
@@ -93,7 +100,7 @@ new IntlSegmenterAdapter({ languages: ["th"] })           // segment Thai only
 new IntlSegmenterAdapter({ languages: ["th", "zh", "ja"] })
 ```
 
-- Uses `new Intl.Segmenter(base, { granularity: "word" })`, joins word-granularity segments with single spaces, drops whitespace-only segments. Caches one `Intl.Segmenter` per language.
+- Uses `new Intl.Segmenter(base, { granularity: "word" })`, joins word-granularity segments with single spaces, drops whitespace-only segments. Caches one `Intl.Segmenter` per language. Satisfies the **space-insertion-only** contract from §1 (it only re-joins original segments with spaces) — so the Chunker can reconstruct the original from its output. (Edge: runs of original whitespace are normalized to a single space; the Chunker's reconstruction tolerates this since it re-derives boundaries against the original, not the adapter's spacing.)
 - `segment` is a **no-op passthrough** for any language not in `languages` (so Latin text is never re-spaced).
 - `segmentsLanguage(lang)` ⇔ base subtag ∈ `languages`.
 - Works identically on Node and Bun (stdlib `Intl`).
@@ -134,7 +141,32 @@ Two changes plus one compatibility decision.
 
 **5a. Grapheme-safe slicing — always on, synchronous, no API change.** `splitFixedSize` and `getOverlapSuffix` must never cut between a base character and its trailing combining marks. Implement a small helper that, given a candidate cut index, advances past any following `\p{M}` (combining mark) code points so a grapheme cluster is never split. This fixes orphaned Thai vowel/tone marks and also benefits Devanagari/Arabic. (The existing surrogate-pair guard is subsumed by grapheme awareness.)
 
-**5b. Word-aware boundaries when a `Segmenter` is configured.** Add `segmenter?: Segmenter` to `ChunkerConfig`. For a language the segmenter handles, segment the text first so the existing space-based packing and overlap align on real word boundaries instead of code-point slices. Add `["th", 1.5]` to `CHARS_PER_TOKEN` (Thai is heavily fragmented by multilingual subword tokenizers — closer to the CJK ratio than to Latin; a conservative start that risks small chunks over silent truncation, **flagged to validate** against the chosen embedder like the other entries).
+**5b. Word-aware boundaries when a `Segmenter` is configured — boundary-finding only, emit natural text.** Add `segmenter?: Segmenter` to `ChunkerConfig`. For a language the segmenter handles, the Chunker uses segmentation **only to choose where to cut**; the emitted chunk `content` stays **natural (unsegmented) text**.
+
+This is the critical invariant. The Chunker's output `content` is what `RagIndexer` (a) embeds into the dense vector and (b) returns for display — both of which must be natural per §3/§4. (`content_normalized` is segmented separately by the indexer in §4; the Chunker must not pre-segment it.) Emitting the space-injected string instead would embed and display spaced Thai — the trap this section exists to rule out.
+
+Mechanism (relies on the §1 space-insertion-only contract):
+
+```
+1. segmented = await segment(span, lang)        // "เปลี่ยน แพ็กเกจ อินเทอร์เน็ต ของ ฉัน"
+2. two-pointer-align segmented onto the ORIGINAL span → recover word-boundary offsets
+   (positions where the segmenter inserted a space; original whitespace is also a valid boundary)
+3. pack/overlap by word units up to effectiveSize, but SLICE THE ORIGINAL string at those offsets
+4. emit original substrings (natural text; original phrase-spaces intact; inserted spaces dropped)
+```
+
+Worked example (the `splitFixedSize`/`getOverlapSuffix` path Thai falls into):
+
+```
+original :  …เปลี่ยนแพ็กเกจอินเทอร์เน็ตของฉัน…          (no inter-word spaces)
+segmented:  เปลี่ยน แพ็กเกจ อินเทอร์เน็ต ของ ฉัน         ← boundary-finding scaffold
+cut near limit → boundary between แพ็กเกจ and อินเทอร์เน็ต
+emit     :  …เปลี่ยนแพ็กเกจ  |  อินเทอร์เน็ตของฉัน…       ← ORIGINAL text, cut on a word boundary
+```
+
+Concretely, segmentation feeds the two functions Thai actually reaches: `splitFixedSize` (cut at the nearest word boundary ≤ `effectiveSize` instead of an arbitrary code point) and `getOverlapSuffix` (take overlap to a word boundary instead of a non-existent space). Without a segmenter these still run, falling back to the §5a grapheme-safe code-point slice — degraded (cuts mid-word) but never broken (never mid-grapheme).
+
+Also add `["th", 1.5]` to `CHARS_PER_TOKEN` (Thai is heavily fragmented by multilingual subword tokenizers — closer to the CJK ratio than to Latin; a conservative start that risks small chunks over silent truncation, **flagged to validate** against the chosen embedder like the other entries).
 
 **5c. Compatibility — `chunk()` becomes async-capable.** `segment()` may be async, but `ChunkingProvider.chunk` is currently sync. Resolution: widen the interface to
 
@@ -191,6 +223,7 @@ const useBigm =
 - **`chunk()` sync→async-when-segmented widening** is the one non-additive change. Contained: only callers that opt into a segmenter must `await`; no-segmenter callers and `RagIndexer` are unaffected.
 - **Three injection sites for one `Segmenter`** (pipeline, indexer, db). Accepted to get a single source of truth for routing; consistent with `normalizer` already being on two of them. Mis-wiring (segmenting content but not passing the segmenter to the db) is the failure mode `segmentsLanguage` is designed to prevent, but it still requires the consumer to pass the same instance to all three — documented.
 - **Segmenter consistency.** `segment` and `segmentsLanguage` must agree; an impl that segments a language but reports `false` (or vice-versa) desyncs indexing from routing. Documented as an interface contract; the `IntlSegmenterAdapter` derives both from one `languages` set so it cannot drift.
+- **Chunker depends on the space-insertion-only contract (§1).** A segmenter that reorders/substitutes/drops non-whitespace characters (rather than only inserting spaces) breaks the Chunker's original-text reconstruction and could corrupt chunk boundaries. The lexical legs would tolerate such a segmenter, but the Chunker would not — so this is an explicit interface contract, validated for the `IntlSegmenterAdapter`. A consumer's exotic segmenter that violates it should not be passed to the `Chunker` (it can still be used for the search/index lexical paths).
 - **Language-tagging dependence.** Segmentation keys off the row/query `language`; mis-tagged Thai (detected as `en`) is not segmented. Same dependence as normalization.
 - **Dense leg deliberately unchanged.** Thai retrieval leans on the dense embedder + reranker; the lexical legs are the bonus that segmentation unlocks. `vectorMinScore`/embedder/reranker tuning is docs-only (below).
 
