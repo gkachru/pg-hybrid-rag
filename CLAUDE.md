@@ -9,12 +9,23 @@ bun run build          # tsup → dual ESM/CJS in dist/
 bun run typecheck      # tsc --noEmit
 bun run lint           # biome check
 bun run lint:fix       # biome check --write (auto-fix)
-bun test               # bun:test, all tests in tests/
+bun test               # bun:test, all tests in tests/ (integration suite skips unless PG_INTEGRATION=1)
 bun test tests/pipeline.test.ts  # single file
 bun run examples/playground.ts   # live integration test (needs DB + embedding API)
 ```
 
-No test database needed — tests use mocks for all DB and embedding calls. The playground example creates and drops an isolated database automatically.
+No test database needed for the default run — tests use mocks for all DB and embedding calls. The playground example creates and drops an isolated database automatically.
+
+### Index-utilization integration tests (`tests/integration/`)
+
+Mock-based tests can't see query plans, so a separate EXPLAIN-based suite verifies every search/maintenance leg uses its intended index. Gated by `PG_INTEGRATION=1` (skips by default), needs the custom image (vchord + pg_textsearch + pg_bigm); no embedding API (random vectors).
+
+```bash
+cd examples && podman compose up -d db   # or: docker compose up -d db
+PG_INTEGRATION=1 POSTGRES_USER=user POSTGRES_PASSWORD=password bun test tests/integration
+```
+
+`pgHarness.ts` captures the **real** SQL+params the adapter issues (no hand-copied SQL → can't drift), then EXPLAINs each with seq scans penalized AND the tenant btrees hidden, so a leg must use its own vector/GIN/BM25 index or fail. Covers: ivfflat/vchordrq vector, pg_trgm keyword, pg_bigm CJK keyword, tsvector FTS (both `plainto`/`to_tsquery` forms), BM25 partial-index routing, and the migration-016 `idx_rag_source` delete path.
 
 ### Playground setup
 
