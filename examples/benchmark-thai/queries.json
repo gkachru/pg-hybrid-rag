@@ -216,6 +216,90 @@
         "spoken": "กรมธรรม์ขาดแล้ว ต่ออายุได้ไหม",
         "codeswitch": "policy กรมธรรม์ขาดแล้ว ต่ออายุได้ไหม"
       }
+    },
+    {
+      "id": "q0019",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:19",
+      "target_snippet": "อายุระหว่าง 20-60 ปี",
+      "variants": {
+        "written": "ต้องการสมัครสินเชื่อ Speedy Loan ต้องทำอย่างไร",
+        "spoken": "อยากสมัคร Speedy Loan ทำไงดี",
+        "codeswitch": "สมัคร Speedy Loan ยังไง"
+      }
+    },
+    {
+      "id": "q0020",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:36",
+      "target_snippet": "Statement",
+      "variants": {
+        "written": "หากไม่มีสลิปเงินเดือน จะสามารถกู้สินเชื่อบ้านได้หรือไม่",
+        "spoken": "ไม่มีสลิปเงินเดือน กู้บ้านได้ไหม",
+        "codeswitch": "ไม่มี slip เงินเดือน ใช้ statement กู้บ้านได้ไหม"
+      }
+    },
+    {
+      "id": "q0021",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:54",
+      "target_snippet": "Refinance",
+      "variants": {
+        "written": "ต้องการรีไฟแนนซ์บ้านมาที่ธนาคารไทยพาณิชย์ ต้องทำอย่างไร",
+        "spoken": "อยากรีไฟแนนซ์บ้านมา SCB ทำไงดี",
+        "codeswitch": "อยาก Refinance บ้านมา SCB ยังไง"
+      }
+    },
+    {
+      "id": "q0022",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:104",
+      "target_snippet": "เว็ปไซต์ของ SCB",
+      "variants": {
+        "written": "สามารถตรวจสอบอัตราดอกเบี้ยเงินฝากได้จากที่ใด",
+        "spoken": "เช็คดอกเบี้ยเงินฝากดูที่ไหน",
+        "codeswitch": "เช็คอัตราดอกเบี้ยเงินฝากที่ website ของ SCB ได้ไหม"
+      }
+    },
+    {
+      "id": "q0023",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:98",
+      "target_snippet": "SCB Call Center",
+      "variants": {
+        "written": "ต้องการอายัดบัญชีหรืออายัดบัตร ต้องทำอย่างไร",
+        "spoken": "อยากอายัดบัญชี ทำไงดี",
+        "codeswitch": "อายัดบัญชีผ่าน SCB Call Center ยังไง"
+      }
+    },
+    {
+      "id": "q0024",
+      "domain": "insurance",
+      "provider": "mtl",
+      "target_doc": "faq:mtl:5",
+      "target_snippet": "เบี้ยประกัน",
+      "variants": {
+        "written": "เบี้ยประกันที่จะคืนทุก ๆ 3 ปี จะคืนค่าเบี้ยทั้งหมดหรือไม่",
+        "spoken": "เบี้ยประกันคืนทุก 3 ปี ได้คืนหมดเลยไหม",
+        "codeswitch": "เบี้ยประกันแบบ no claim คืนทุก 3 ปี ได้คืนหมดไหม"
+      }
+    },
+    {
+      "id": "q0025",
+      "domain": "insurance",
+      "provider": "mtl",
+      "target_doc": "faq:mtl:7",
+      "target_snippet": "ความคุ้มครอง",
+      "variants": {
+        "written": "หากสมัครประกันสุขภาพแล้วเป็นโรคร้ายภายหลัง บริษัทจะยกเลิกความคุ้มครองหรือไม่",
+        "spoken": "สมัครประกันสุขภาพแล้วเป็นโรคร้ายทีหลัง เขายกเลิกความคุ้มครองไหม",
+        "codeswitch": "ทำ health insurance แล้วเป็นโรคร้ายทีหลัง โดนยกเลิกความคุ้มครองไหม"
+      }
     }
   ]
 }

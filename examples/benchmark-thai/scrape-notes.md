@@ -5,20 +5,22 @@
 > license. They are local-only frozen corpora for benchmark development. Only this provenance
 > file, `queries.json`, and the code are committed.
 
-This benchmark was built as a **bounded proof** (3 providers × 3 domains, one provider per
-domain) to validate the end-to-end pipeline. The harness scales to the full broad scope
-(9 providers) documented in the design — re-run the procedure in `scrape/README.md` to extend it.
+This benchmark started as a **bounded proof** (one provider per domain) and was then **expanded**
+with additional providers and category pages. It now covers **4 providers across 3 domains**
+(179 FAQ pairs). The harness scales further to the full broad scope (9 providers) in the design —
+re-run the procedure in `scrape/README.md` to extend it.
 
 ---
 
 ## FAQ snapshots (`datasets/faqs-th/`)
 
-| Provider | Domain | Source page | Method | Date | Pairs | Output |
+| Provider | Domain | Source page(s) | Method | Date | Pairs | Output |
 |---|---|---|---|---|---|---|
-| AIS | telecom | https://www.ais.th/consumers/help-and-support/fibre | Playwright render → `[aria-expanded]` accordion (question = button text, answer = `aria-controls` panel) | 2026-06-24 | 46 | `datasets/faqs-th/ais.jsonl` |
-| SCB | banking | https://www.scb.co.th/th/personal-banking/faq/card-faq.html | Playwright render → `.collapse-header` (question) + next `.collapse-inner` (answer) | 2026-06-24 | 19 | `datasets/faqs-th/scb.jsonl` |
-| AIA | insurance | https://www.aia.co.th/th/help-support/faq | Playwright render → `[aria-expanded]` accordion; stripped leading "N." numbering | 2026-06-24 | 20 | `datasets/faqs-th/aia.jsonl` |
-| **Total** | | | | | **85** | |
+| AIS | telecom | `/consumers/help-and-support/fibre` (+ `/network-technologies`, `/package-handset`) | Playwright render → `[aria-expanded]` accordion (question = button text, answer = `aria-controls` panel) | 2026-06-24 | 46 | `datasets/faqs-th/ais.jsonl` |
+| SCB | banking | `/th/personal-banking/faq/{card,loan,deposit}-faq.html` | Playwright render → `.collapse-header` (question) + next `.collapse-inner` (answer); nav-menu collapses filtered | 2026-06-24 | 105 | `datasets/faqs-th/scb.jsonl` |
+| AIA | insurance | `/th/help-support/faq` | Playwright render → `[aria-expanded]` accordion; stripped leading "N." numbering | 2026-06-24 | 20 | `datasets/faqs-th/aia.jsonl` |
+| Muang Thai (MTL) | insurance | `/th/faq` | Playwright render → `<button>` (question) + hidden sibling panel (answer); dropped chat/flow buttons + "คำถามที่พบบ่อย" label prefix | 2026-06-25 | 8 | `datasets/faqs-th/mtl.jsonl` |
+| **Total** | | | | | **179** | |
 
 **Notes:**
 - All three pages are JavaScript-rendered SPAs; a headless browser (Playwright MCP) was required
@@ -30,7 +32,17 @@ domain) to validate the end-to-end pipeline. The harness scales to the full broa
   19 credit-card FAQ items renumbered `faq:scb:0..18`.
 - **AIS:** the fibre help center yielded the richest loanword density (Fibre, แพ็กเกจ/package,
   อินเทอร์เน็ต/internet, Public IP, Port forwarding, Wireless, AIS PLAYBOX) — ideal for the
-  segmenter axis.
+  segmenter axis. The `/network-technologies` and `/package-handset` help pages were also scraped
+  but their items fully **duplicated** the fibre page's accordion (0 new after dedup) — the fibre
+  help page already aggregates network/device topics.
+- **SCB:** expanded from cards to `loan-faq` + `deposit-faq` (Speedy Loan, New/Used Car, My Home
+  My Cash, Refinance, Slip/Statement, Dormant/Active, อัตราดอกเบี้ยเงินฝาก). The `.collapse-header`
+  selector also matches top-nav menu collapses (e.g. "ลูกค้าบุคคล EN", "เกี่ยวกับเรา"); these are
+  filtered by a denylist + the "… EN" suffix.
+- **MTL:** a second insurer for provider diversity; its FAQ uses `<button>` + hidden-panel
+  accordions. Non-FAQ buttons (an English "Step 1" product flow, a "💬 chat" widget) were dropped.
+- Existing query `target_doc` ordinals were preserved across the expansion (new docs **appended**
+  after existing ones, deduped by question), so `queries.json` stays valid.
 - Content is in-domain noise + scored FAQ answers; doc_id format `faq:<provider>:<ordinal>`.
 
 ## Policy / T&C PDF distractors (`datasets/PDFs-th/`)
@@ -49,12 +61,17 @@ lets `extract_pdfs.py` classify the domain.
 ## Built corpus
 
 `bun run examples/benchmark-thai/buildCorpus.ts` →
-`datasets/benchmark-cache-th/corpus.jsonl`: **225 chunks** (faq=107 across 85 docs, pdf=118 across
-2 docs). By-domain chunk counts: telecom 176, insurance 26, banking 23.
+`datasets/benchmark-cache-th/corpus.jsonl`: **329 chunks** (faq=211 across 179 docs, pdf=118 across
+2 docs). By-domain chunk counts: telecom 176, banking 115, insurance 38.
 
-## Sources attempted but not used (bounded scope)
+`queries.json`: **25 queries** × {written, spoken, codeswitch} — by domain telecom 8 / banking 10 /
+insurance 7; by provider ais 8 / scb 10 / aia 5 / mtl 2. All resolved against the corpus with
+target snippets verified present.
 
-True / dtac (telecom), Kasikorn / Bangkok Bank (banking), and Muang Thai / FWD (insurance) were
-**not scraped** — one provider per domain was sufficient for the bounded proof. The AIA main FAQ
-mixed site-nav `[aria-expanded]` elements with real FAQ accordions; filtering to question-like
-text with non-empty answer panels isolated the 20 real items.
+## Sources attempted but not used
+
+- **dtac** (telecom): homepage is a heavy SPA exposing no static FAQ links; not scraped.
+- **True / Kasikorn / Bangkok Bank / FWD**: not scraped — current coverage (AIS, SCB, AIA, MTL) was
+  sufficient; the design's full 9-provider scope remains the documented extension path.
+- The AIA main FAQ mixed site-nav `[aria-expanded]` elements with real FAQ accordions; filtering to
+  question-like text with non-empty answer panels isolated the 20 real items.

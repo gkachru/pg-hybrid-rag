@@ -13,9 +13,10 @@ It mirrors `examples/benchmark/` (the Arabic dialect benchmark): a fresh isolate
 per config, migrate, seed stop words, index the corpus, run every query × register variant, score,
 then drop the database.
 
-> **Scope:** the committed `queries.json` + corpus pipeline are a **bounded proof** (3 providers ×
-> 3 domains: AIS / SCB / AIA). The harness scales to the broad scope in the design doc — re-run the
-> scrape (`scrape/README.md`) to extend it.
+> **Scope:** the committed corpus pipeline currently covers **4 providers across 3 domains**
+> (AIS telecom; SCB banking; AIA + Muang Thai insurance) — 179 FAQ pairs + 2 T&C PDFs → 329 chunks,
+> with 25 queries × 3 registers. The harness scales to the full broad scope in the design doc —
+> re-run the scrape (`scrape/README.md`) to extend it further.
 
 ---
 
