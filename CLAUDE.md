@@ -68,7 +68,8 @@ Three-way hybrid search fused via RRF:
 | `sql/011_pg_textsearch.sql` | Optional BM25 indexes (gated by `bm25`) |
 | `sql/012_drop_dead_index.sql` | Drops the unused `content_stemmed` index + column (dead since migration 008) |
 | `sql/015_bm25_normalized_textsearch.sql` | Rebuilds the BM25 indexes on `content_normalized` (gated by `bm25`) |
-| `sql/001-015_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK, normalization) |
+| `sql/016_source_index.sql` | Composite `(tenant_id, source_type, source_id)` index for the delete/replace path |
+| `sql/001-016_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK, normalization) |
 
 ## Design patterns
 
