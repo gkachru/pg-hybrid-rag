@@ -37,7 +37,7 @@ export class IntlSegmenterAdapter implements Segmenter {
   }
 
   segment(text: string, language: string): string {
-    if (!text || !this.segmentsLanguage(language)) return text;
+    if (text.trim() === "" || !this.segmentsLanguage(language)) return text;
     const seg = this.getSegmenter(base(language));
     const out: string[] = [];
     for (const { segment } of seg.segment(text)) {

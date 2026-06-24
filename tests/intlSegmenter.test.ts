@@ -28,4 +28,9 @@ describe("IntlSegmenterAdapter", () => {
     const seg = new IntlSegmenterAdapter({ languages: ["th"] });
     expect(seg.segment("", "th")).toBe("");
   });
+
+  it("returns whitespace-only input unchanged for a handled language", () => {
+    const seg = new IntlSegmenterAdapter({ languages: ["th"] });
+    expect(seg.segment("   ", "th")).toBe("   ");
+  });
 });
