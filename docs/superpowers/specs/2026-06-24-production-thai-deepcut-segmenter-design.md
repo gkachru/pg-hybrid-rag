@@ -26,6 +26,16 @@ runnable production path.
   (OOV) handling (~0.96 word-seg F1 on BEST2010 vs newmm's ~0.84–0.91), which is precisely
   the loanword/brand strength e-commerce needs. Accepted cost: ~10–40 ms/call on CPU and a
   heavier, TF-based container.
+- **deepcut runs CPU-only — the GPU is deliberately unused.** This machine's GPU is Blackwell
+  / sm_120; only frameworks shipping sm_120 CUDA kernels run on it (torch 2.8+cu128 — what the
+  `examples/benchmark` infinity embedder/reranker uses). deepcut's TensorFlow stack has no
+  sm_120 kernels, so a GPU build would hit the same `CUDA_ERROR_NO_DEVICE` wall that broke
+  TEI/candle here — fighting two incompatibilities at once (deepcut ↔ modern TF, TF ↔ sm_120).
+  A segmenter is also called per short string, serially, on the query hot path, where GPU
+  batching helps little (it would mainly speed bulk indexing). So the sidecar pins a **CPU**
+  TensorFlow wheel; the GPU keeps serving the embedder/reranker via infinity, unchanged. The
+  GPU-passthrough pattern (CDI `nvidia.com/gpu=all` + `LD_LIBRARY_PATH=/usr/lib/wsl/lib`) is
+  documented in `examples/benchmark` and intentionally NOT applied to this service.
 - **Scope: runnable service + adapter, wired into the NestJS example only.** The Python
   sidecar is real and runnable (Dockerfile + compose service); the playground stays on the
   zero-dep `IntlSegmenterAdapter` quick-start (not modified).
@@ -88,17 +98,20 @@ A Python deepcut sidecar the Node app calls over HTTP. Four pieces:
 - Tokenization: `deepcut.tokenize(text)` → join tokens with a single space, dropping empty /
   whitespace-only tokens. **No normalization** — pure space-insertion (normalization is the
   `Normalizer`'s job, applied before the segmenter).
-- `requirements.txt` pins **deepcut + a known-compatible TensorFlow/Keras + fastapi +
-  uvicorn**. The `Dockerfile` locks a verified Python + TF version.
+- `requirements.txt` pins **deepcut + a known-compatible `tensorflow-cpu`/Keras + fastapi +
+  uvicorn**. The `Dockerfile` locks a verified Python + `tensorflow-cpu` version (no CUDA).
 
 ### ⚠️ Primary implementation risk: TensorFlow / deepcut version pinning
 
 deepcut rides an older TF/Keras stack and is sensitive to TF major versions and Python
-version. The plan must pin a **verified-installable** combination (specific Python base image
-+ TF version + deepcut version) and the Dockerfile must lock it. If a clean modern pin proves
-infeasible, fallbacks to record in the plan: (a) pin an older Python base (e.g. 3.9) with a
-compatible TF; (b) install deepcut via `pythainlp[deepcut]` if that resolves the stack more
-reliably. This risk is isolated to the service container; the TS adapter is unaffected.
+version. Because the service is **CPU-only** (see §1), the pin only needs to satisfy deepcut ↔
+TF compatibility — there is no CUDA/cuDNN/Blackwell dimension to fight (a `tensorflow-cpu`
+wheel sidesteps it entirely). The plan must pin a **verified-installable** combination
+(specific Python base image + `tensorflow-cpu` version + deepcut version) and the Dockerfile
+must lock it. If a clean modern pin proves infeasible, fallbacks to record in the plan:
+(a) pin an older Python base (e.g. 3.9) with a compatible `tensorflow-cpu`; (b) install deepcut
+via `pythainlp[deepcut]` if that resolves the stack more reliably. This risk is isolated to the
+service container; the TS adapter is unaffected.
 
 ---
 
@@ -190,8 +203,8 @@ interface HttpThaiSegmenterConfig {
 |---|---|
 | `examples/nestjs-thai-segmenter.ts` | **new** — `HttpThaiSegmenter` adapter + usage/wiring block |
 | `examples/thai-segmenter/app.py` | **new** — FastAPI deepcut service (`/health`, `/segment`) |
-| `examples/thai-segmenter/requirements.txt` | **new** — pinned deepcut + TF + fastapi + uvicorn |
-| `examples/thai-segmenter/Dockerfile` | **new** — locked Python + TF build |
+| `examples/thai-segmenter/requirements.txt` | **new** — pinned deepcut + `tensorflow-cpu` + fastapi + uvicorn |
+| `examples/thai-segmenter/Dockerfile` | **new** — locked CPU Python + `tensorflow-cpu` build (no CUDA) |
 | `examples/thai-segmenter/smoke.ts` | **new** — live smoke test through the adapter (run via `bun`) |
 | `examples/docker-compose.yml` | add `thai-segmenter` service |
 | `examples/.env.example` | add `THAI_SEGMENTER_URL` |
