@@ -559,7 +559,9 @@ sidecar (FastAPI + PyThaiNLP, CPU) plus `examples/nestjs-thai-segmenter.ts` (`Ht
 an HTTP `Segmenter` with timeout/retry/fail-fast + a space-insertion contract guard). Bring it
 up with `docker compose up -d thai-segmenter` and exercise it via
 `bun run examples/thai-segmenter/smoke.ts`. attacut is a neural tokenizer (good on loanwords,
-no dictionary curation), unlike the ICU-based `IntlSegmenterAdapter`.
+no dictionary curation), unlike the ICU-based `IntlSegmenterAdapter`. The sidecar is
+unauthenticated and does not bound request size — run it on a private network reachable only by
+your app, not exposed publicly.
 
 **CJK opt-in benchmark recipe**
 

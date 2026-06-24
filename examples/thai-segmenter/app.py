@@ -3,6 +3,11 @@
 Tokenizes Thai with attacut (a neural tokenizer) via the maintained PyThaiNLP, and returns
 space-joined tokens. Space-insertion only: the original non-whitespace characters are preserved
 in order (no normalization — that is the library's Normalizer's job, which runs first).
+
+SECURITY: this service is UNAUTHENTICATED and does not bound request size — it runs CPU-bound
+inference per text with no payload limit or concurrency cap. It is meant to run on a private
+network (e.g. the compose network) reachable only by your app, NOT exposed publicly. Before any
+public exposure add auth, request-size/array-length limits, and a concurrency/timeout guard.
 """
 
 from contextlib import asynccontextmanager
