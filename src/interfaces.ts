@@ -9,6 +9,9 @@ import type {
 /** Chunking provider — consumers can swap in chonkie or any other chunking library. */
 export interface ChunkingProvider {
   chunk(text: string, metadata?: Record<string, string>): Chunk[];
+  /** Optional async variant using an injected Segmenter for word-aware boundaries on
+   *  whitespace-less scripts (Thai/CJK). Emits natural (unsegmented) chunk content. */
+  chunkSegmented?(text: string, metadata?: Record<string, string>): Promise<Chunk[]>;
 }
 
 /** SQL execution — consumer provides their DB connection. */
@@ -158,4 +161,29 @@ export interface FtsStrategy {
  */
 export interface Normalizer {
   normalize(text: string, language: string): string | Promise<string>;
+}
+
+/**
+ * Word segmentation for scripts without whitespace word boundaries (Thai, CJK, …).
+ * Applied symmetrically to indexed content and the lexical query; feeds the LEXICAL
+ * legs only (never the dense embedding or the reranker). Language-gated: implementations
+ * return the input unchanged for languages they don't handle. Async-capable so an
+ * HTTP-backed segmenter is a drop-in, exactly like Normalizer.
+ *
+ * CONTRACT (space-insertion only): segment() may INSERT whitespace at word boundaries
+ * but must otherwise preserve the original non-whitespace characters in order (no
+ * reordering, substitution, or dropping). Word boundaries are expected to fall BETWEEN
+ * grapheme clusters (never between a base character and its combining marks) — the shipped
+ * IntlSegmenterAdapter satisfies this; a custom segmenter that splits mid-cluster could let
+ * the Chunker start a chunk with an orphaned mark. The Chunker relies on the space-insertion
+ * contract to reconstruct natural (unsegmented) chunk text (see Chunker.chunkSegmented).
+ */
+export interface Segmenter {
+  /** Return `text` rewritten as space-joined word tokens, or unchanged for a language
+   *  this segmenter does not handle. */
+  segment(text: string, language: string): string | Promise<string>;
+  /** Whether this segmenter rewrites `language`. Lets PostgresRagDatabase route a
+   *  segmented language's keyword leg to trgm instead of pg_bigm. Routing only — this
+   *  method must never segment. Must agree with `segment`. */
+  segmentsLanguage(language: string): boolean;
 }

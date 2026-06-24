@@ -47,4 +47,9 @@ describe("stripTrailingPunctuation", () => {
     expect(stripTrailingPunctuation("it's")).toBe("it's");
     expect(stripTrailingPunctuation("co-op")).toBe("co-op");
   });
+
+  it("strips Thai trailing marks (mai yamok, paiyannoi)", () => {
+    expect(stripTrailingPunctuation("เด็กๆ")).toBe("เด็ก");
+    expect(stripTrailingPunctuation("กรุงเทพฯ")).toBe("กรุงเทพ");
+  });
 });

@@ -16,12 +16,14 @@ export function detectLanguage(text: string): string {
   let han = 0;
   let kana = 0;
   let hangul = 0;
+  let thai = 0;
 
   for (const char of text) {
     // for…of yields whole code points; codePointAt (not charCodeAt) reads the full
     // value so a supplementary-plane character isn't misread as a lone surrogate.
     const code = char.codePointAt(0) ?? 0;
     if (code >= 0x0900 && code <= 0x097f) devanagari++;
+    else if (code >= 0x0e00 && code <= 0x0e7f) thai++;
     else if (
       (code >= 0x0600 && code <= 0x06ff) ||
       (code >= 0x0750 && code <= 0x077f) ||
@@ -54,7 +56,7 @@ export function detectLanguage(text: string): string {
       han++;
   }
 
-  const total = devanagari + arabic + latin + han + kana + hangul;
+  const total = devanagari + arabic + latin + han + kana + hangul + thai;
   if (total === 0) return "en";
 
   // CJK: kana ⇒ Japanese, Hangul ⇒ Korean (both decisive even alongside Latin);
@@ -65,6 +67,7 @@ export function detectLanguage(text: string): string {
   if (kana > 0) return "ja";
   if (hangul > 0) return "ko";
   if (han > 0 && han / total >= 0.5) return "zh";
+  if (thai / total > 0.5) return "th";
 
   if (arabic / total > 0.5) return "ar";
   if (devanagari / total > 0.5) return "hi";
