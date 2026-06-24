@@ -16,6 +16,7 @@ const TAA_MARBUTA = /ة/g; // ة → ه
 const HEH = "ه";
 const ARABIC_INDIC = /[٠-٩]/g; // ٠-٩
 const EXT_ARABIC_INDIC = /[۰-۹]/g; // ۰-۹ (Persian/Urdu forms)
+const THAI_DIGITS = /[๐-๙]/g; // ๐-๙ → 0-9
 
 export interface ArabicNormalizeOptions {
   /** Fold alef-maqsura ى → yeh ي. Default: true. */
@@ -35,6 +36,12 @@ function normalizeArabic(text: string, opts: ArabicNormalizeOptions): string {
   return s.normalize("NFC");
 }
 
+function normalizeThai(text: string): string {
+  // Thai needs no diacritic stripping for IR; fold the Thai digits and NFC-normalize so
+  // combining marks have a canonical order. Mark-reordering is deferred (YAGNI).
+  return text.normalize("NFC").replace(THAI_DIGITS, (d) => String(d.charCodeAt(0) - 0x0e50));
+}
+
 /**
  * Per-language orthographic normalization. Language-gated and idempotent.
  * Arabic (`ar`) applies the ruleset above; every other language is NFC-only
@@ -47,6 +54,7 @@ export function normalizeForLanguage(
 ): string {
   const base = (language ?? "").split("-")[0].toLowerCase();
   if (base === "ar") return normalizeArabic(text, opts);
+  if (base === "th") return normalizeThai(text);
   return text.normalize("NFC");
 }
 

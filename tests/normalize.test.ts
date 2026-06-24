@@ -47,6 +47,21 @@ describe("normalizeForLanguage (Arabic)", () => {
   });
 });
 
+describe("normalizeForLanguage (Thai)", () => {
+  it("folds Thai digits to ASCII", () => {
+    expect(normalizeForLanguage("๓๕๐", "th")).toBe("350");
+  });
+
+  it("leaves Thai letters untouched", () => {
+    expect(normalizeForLanguage("ราคา", "th")).toBe("ราคา");
+  });
+
+  it("is idempotent", () => {
+    const once = normalizeForLanguage("ราคา ๑๒๓ บาท", "th");
+    expect(normalizeForLanguage(once, "th")).toBe(once);
+  });
+});
+
 describe("LanguageNormalizer", () => {
   it("implements Normalizer and applies the Arabic ruleset", () => {
     const n = new LanguageNormalizer();
