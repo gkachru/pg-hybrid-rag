@@ -66,4 +66,12 @@ describe("detectLanguage", () => {
     // Han wins only when it carries at least half the script, so this must be "ar".
     expect(detectLanguage("السلام عليكم 中")).toBe("ar");
   });
+
+  it("detects Thai from Thai script", () => {
+    expect(detectLanguage("ผมอยากเปลี่ยนแพ็กเกจ")).toBe("th");
+  });
+
+  it("detects Thai when Thai dominates mixed Latin", () => {
+    expect(detectLanguage("อินเทอร์เน็ต 5g")).toBe("th");
+  });
 });
