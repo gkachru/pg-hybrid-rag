@@ -5,6 +5,8 @@ export type { CachingSynonymLoaderConfig } from "./adapters/CachingSynonymLoader
 export { CachingSynonymLoader } from "./adapters/CachingSynonymLoader.js";
 export { Bm25Fts } from "./adapters/fts/Bm25Fts.js";
 export { TsvectorFts } from "./adapters/fts/TsvectorFts.js";
+export type { IntlSegmenterAdapterConfig } from "./adapters/IntlSegmenter.js";
+export { IntlSegmenterAdapter } from "./adapters/IntlSegmenter.js";
 export type { OpenAiCompatibleEmbedderConfig } from "./adapters/OpenAiCompatibleEmbedder.js";
 export {
   EmbeddingApiError,
@@ -30,6 +32,7 @@ export type {
   RagSpan,
   RagTracer,
   RerankerProvider,
+  Segmenter,
   SqlClient,
   StopWordsProvider,
   SynonymProvider,

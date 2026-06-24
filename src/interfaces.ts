@@ -159,3 +159,25 @@ export interface FtsStrategy {
 export interface Normalizer {
   normalize(text: string, language: string): string | Promise<string>;
 }
+
+/**
+ * Word segmentation for scripts without whitespace word boundaries (Thai, CJK, …).
+ * Applied symmetrically to indexed content and the lexical query; feeds the LEXICAL
+ * legs only (never the dense embedding or the reranker). Language-gated: implementations
+ * return the input unchanged for languages they don't handle. Async-capable so an
+ * HTTP-backed segmenter is a drop-in, exactly like Normalizer.
+ *
+ * CONTRACT (space-insertion only): segment() may INSERT whitespace at word boundaries
+ * but must otherwise preserve the original non-whitespace characters in order (no
+ * reordering, substitution, or dropping). The Chunker relies on this to reconstruct
+ * natural (unsegmented) chunk text from the segmented form (see Chunker.chunkSegmented).
+ */
+export interface Segmenter {
+  /** Return `text` rewritten as space-joined word tokens, or unchanged for a language
+   *  this segmenter does not handle. */
+  segment(text: string, language: string): string | Promise<string>;
+  /** Whether this segmenter rewrites `language`. Lets PostgresRagDatabase route a
+   *  segmented language's keyword leg to trgm instead of pg_bigm. Routing only — this
+   *  method must never segment. Must agree with `segment`. */
+  segmentsLanguage(language: string): boolean;
+}
