@@ -1,0 +1,221 @@
+{
+  "version": 1,
+  "queries": [
+    {
+      "id": "q0001",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:0",
+      "target_snippet": "อินเทอร์เน็ตความเร็วสูง",
+      "variants": {
+        "written": "บริการ AIS Fibre คือบริการอะไร",
+        "spoken": "เอไอเอส ไฟเบอร์ คืออะไรอ่ะ",
+        "codeswitch": "AIS Fibre คืออะไร"
+      }
+    },
+    {
+      "id": "q0002",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:1",
+      "target_snippet": "แพ็กเกจความเร็วสูงสุด",
+      "variants": {
+        "written": "บริการ AIS Fibre มีแพ็กเกจให้เลือกอะไรบ้าง",
+        "spoken": "ไฟเบอร์มีแพ็กเกจอะไรมั่ง",
+        "codeswitch": "AIS Fibre มี package อะไรบ้าง"
+      }
+    },
+    {
+      "id": "q0003",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:5",
+      "target_snippet": "Port Maintenance fee",
+      "variants": {
+        "written": "การระงับบริการอินเทอร์เน็ตชั่วคราวมีค่าใช้จ่ายหรือไม่",
+        "spoken": "พักเน็ตชั่วคราวเสียตังไหม",
+        "codeswitch": "ระงับบริการชั่วคราวมี Port Maintenance fee ไหม"
+      }
+    },
+    {
+      "id": "q0004",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:11",
+      "target_snippet": "Public IP คือ",
+      "variants": {
+        "written": "Public IP กับ Private IP แตกต่างกันอย่างไร",
+        "spoken": "พับลิค ไอพี กับ ไพรเวท ไอพี ต่างกันยังไง",
+        "codeswitch": "Public IP กับ Private IP ต่างกันยังไง"
+      }
+    },
+    {
+      "id": "q0005",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:13",
+      "target_snippet": "กำหนดเส้นทางของข้อมูล",
+      "variants": {
+        "written": "Port forwarding คือการทำงานแบบใด",
+        "spoken": "พอร์ตฟอร์เวิร์ดดิ้งมันคืออะไรเหรอ",
+        "codeswitch": "อยากรู้ว่า port forwarding บน router คืออะไร"
+      }
+    },
+    {
+      "id": "q0006",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:16",
+      "target_snippet": "Wireless 2.4 GHz",
+      "variants": {
+        "written": "Wireless 2.4 GHz แตกต่างจาก Wireless 5 GHz อย่างไร",
+        "spoken": "ไวไฟ 2.4 กับ 5 กิกะเฮิรตซ์ ต่างกันยังไง",
+        "codeswitch": "Wireless 2.4 GHz vs 5 GHz อันไหนดีกว่า"
+      }
+    },
+    {
+      "id": "q0007",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:31",
+      "target_snippet": "เราเตอร์",
+      "variants": {
+        "written": "อินเทอร์เน็ตช้า หลุดบ่อย และเชื่อมต่อ WiFi ไม่ได้ ควรแก้ไขอย่างไร",
+        "spoken": "เน็ตช้า หลุดบ่อย ต่อไวไฟไม่ได้ ทำไงดี",
+        "codeswitch": "เน็ตช้า WiFi หลุดบ่อย แก้ยังไง"
+      }
+    },
+    {
+      "id": "q0008",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:36",
+      "target_snippet": "AIS PLAYBOX",
+      "variants": {
+        "written": "เชื่อมต่อกล่อง AIS PLAYBOX แล้วหน้าจอโทรทัศน์ไม่มีสัญญาณ ควรทำอย่างไร",
+        "spoken": "ต่อกล่องเพลย์บอกซ์แล้วทีวีไม่มีสัญญาณ ทำไงดี",
+        "codeswitch": "AIS PLAYBOX ต่อแล้ว TV ขึ้น no signal"
+      }
+    },
+    {
+      "id": "q0009",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:0",
+      "target_snippet": "สมัครบัตรเครดิต",
+      "variants": {
+        "written": "วิธีการสมัครบัตรเครดิตและเงื่อนไขการสมัครเป็นอย่างไร",
+        "spoken": "สมัครบัตรเครดิตยังไง",
+        "codeswitch": "สมัคร credit card ผ่านแอป SCB EASY ยังไง"
+      }
+    },
+    {
+      "id": "q0010",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:3",
+      "target_snippet": "SCB EASY",
+      "variants": {
+        "written": "การชำระเงินค่าบัตรเครดิตสามารถชำระผ่านช่องทางใดได้บ้าง",
+        "spoken": "จ่ายบัตรเครดิตได้ทางไหนบ้าง",
+        "codeswitch": "จ่ายบิล credit card ผ่าน SCB EASY app ได้ไหม"
+      }
+    },
+    {
+      "id": "q0011",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:9",
+      "target_snippet": "ตรวจสอบคะแนนบัตรเครดิต",
+      "variants": {
+        "written": "ตรวจสอบคะแนนสะสม SCB Rewards ได้อย่างไร",
+        "spoken": "เช็คแต้ม SCB Rewards ยังไง",
+        "codeswitch": "check คะแนน SCB Rewards ยังไง"
+      }
+    },
+    {
+      "id": "q0012",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:14",
+      "target_snippet": "อายัดบัตรชั่วคราว",
+      "variants": {
+        "written": "บัตรเครดิตหายหรือถูกขโมย ต้องทำอย่างไรและเสียค่าใช้จ่ายหรือไม่",
+        "spoken": "บัตรเครดิตหาย ทำไงดี เสียตังไหม",
+        "codeswitch": "credit card หาย ต้อง block บัตรยังไง"
+      }
+    },
+    {
+      "id": "q0013",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:6",
+      "target_snippet": "e-mail",
+      "variants": {
+        "written": "ขอเปลี่ยนมารับใบแจ้งยอดบัตรเครดิตผ่านทางอีเมลได้อย่างไร",
+        "spoken": "เปลี่ยนมารับใบแจ้งยอดทางอีเมลยังไง",
+        "codeswitch": "เปลี่ยนมารับ statement ทาง e-mail ยังไง"
+      }
+    },
+    {
+      "id": "q0014",
+      "domain": "insurance",
+      "provider": "aia",
+      "target_doc": "faq:aia:1",
+      "target_snippet": "ตัวแทนประกัน",
+      "variants": {
+        "written": "ผู้ที่ต้องการซื้อประกันชีวิตจำเป็นต้องผ่านการตรวจสุขภาพทุกคนหรือไม่",
+        "spoken": "ซื้อประกันชีวิตต้องตรวจสุขภาพทุกคนไหม",
+        "codeswitch": "ซื้อ life insurance ต้องตรวจสุขภาพทุกคนไหม"
+      }
+    },
+    {
+      "id": "q0015",
+      "domain": "insurance",
+      "provider": "aia",
+      "target_doc": "faq:aia:5",
+      "target_snippet": "Cashless",
+      "variants": {
+        "written": "การเรียกร้องสินไหมค่ารักษาพยาบาลทำได้อย่างไร และใช้เวลาเท่าไหร่",
+        "spoken": "เคลมค่ารักษาพยาบาลยังไง ใช้เวลานานไหม",
+        "codeswitch": "เคลมค่ารักษาแบบ Cashless ทำยังไง"
+      }
+    },
+    {
+      "id": "q0016",
+      "domain": "insurance",
+      "provider": "aia",
+      "target_doc": "faq:aia:8",
+      "target_snippet": "AIA+",
+      "variants": {
+        "written": "สามารถตรวจสอบผลการพิจารณาเรียกร้องสินไหมได้อย่างไร",
+        "spoken": "เช็คผลเคลมสินไหมยังไง",
+        "codeswitch": "เช็คสถานะ claim ผ่านแอป AIA+ ยังไง"
+      }
+    },
+    {
+      "id": "q0017",
+      "domain": "insurance",
+      "provider": "aia",
+      "target_doc": "faq:aia:13",
+      "target_snippet": "ระยะเวลารอคอย",
+      "variants": {
+        "written": "ระยะเวลารอคอยคืออะไร และหากเจ็บป่วยในช่วงนี้จะเรียกร้องสินไหมได้หรือไม่",
+        "spoken": "ระยะเวลารอคอยคืออะไร ป่วยช่วงนี้เคลมได้ไหม",
+        "codeswitch": "Waiting Period คืออะไร ป่วยช่วงนี้ claim ได้ไหม"
+      }
+    },
+    {
+      "id": "q0018",
+      "domain": "insurance",
+      "provider": "aia",
+      "target_doc": "faq:aia:18",
+      "target_snippet": "ต่ออายุกรมธรรม์",
+      "variants": {
+        "written": "หากกรมธรรม์ขาดอายุแล้ว จะสามารถต่ออายุได้หรือไม่",
+        "spoken": "กรมธรรม์ขาดแล้ว ต่ออายุได้ไหม",
+        "codeswitch": "policy กรมธรรม์ขาดแล้ว ต่ออายุได้ไหม"
+      }
+    }
+  ]
+}
