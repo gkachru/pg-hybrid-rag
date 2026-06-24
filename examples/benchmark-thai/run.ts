@@ -137,6 +137,9 @@ function parseArgs(argv: string[]): Args {
     return i === -1 || i + 1 >= argv.length ? undefined : argv[i + 1];
   };
   const seg = strAfter("--segmenter");
+  if (seg !== undefined && seg !== "none" && seg !== "intl" && seg !== "attacut") {
+    console.warn(`Unrecognized --segmenter "${seg}"; defaulting to "attacut".`);
+  }
   const segmenter: SegmenterKind = seg === "none" || seg === "intl" ? seg : "attacut";
   return {
     bm25: has("--bm25"),
