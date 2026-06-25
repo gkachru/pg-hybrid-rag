@@ -187,6 +187,9 @@ interface Args {
   topK: number;
   limitQueries?: number;
   includeQuestion: boolean;
+  /** Alternate query set file (relative to cwd). Default: ./queries.json. Lets a low-overlap
+   *  / organic-style query set be tested against the same corpus. */
+  queriesFile?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -226,6 +229,7 @@ function parseArgs(argv: string[]): Args {
     topK: numAfter("--topk") ?? 10,
     limitQueries: numAfter("--limit-queries"),
     includeQuestion: has("--include-question"),
+    queriesFile: strAfter("--queries"),
   };
 }
 
@@ -651,7 +655,9 @@ async function main(): Promise<void> {
   );
 
   const corpusDocIds = new Set(corpus.map((c) => c.doc_id));
-  const { queries } = loadQueries(fileURLToPath(new URL("./queries.json", import.meta.url)));
+  const queriesPath = args.queriesFile ?? fileURLToPath(new URL("./queries.json", import.meta.url));
+  console.log(`Query set: ${queriesPath}`);
+  const { queries } = loadQueries(queriesPath);
   const { resolved, unresolved } = resolveQueries(queries, corpusDocIds);
   console.log(
     `Queries: ${queries.length} total — resolved=${resolved.length}, ` +
