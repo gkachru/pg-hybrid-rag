@@ -50,10 +50,11 @@ export type { RagIndexerConfig } from "./RagIndexer.js";
 export { RagIndexer } from "./RagIndexer.js";
 export type { RagPipelineConfig } from "./RagPipeline.js";
 export { RagPipeline } from "./RagPipeline.js";
+export type { LanguageRecommendation } from "./recommend.js";
+export { recommendForLanguage } from "./recommend.js";
 export { applyRRF } from "./rrf.js";
 export { removeStopWords } from "./stopWords.js";
 export { buildBm25Query, buildFtsQuery, expandQueryWithSynonyms } from "./synonymExpander.js";
-
 // Types
 export type {
   Chunk,
