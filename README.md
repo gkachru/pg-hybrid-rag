@@ -500,7 +500,7 @@ const pipeline = new RagPipeline({ tenantId, db, embedder });
 
 #### Word segmentation (Thai/CJK)
 
-Scripts without whitespace between words (Thai, Chinese, Japanese, Korean) need a word segmenter to produce meaningful trigram overlap in the keyword leg, and to find clean word boundaries when chunking. pg-hybrid-rag exposes a `Segmenter` interface so you can inject any segmentation backend — stdlib, dictionary-based, ML, or HTTP.
+Scripts without whitespace between words (Thai, Chinese, Japanese, Korean) traditionally use a word segmenter to produce word-boundary trigram overlap in the keyword leg, and to find clean word boundaries when chunking. (For Thai retrieval with a strong multilingual dense embedder, our benchmark found the keyword-leg segmenter *optional* — see **Recommended Thai configuration** below.) pg-hybrid-rag exposes a `Segmenter` interface so you can inject any segmentation backend — stdlib, dictionary-based, ML, or HTTP.
 
 **The `Segmenter` interface and `segmentsLanguage` routing**
 
@@ -549,10 +549,12 @@ await pipeline.search("ราคาแพ็กเกจอินเทอร์
 
 **Recommended Thai configuration**
 
-- **Segmenter**: inject a production-grade Thai segmenter (PyThaiNLP-newmm or an HTTP wrapper) for loanword-heavy text; `IntlSegmenterAdapter` is usable as a starting point on native-vocabulary content.
-- **Embedder**: use a strong multilingual embedder such as BGE-M3. The default `multilingual-e5-small` has weaker Thai coverage.
+These come from a Thai-FAQ retrieval benchmark (`examples/benchmark-thai/`, BGE-M3 + `bge-reranker-v2-m3`, ~329 chunks, two query sets). Treat them as validated starting points, not universal defaults — re-measure on your corpus and embedder.
+
+- **Embedder** *(the single biggest lever for Thai)*: use a strong multilingual dense embedder — **BGE-M3**. In our benchmark BGE-M3 dramatically outperformed `multilingual-e5-large` (fused baseline nDCG ≈ 0.75 vs 0.41; the gap held after reranking, 0.81 vs 0.53), and the default `multilingual-e5-small` is weaker still. e5-family models pack Thai texts into a narrow, low-contrast cosine band and can't separate hard same-domain candidates, so they are **not** a viable Thai substitute for BGE-M3.
 - **`vectorMinScore`**: lower from the default `0.8` to `0.4` or lower. The `0.8` default is calibrated for e5-family models; better-calibrated embedders (BGE-M3) place true-positive cosines lower and `0.8` silently drops the dense leg.
-- **Reranking**: enable `rerank: true` with `rerankCandidates: 20–30` for best precision.
+- **Segmenter** *(optional — not required for retrieval quality)*: unsegmented pg_trgm + FTS matched or beat both ICU (`IntlSegmenterAdapter`) and attacut word segmentation across every config we measured (fused and lexical-only, both query sets) — segmentation never led by more than noise and lost outright at the default keyword threshold. A strong dense (BGE-M3) + FTS pair dominates fusion, and segmenting the keyword leg mainly inflates spurious short-token matches. Skipping the segmenter is the recommended default here and is simpler (no sidecar). This assumes a strong dense leg carries retrieval — with a weak or absent dense model the keyword leg matters more and a segmenter may help, so measure on your corpus. (A segmenter can still improve chunk **boundaries** via `chunkSegmented` — a separate concern this benchmark did not isolate.)
+- **Reranking**: enable `rerank: true` with `rerankCandidates: 20–30` for best precision (baseline → reranked nDCG ≈ 0.75 → 0.81 in our benchmark). Reranking only reorders retrieved candidates — it cannot recover a true doc the retrieval legs missed, so embedder quality dominates.
 
 **Runnable production example.** `examples/thai-segmenter/` ships a self-contained attacut
 sidecar (FastAPI + PyThaiNLP, CPU) plus `examples/nestjs-thai-segmenter.ts` (`HttpThaiSegmenter`,
