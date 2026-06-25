@@ -16,6 +16,13 @@ export interface RagResult {
 /** Options for RAG search. */
 export interface RagSearchOptions {
   topK?: number;
+  /**
+   * Minimum cosine similarity for the vector leg; chunks below it are dropped before RRF.
+   * Embedder-specific: the `0.8` default is calibrated for e5-family models. Better-calibrated
+   * embedders (e.g. bge-m3) place true-positive cosines lower, so `0.8` can silently drop the
+   * dense leg — lower it (e.g. `0`–`0.5`) when you change embedders. About the embedder's score
+   * distribution, not language.
+   */
   vectorMinScore?: number;
   keywordMinScore?: number;
   vectorWeight?: number;
