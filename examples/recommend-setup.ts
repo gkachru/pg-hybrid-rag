@@ -23,7 +23,7 @@ function describe(lang: string, rec: LanguageRecommendation): string {
     rec.needsNormalization ? "normalize" : "no-normalize",
     rec.isCjk ? "cjk(pg_bigm)" : "non-cjk",
   ].join(", ");
-  return `${lang.padEnd(4)} → ${rec.embedder} (${rec.dimensions}d), vectorMinScore=${rec.vectorMinScore} | ${flags}`;
+  return `${lang.padEnd(4)} → ${rec.embedder} (${rec.dimensions}d, ≤${rec.maxTokens}tok), vectorMinScore=${rec.vectorMinScore} | ${flags}`;
 }
 
 for (const lang of LANGUAGES) {
@@ -33,6 +33,10 @@ for (const lang of LANGUAGES) {
 // --- How to apply a recommendation (wiring sketch) ---
 //
 // const rec = recommendForLanguage("ar");
+//
+// // index-time: cap chunk size BELOW the model's truncation ceiling (rec.maxTokens). Bigger
+// // isn't better for retrieval — start small (~256–512) and tune on your corpus.
+// const chunker = new Chunker({ tokenLimit: Math.min(512, rec.maxTokens) });
 //
 // // install-time: size the embedding column to the model + enable the CJK migration leg
 // await ragMigrate(db, { embeddingDimensions: rec.dimensions, cjk: rec.isCjk });

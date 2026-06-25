@@ -2,6 +2,14 @@
 export const RECOMMENDED_EMBEDDER = "BAAI/bge-m3";
 /** Embedding dimension of RECOMMENDED_EMBEDDER. Feed into ragMigrate({ embeddingDimensions }). */
 export const RECOMMENDED_DIMENSIONS = 1024;
+/**
+ * Max input sequence length (tokens) of RECOMMENDED_EMBEDDER. This is a CEILING, not a target:
+ * inputs longer than this are silently truncated (multilingual-e5 caps at 512, so it would lose
+ * the tail of larger chunks; bge-m3 allows up to 8192). Keep your Chunker's tokenLimit well under
+ * it — larger chunks dilute a single embedding vector and hurt retrieval precision; the optimal
+ * value is corpus-dependent (commonly ~256–512), so validate rather than chunking to the ceiling.
+ */
+export const RECOMMENDED_MAX_TOKENS = 8192;
 /** Starting-point vectorMinScore for RECOMMENDED_EMBEDDER's cosine calibration (validate per corpus). */
 export const RECOMMENDED_VECTOR_MIN_SCORE = 0.4;
 
@@ -40,6 +48,11 @@ export interface LanguageRecommendation {
   embedder: string;
   /** Embedding dimension of `embedder`. Feed into ragMigrate({ embeddingDimensions }). */
   dimensions: number;
+  /**
+   * Max input length (tokens) of `embedder` — a truncation CEILING, not a target chunk size.
+   * Cap your Chunker's tokenLimit below this; chunking to the ceiling dilutes retrieval precision.
+   */
+  maxTokens: number;
   /** Suggested vectorMinScore for `embedder`'s cosine calibration (a starting point). */
   vectorMinScore: number;
   /** Postgres FTS regconfig for this language ('english', 'arabic', …), or 'none' (simple). */
@@ -77,6 +90,7 @@ export function recommendForLanguage(language: string): LanguageRecommendation {
   return {
     embedder: RECOMMENDED_EMBEDDER,
     dimensions: RECOMMENDED_DIMENSIONS,
+    maxTokens: RECOMMENDED_MAX_TOKENS,
     vectorMinScore: RECOMMENDED_VECTOR_MIN_SCORE,
     stemming: stemmingForLanguage(language),
     needsNormalization: NORMALIZED_LANGUAGES.includes(base),

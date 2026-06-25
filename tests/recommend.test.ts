@@ -5,6 +5,7 @@ import {
   CJK_LANGUAGES,
   RECOMMENDED_DIMENSIONS,
   RECOMMENDED_EMBEDDER,
+  RECOMMENDED_MAX_TOKENS,
   RECOMMENDED_VECTOR_MIN_SCORE,
   recommendForLanguage,
 } from "../src/recommend.js";
@@ -17,6 +18,8 @@ describe("recommendForLanguage", () => {
       expect(rec.embedder).toBe("BAAI/bge-m3");
       expect(rec.dimensions).toBe(RECOMMENDED_DIMENSIONS);
       expect(rec.dimensions).toBe(1024);
+      expect(rec.maxTokens).toBe(RECOMMENDED_MAX_TOKENS);
+      expect(rec.maxTokens).toBe(8192);
       expect(rec.vectorMinScore).toBe(RECOMMENDED_VECTOR_MIN_SCORE);
       expect(rec.vectorMinScore).toBe(0.4);
     }
@@ -26,6 +29,7 @@ describe("recommendForLanguage", () => {
     expect(recommendForLanguage("en")).toEqual({
       embedder: "BAAI/bge-m3",
       dimensions: 1024,
+      maxTokens: 8192,
       vectorMinScore: 0.4,
       stemming: "english",
       needsNormalization: false,
@@ -67,6 +71,7 @@ describe("recommendForLanguage", () => {
     expect(recommendForLanguage("xx")).toEqual({
       embedder: "BAAI/bge-m3",
       dimensions: 1024,
+      maxTokens: 8192,
       vectorMinScore: 0.4,
       stemming: "none",
       needsNormalization: false,

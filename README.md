@@ -227,6 +227,7 @@ const rec = recommendForLanguage("ar");
 // rec = {
 //   embedder: "BAAI/bge-m3",   // measured best for ar/th; strong multilingual default elsewhere
 //   dimensions: 1024,          // size the embedding column to match
+//   maxTokens: 8192,           // model truncation ceiling — cap your chunk tokenLimit BELOW this
 //   vectorMinScore: 0.4,       // starting point for bge-m3's cosine calibration
 //   stemming: "arabic",        // Postgres FTS regconfig ("english" | … | "none")
 //   needsNormalization: true,  // construct a LanguageNormalizer for this language
@@ -247,6 +248,7 @@ await pipeline.search(query, { language: "ar", vectorMinScore: rec.vectorMinScor
 | Field | Meaning |
 |-------|---------|
 | `embedder` / `dimensions` / `vectorMinScore` | Constant `BAAI/bge-m3` / `1024` / `0.4` — **measured** best for Arabic and Thai, applied as a multilingual default for every language. Thresholds are starting points; validate on your corpus. |
+| `maxTokens` | The embedder's max input length (`8192` for bge-m3; multilingual-e5 caps at `512`). A truncation **ceiling**, not a target — see the chunk-size note below. |
 | `stemming` | Postgres FTS regconfig for the language (`"english"`, `"arabic"`, …) or `"none"` (the `simple` config). Mirrors `rag_fts_config`. |
 | `needsNormalization` | `true` where `normalizeForLanguage` does more than NFC (Arabic orthographic folds, Thai digit folding) — i.e. construct a `LanguageNormalizer`. |
 | `isCjk` | `true` for `zh`/`ja`/`ko` → enable the pg_bigm keyword path (`cjk: true` in the migration and adapter). |
@@ -257,6 +259,14 @@ await pipeline.search(query, { language: "ar", vectorMinScore: rec.vectorMinScor
 > if it has the **same** dimension — genuinely different dimensions (e.g. multilingual-e5-small at
 > 384 vs bge-m3 at 1024) require separate databases. Because the recommendation is bge-m3/1024 for
 > every language, one 1024-dim database hosts all languages cleanly.
+
+> **`maxTokens` is a ceiling, not a chunk size.** bge-m3 ingests up to `8192` tokens (multilingual-e5
+> only `512` — it silently truncates anything longer, losing the tail of every oversized chunk). The
+> larger ceiling means you *can* index longer chunks without data loss, but **bigger isn't better for
+> retrieval**: packing more tokens into one embedding vector blurs it across subtopics and lowers
+> precision. Keep your `Chunker`'s `tokenLimit` well under `maxTokens` — ~256–512 is a common starting
+> range — and tune it on your corpus. We don't prescribe a value because the optimum is corpus- and
+> task-dependent (we have no chunk-size benchmark to stand behind a number).
 
 > **No segmenter is recommended.** A Thai segmentation A/B (attacut / ICU / pg_bigm vs unsegmented)
 > was a clean negative — unsegmented `pg_trgm` matched or beat every segmented arm and lost at the
