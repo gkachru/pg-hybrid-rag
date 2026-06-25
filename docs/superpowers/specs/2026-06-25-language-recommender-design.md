@@ -14,7 +14,6 @@ logs:
 - a sensible `vectorMinScore` for that embedder's cosine calibration (the `0.8` default is
   e5-calibrated and silently zeroes the dense leg for bge-m3 — see `src/types.ts`),
 - whether the language has a native Postgres FTS stemmer or falls back to `simple`,
-- whether it needs a word segmenter (no whitespace word boundaries),
 - whether it needs orthographic normalization,
 - whether it is CJK (pg_bigm keyword path).
 
@@ -44,6 +43,13 @@ instead of re-deriving it. It encodes the calibration knowledge we earned from b
   fields are a constant multilingual pick. Only the structural fields vary by language.
 - Per-corpus threshold tuning. `vectorMinScore` and the rest remain starting points to
   validate per corpus, exactly as the README already insists.
+- Recommending a **word segmenter**. We benchmarked Thai segmentation (attacut / ICU /
+  pg_bigm vs unsegmented) and got a clean negative: unsegmented pg_trgm matched or beat
+  every segmented arm in every config and *lost* at the default `keywordMinScore` (see
+  `examples/benchmark-thai/BENCHMARKING_LOG.md`, "Segmentation never wins"). So the
+  recommender does not recommend a segmenter for any language and omits the field. The
+  `Segmenter` interface stays in the library as an extension point for consumers who
+  measure a win on their own corpus.
 - Any schema change to support mixed embedding dimensions in one table (see Constraints).
 
 ## Architecture decision: pure function (not an injected interface)
@@ -70,8 +76,6 @@ export interface LanguageRecommendation {
   vectorMinScore: number;
   /** Postgres FTS regconfig for this language ('english', 'arabic', …), or 'none' (simple). */
   stemming: string;
-  /** Script lacks whitespace word boundaries → keyword/FTS leg benefits from a Segmenter. */
-  needsSegmenter: boolean;
   /** normalizeForLanguage applies more than NFC for this language (Arabic folding, Thai digits). */
   needsNormalization: boolean;
   /** CJK language → enable the pg_bigm keyword path (cjk: true on adapter + migration). */
@@ -99,40 +103,37 @@ Each field has a **source of truth** so values are derived, not invented:
 | `embedder` / `dimensions` / `vectorMinScore` | constant `BAAI/bge-m3` / `1024` / `0.4` | **measured** for `ar`, `th`; **extrapolated** (multilingual default) for all others |
 | `stemming` | `rag_fts_config` map (`sql/014_arabic_fts.sql`) | structural |
 | `isCjk` | the set `{zh, ja, ko}` (matches `detectLanguage` + adapter `cjk` option) | structural |
-| `needsSegmenter` | scripts without whitespace word boundaries: `{th, zh, ja, ko}` | structural |
 | `needsNormalization` | `normalizeForLanguage` applies more than NFC: `{ar, th}` | structural |
 
 Representative resolved values:
 
-| lang | embedder | dims | vMinScore | stemming | needsSegmenter | needsNormalization | isCjk |
-|------|----------|------|-----------|----------|----------------|--------------------|-------|
-| `en` | BAAI/bge-m3 | 1024 | 0.4 | english | false | false | false |
-| `de` | BAAI/bge-m3 | 1024 | 0.4 | german | false | false | false |
-| `ar` | BAAI/bge-m3 | 1024 | 0.4 | arabic | false | true | false |
-| `th` | BAAI/bge-m3 | 1024 | 0.4 | none | true | true | false |
-| `zh` | BAAI/bge-m3 | 1024 | 0.4 | none | true | false | true |
-| `ja` | BAAI/bge-m3 | 1024 | 0.4 | none | true | false | true |
-| `xx` (unknown) | BAAI/bge-m3 | 1024 | 0.4 | none | false | false | false |
+| lang | embedder | dims | vMinScore | stemming | needsNormalization | isCjk |
+|------|----------|------|-----------|----------|--------------------|-------|
+| `en` | BAAI/bge-m3 | 1024 | 0.4 | english | false | false |
+| `de` | BAAI/bge-m3 | 1024 | 0.4 | german | false | false |
+| `ar` | BAAI/bge-m3 | 1024 | 0.4 | arabic | true | false |
+| `th` | BAAI/bge-m3 | 1024 | 0.4 | none | true | false |
+| `zh` | BAAI/bge-m3 | 1024 | 0.4 | none | false | true |
+| `ja` | BAAI/bge-m3 | 1024 | 0.4 | none | false | true |
+| `xx` (unknown) | BAAI/bge-m3 | 1024 | 0.4 | none | false | false |
 
-For CJK languages both `isCjk` and `needsSegmenter` are true: the pg_bigm bigram path
-(`cjk: true`) is the supported keyword route and needs no segmenter, while a `Segmenter`
-is an alternative that also helps the FTS leg — the recommendation surfaces both options
-rather than choosing for the consumer.
+CJK languages (`isCjk: true`) take the pg_bigm bigram keyword path (`cjk: true` on the
+adapter + migration); no segmenter is recommended (see the segmenter non-goal above —
+`bigram ≡ none` on our Thai measurement, and CJK pg_bigm is the library's designed path).
 
 ## End-to-end usage
 
 ```ts
-const rec = recommendForLanguage("th");
-// install-time: size the column + pass the CJK flag through (false for Thai)
+const rec = recommendForLanguage("ar");
+// install-time: size the column + pass the CJK flag through (false for Arabic)
 await ragMigrate(db, { embeddingDimensions: rec.dimensions, cjk: rec.isCjk });
 
 // construction-time: pick providers from the structural flags
 const normalizer = rec.needsNormalization ? new LanguageNormalizer() : undefined;
-const segmenter  = rec.needsSegmenter ? myThaiSegmenter : undefined;
-const pipeline = new RagPipeline({ tenantId, db, embedder, normalizer, segmenter });
+const pipeline = new RagPipeline({ tenantId, db, embedder, normalizer });
 
 // query-time: use the calibrated floor
-await pipeline.search(q, { language: "th", vectorMinScore: rec.vectorMinScore });
+await pipeline.search(q, { language: "ar", vectorMinScore: rec.vectorMinScore });
 ```
 
 ## Constraints
