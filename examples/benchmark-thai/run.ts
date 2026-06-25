@@ -178,6 +178,9 @@ interface Args {
   /** Drop the dense leg from fusion (vectorWeight=0) so only the keyword + FTS legs decide
    *  ranking — isolates the lexical legs where the segmenter / bigram actually operates. */
   lexicalOnly: boolean;
+  /** Override the keyword leg's relevance gate (pg_trgm word_similarity_threshold / pg_bigm
+   *  coverage threshold). Undefined → pipeline default (0.35). Used to sweep Thai tuning. */
+  keywordMinScore?: number;
   judge: boolean;
   matrix: boolean;
   segMatrix: boolean;
@@ -216,6 +219,7 @@ function parseArgs(argv: string[]): Args {
     segmenter,
     cjk: has("--cjk") || isBigram,
     lexicalOnly: has("--lexical-only"),
+    keywordMinScore: numAfter("--keyword-min-score"),
     judge: has("--judge"),
     matrix: has("--matrix"),
     segMatrix: has("--seg-matrix"),
@@ -392,6 +396,7 @@ async function runConfig(
   reranker: ReturnType<typeof createReranker>,
   keepForJudge: boolean,
   lexicalOnly: boolean,
+  keywordMinScore: number | undefined,
   createdDbs: Set<string>,
 ): Promise<RunOneResult> {
   const dbName = `thrag_bench_${config.name.replace(/[^a-z0-9]/g, "")}`;
@@ -506,6 +511,11 @@ async function runConfig(
     if (lexicalOnly) {
       console.log("  LEXICAL-ONLY: vectorWeight=0 (dense leg dropped from fusion).");
     }
+    if (keywordMinScore !== undefined) {
+      console.log(
+        `  keywordMinScore=${keywordMinScore} (--keyword-min-score override; default 0.35).`,
+      );
+    }
 
     console.log(
       `  Scoring ${queries.length} queries × ${REGISTERS.length} registers (concurrency=${SEARCH_CONCURRENCY})...`,
@@ -526,6 +536,7 @@ async function runConfig(
           rerank: config.rerank,
           ...(vectorMinScore !== undefined ? { vectorMinScore } : {}),
           ...(lexicalOnly ? { vectorWeight: 0 } : {}),
+          ...(keywordMinScore !== undefined ? { keywordMinScore } : {}),
         });
         return {
           rankedDocIds: results.map((r) =>
@@ -724,6 +735,7 @@ async function main(): Promise<void> {
         reranker,
         keepForJudge,
         args.lexicalOnly,
+        args.keywordMinScore,
         createdDbs,
       );
       results.push(run.result);
@@ -752,6 +764,9 @@ async function main(): Promise<void> {
             language: "th",
             rerank: judgeKeep.rerank,
             ...(args.lexicalOnly ? { vectorWeight: 0 } : {}),
+            ...(args.keywordMinScore !== undefined
+              ? { keywordMinScore: args.keywordMinScore }
+              : {}),
           });
           if (searchResults.length === 0) continue;
           const scores = await judgeResults(variant, searchResults, cfg);
