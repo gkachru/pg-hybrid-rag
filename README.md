@@ -214,6 +214,55 @@ All numbers below come from a *single* Arabic-dialect FAQ benchmark (`bge-m3` em
 
 - **BM25 for low-resource languages/dialects.** *Driver: the language's resource level — this is the one recommendation that is genuinely language-dependent.* The `Bm25Fts` strategy lifts recall where stemming and dense coverage are weak (it recovered low-resource-dialect recall in our tests), but it can add lexical noise where the dense leg is already strong — enable it when you have such content and measure before enabling it broadly. In our benchmark its incremental value stayed concentrated on the low-resource dialect (Darija) and was neutral-to-slightly-negative on the well-resourced ones (MSA, Saudi), even after we put the question in content — so it added nothing where the dense leg already saturated. The *principle* (BM25 helps where stemming + dense coverage are weak) should carry to other low-resource languages, but whether a given language is "low-resource enough" to benefit is exactly the language-dependent part — so keep it a targeted lever you measure per language, not a default. Requires migrations 011 + 015 and `shared_preload_libraries` (see Optional extensions).
 
+#### Recommended setup per language
+
+`recommendForLanguage(language)` returns the calibrated starting points for a language in one
+object, so you don't have to re-derive them from the code and benchmark logs. It is **advisory
+and pure** — it returns values; you decide where to apply them.
+
+```typescript
+import { recommendForLanguage, ragMigrate, RagPipeline, LanguageNormalizer } from "pg-hybrid-rag";
+
+const rec = recommendForLanguage("ar");
+// rec = {
+//   embedder: "BAAI/bge-m3",   // measured best for ar/th; strong multilingual default elsewhere
+//   dimensions: 1024,          // size the embedding column to match
+//   vectorMinScore: 0.4,       // starting point for bge-m3's cosine calibration
+//   stemming: "arabic",        // Postgres FTS regconfig ("english" | … | "none")
+//   needsNormalization: true,  // construct a LanguageNormalizer for this language
+//   isCjk: false,              // true for zh/ja/ko → pg_bigm keyword path
+// }
+
+// install-time: size the embedding column + enable the CJK migration leg if needed
+await ragMigrate(db, { embeddingDimensions: rec.dimensions, cjk: rec.isCjk });
+
+// construction-time: pick providers from the structural flags
+const normalizer = rec.needsNormalization ? new LanguageNormalizer() : undefined;
+const pipeline = new RagPipeline({ tenantId, db, embedder, normalizer });
+
+// query-time: use the calibrated floor
+await pipeline.search(query, { language: "ar", vectorMinScore: rec.vectorMinScore });
+```
+
+| Field | Meaning |
+|-------|---------|
+| `embedder` / `dimensions` / `vectorMinScore` | Constant `BAAI/bge-m3` / `1024` / `0.4` — **measured** best for Arabic and Thai, applied as a multilingual default for every language. Thresholds are starting points; validate on your corpus. |
+| `stemming` | Postgres FTS regconfig for the language (`"english"`, `"arabic"`, …) or `"none"` (the `simple` config). Mirrors `rag_fts_config`. |
+| `needsNormalization` | `true` where `normalizeForLanguage` does more than NFC (Arabic orthographic folds, Thai digit folding) — i.e. construct a `LanguageNormalizer`. |
+| `isCjk` | `true` for `zh`/`ja`/`ko` → enable the pg_bigm keyword path (`cjk: true` in the migration and adapter). |
+
+> **The embedding dimension is per-database, not per-tenant.** `rec.dimensions` feeds the one-time
+> `ragMigrate({ embeddingDimensions })`; the `rag_documents.embedding` column is a single fixed
+> dimension shared by all tenants in that database. You can use a different embedder per tenant only
+> if it has the **same** dimension — genuinely different dimensions (e.g. multilingual-e5-small at
+> 384 vs bge-m3 at 1024) require separate databases. Because the recommendation is bge-m3/1024 for
+> every language, one 1024-dim database hosts all languages cleanly.
+
+> **No segmenter is recommended.** A Thai segmentation A/B (attacut / ICU / pg_bigm vs unsegmented)
+> was a clean negative — unsegmented `pg_trgm` matched or beat every segmented arm and lost at the
+> default `keywordMinScore`. The `Segmenter` interface remains available for consumers who measure a
+> win on their own corpus.
+
 ### Index
 
 ```typescript
