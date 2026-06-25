@@ -263,6 +263,8 @@ await pipeline.search(query, { language: "ar", vectorMinScore: rec.vectorMinScor
 > default `keywordMinScore`. The `Segmenter` interface remains available for consumers who measure a
 > win on their own corpus.
 
+A runnable demo (pure, no DB or embedding API needed) lives in [`examples/recommend-setup.ts`](examples/recommend-setup.ts) — run it with `bun run examples/recommend-setup.ts`.
+
 ### Index
 
 ```typescript
