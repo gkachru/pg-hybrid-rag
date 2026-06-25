@@ -60,27 +60,85 @@ interface BenchConfig {
   vectorchord: boolean;
   rerank: boolean;
   segmenter: SegmenterKind;
+  /** Enable pg_bigm for the keyword leg. With no segmenter this is the "bigram" Thai arm
+   *  (character-bigram coverage instead of pg_trgm character-trigram word-similarity). */
+  cjk: boolean;
 }
 
 // Standard extension matrix — segmenter fixed to attacut (production default). Answers
 // "do bm25 / vectorchord / rerank add value on Thai?" independent of the segmenter axis.
 const MATRIX: BenchConfig[] = [
-  { name: "baseline", bm25: false, vectorchord: false, rerank: false, segmenter: "attacut" },
-  { name: "+bm25", bm25: true, vectorchord: false, rerank: false, segmenter: "attacut" },
-  { name: "+vectorchord", bm25: false, vectorchord: true, rerank: false, segmenter: "attacut" },
-  { name: "+rerank", bm25: false, vectorchord: false, rerank: true, segmenter: "attacut" },
-  { name: "all", bm25: true, vectorchord: true, rerank: true, segmenter: "attacut" },
+  {
+    name: "baseline",
+    bm25: false,
+    vectorchord: false,
+    rerank: false,
+    segmenter: "attacut",
+    cjk: false,
+  },
+  {
+    name: "+bm25",
+    bm25: true,
+    vectorchord: false,
+    rerank: false,
+    segmenter: "attacut",
+    cjk: false,
+  },
+  {
+    name: "+vectorchord",
+    bm25: false,
+    vectorchord: true,
+    rerank: false,
+    segmenter: "attacut",
+    cjk: false,
+  },
+  {
+    name: "+rerank",
+    bm25: false,
+    vectorchord: false,
+    rerank: true,
+    segmenter: "attacut",
+    cjk: false,
+  },
+  { name: "all", bm25: true, vectorchord: true, rerank: true, segmenter: "attacut", cjk: false },
 ];
 
 const REGISTERS: Register[] = ["written", "spoken", "codeswitch"];
 
-// Headline segmenter sweep: {none,intl,attacut} × {baseline,+rerank}. Mirrors the lean-matrix
-// philosophy — only the configs that distinguish the axis of interest. The
-// +rerank rows show whether the segmenter-blind cross-encoder can paper over a worse segmenter.
-const SEG_KINDS: SegmenterKind[] = ["none", "intl", "attacut"];
-const SEG_MATRIX: BenchConfig[] = SEG_KINDS.flatMap((seg) => [
-  { name: `baseline/${seg}`, bm25: false, vectorchord: false, rerank: false, segmenter: seg },
-  { name: `+rerank/${seg}`, bm25: false, vectorchord: false, rerank: true, segmenter: seg },
+// Headline lexical-leg sweep × {baseline,+rerank}. Four arms on the keyword-leg axis:
+//   none    → pg_trgm character-trigram word-similarity on UNsegmented Thai
+//   intl    → pg_trgm on ICU(Intl.Segmenter)-segmented content
+//   attacut → pg_trgm on attacut(neural)-segmented content
+//   bigram  → pg_bigm character-bigram coverage on UNsegmented Thai (cjk=true, no segmenter)
+// The +rerank rows show whether the (segmenter/lexical-blind) cross-encoder washes out the arm.
+interface SegArm {
+  key: string;
+  segmenter: SegmenterKind;
+  cjk: boolean;
+}
+const SEG_ARMS: SegArm[] = [
+  { key: "none", segmenter: "none", cjk: false },
+  { key: "intl", segmenter: "intl", cjk: false },
+  { key: "attacut", segmenter: "attacut", cjk: false },
+  { key: "bigram", segmenter: "none", cjk: true },
+];
+const SEG_MATRIX: BenchConfig[] = SEG_ARMS.flatMap((a) => [
+  {
+    name: `baseline/${a.key}`,
+    bm25: false,
+    vectorchord: false,
+    rerank: false,
+    segmenter: a.segmenter,
+    cjk: a.cjk,
+  },
+  {
+    name: `+rerank/${a.key}`,
+    bm25: false,
+    vectorchord: false,
+    rerank: true,
+    segmenter: a.segmenter,
+    cjk: a.cjk,
+  },
 ]);
 
 // Queries searched concurrently. Each search reserves up to one pooled connection per leg
@@ -116,6 +174,10 @@ interface Args {
   vectorchord: boolean;
   rerank: boolean;
   segmenter: SegmenterKind;
+  cjk: boolean;
+  /** Drop the dense leg from fusion (vectorWeight=0) so only the keyword + FTS legs decide
+   *  ranking — isolates the lexical legs where the segmenter / bigram actually operates. */
+  lexicalOnly: boolean;
   judge: boolean;
   matrix: boolean;
   segMatrix: boolean;
@@ -136,16 +198,24 @@ function parseArgs(argv: string[]): Args {
     const i = argv.indexOf(flag);
     return i === -1 || i + 1 >= argv.length ? undefined : argv[i + 1];
   };
+  // --segmenter accepts none|intl|attacut, plus "bigram" (sugar for no-segmenter + pg_bigm).
   const seg = strAfter("--segmenter");
-  if (seg !== undefined && seg !== "none" && seg !== "intl" && seg !== "attacut") {
+  if (seg !== undefined && !["none", "intl", "attacut", "bigram"].includes(seg)) {
     console.warn(`Unrecognized --segmenter "${seg}"; defaulting to "attacut".`);
   }
-  const segmenter: SegmenterKind = seg === "none" || seg === "intl" ? seg : "attacut";
+  const isBigram = seg === "bigram";
+  const segmenter: SegmenterKind = isBigram
+    ? "none"
+    : seg === "none" || seg === "intl"
+      ? seg
+      : "attacut";
   return {
     bm25: has("--bm25"),
     vectorchord: has("--vectorchord"),
     rerank: has("--rerank"),
     segmenter,
+    cjk: has("--cjk") || isBigram,
+    lexicalOnly: has("--lexical-only"),
     judge: has("--judge"),
     matrix: has("--matrix"),
     segMatrix: has("--seg-matrix"),
@@ -159,7 +229,13 @@ function parseArgs(argv: string[]): Args {
 
 interface ConfigResult {
   name: string;
-  flags: { bm25: boolean; vectorchord: boolean; rerank: boolean; segmenter: SegmenterKind };
+  flags: {
+    bm25: boolean;
+    vectorchord: boolean;
+    rerank: boolean;
+    segmenter: SegmenterKind;
+    cjk: boolean;
+  };
   status: "ok" | "failed";
   error?: string;
   overall?: MetricSummary;
@@ -315,6 +391,7 @@ async function runConfig(
   embedder: ReturnType<typeof withEmbeddingCache>,
   reranker: ReturnType<typeof createReranker>,
   keepForJudge: boolean,
+  lexicalOnly: boolean,
   createdDbs: Set<string>,
 ): Promise<RunOneResult> {
   const dbName = `thrag_bench_${config.name.replace(/[^a-z0-9]/g, "")}`;
@@ -325,14 +402,15 @@ async function runConfig(
       vectorchord: config.vectorchord,
       rerank: config.rerank,
       segmenter: config.segmenter,
+      cjk: config.cjk,
     },
     status: "ok",
   };
 
   console.log(`\n${"#".repeat(80)}`);
   console.log(
-    `# CONFIG "${config.name}" — segmenter=${config.segmenter} bm25=${config.bm25} ` +
-      `vectorchord=${config.vectorchord} rerank=${config.rerank}`,
+    `# CONFIG "${config.name}" — segmenter=${config.segmenter} cjk=${config.cjk} bm25=${config.bm25} ` +
+      `vectorchord=${config.vectorchord} rerank=${config.rerank}${lexicalOnly ? " [LEXICAL-ONLY]" : ""}`,
   );
   console.log(`${"#".repeat(80)}`);
 
@@ -352,11 +430,14 @@ async function runConfig(
   };
 
   try {
-    console.log(`  Migrating (vectorchord=${config.vectorchord}, bm25=${config.bm25})...`);
+    console.log(
+      `  Migrating (vectorchord=${config.vectorchord}, bm25=${config.bm25}, cjk=${config.cjk})...`,
+    );
     await ragMigrate(migrationProvider, {
       sqlDir: fileURLToPath(new URL("../../sql", import.meta.url)),
       vectorchord: config.vectorchord,
       bm25: config.bm25,
+      cjk: config.cjk,
       embeddingDimensions: Number(process.env.EMBEDDING_DIM) || 384,
     });
 
@@ -376,6 +457,7 @@ async function runConfig(
     const db = new PostgresRagDatabase(txProvider, {
       ...(config.bm25 ? { fts: new Bm25Fts() } : {}),
       ...(segmenter ? { segmenter } : {}),
+      ...(config.cjk ? { cjk: true } : {}),
     });
 
     const indexer = new RagIndexer({
@@ -421,6 +503,9 @@ async function runConfig(
     if (vectorMinScore !== undefined) {
       console.log(`  Using vectorMinScore=${vectorMinScore} (VECTOR_MIN_SCORE override).`);
     }
+    if (lexicalOnly) {
+      console.log("  LEXICAL-ONLY: vectorWeight=0 (dense leg dropped from fusion).");
+    }
 
     console.log(
       `  Scoring ${queries.length} queries × ${REGISTERS.length} registers (concurrency=${SEARCH_CONCURRENCY})...`,
@@ -440,6 +525,7 @@ async function runConfig(
           language: "th",
           rerank: config.rerank,
           ...(vectorMinScore !== undefined ? { vectorMinScore } : {}),
+          ...(lexicalOnly ? { vectorWeight: 0 } : {}),
         });
         return {
           rankedDocIds: results.map((r) =>
@@ -543,6 +629,7 @@ async function main(): Promise<void> {
             vectorchord: args.vectorchord,
             rerank: args.rerank,
             segmenter: args.segmenter,
+            cjk: args.cjk,
           },
         ];
 
@@ -636,6 +723,7 @@ async function main(): Promise<void> {
         embedder,
         reranker,
         keepForJudge,
+        args.lexicalOnly,
         createdDbs,
       );
       results.push(run.result);
@@ -663,6 +751,7 @@ async function main(): Promise<void> {
             topK: args.topK,
             language: "th",
             rerank: judgeKeep.rerank,
+            ...(args.lexicalOnly ? { vectorWeight: 0 } : {}),
           });
           if (searchResults.length === 0) continue;
           const scores = await judgeResults(variant, searchResults, cfg);
