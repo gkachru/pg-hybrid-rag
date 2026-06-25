@@ -1,0 +1,305 @@
+{
+  "version": 1,
+  "queries": [
+    {
+      "id": "q0001",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:0",
+      "target_snippet": "อินเทอร์เน็ตความเร็วสูง",
+      "variants": {
+        "written": "เอไอเอส ไฟเบอร์ เหมาะกับการใช้งานแบบไหน",
+        "spoken": "ไฟเบอร์เอไอเอสมันดียังไงเหรอ",
+        "codeswitch": "AIS Fibre เอาไว้ทำอะไรได้บ้าง"
+      }
+    },
+    {
+      "id": "q0002",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:1",
+      "target_snippet": "แพ็กเกจความเร็วสูงสุด",
+      "variants": {
+        "written": "เอไอเอส ไฟเบอร์ มีตัวเลือกอะไรให้สมัครบ้าง",
+        "spoken": "ไฟเบอร์เอไอเอสมีให้เลือกกี่แบบ จ่ายเท่าไหร่",
+        "codeswitch": "AIS Fibre มีแบบไหนให้เลือก ราคาเท่าไหร่"
+      }
+    },
+    {
+      "id": "q0003",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:5",
+      "target_snippet": "Port Maintenance fee",
+      "variants": {
+        "written": "ถ้าจะหยุดใช้เน็ตบ้านไว้ก่อนสักพัก ต้องจ่ายอะไรเพิ่มไหม",
+        "spoken": "อยากพักเน็ตไว้แป๊บนึง เสียตังไหม",
+        "codeswitch": "pause เน็ตบ้านไว้ชั่วคราว มีค่าใช้จ่ายไหม"
+      }
+    },
+    {
+      "id": "q0004",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:11",
+      "target_snippet": "Public IP คือ",
+      "variants": {
+        "written": "ไอพีสาธารณะกับไอพีส่วนตัวไม่เหมือนกันตรงไหน",
+        "spoken": "ไอพีข้างนอกกับข้างในต่างกันยังไง",
+        "codeswitch": "external IP กับ internal IP ต่างกันตรงไหน"
+      }
+    },
+    {
+      "id": "q0005",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:13",
+      "target_snippet": "กำหนดเส้นทางของข้อมูล",
+      "variants": {
+        "written": "การเปิดพอร์ตให้เข้าถึงอุปกรณ์ที่บ้านจากภายนอกทำงานยังไง",
+        "spoken": "เปิดพอร์ตให้เข้าจากข้างนอกมันทำไง",
+        "codeswitch": "port forwarding ให้เข้าถึงอุปกรณ์ที่บ้านจากข้างนอกได้ไหม"
+      }
+    },
+    {
+      "id": "q0006",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:16",
+      "target_snippet": "Wireless 2.4 GHz",
+      "variants": {
+        "written": "คลื่นไวไฟสองย่านความถี่ใช้งานต่างกันอย่างไร",
+        "spoken": "ไวไฟ 2.4 กับ 5 อันไหนดีกว่ากัน",
+        "codeswitch": "2.4 กับ 5 GHz band ต่างกันยังไง"
+      }
+    },
+    {
+      "id": "q0007",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:31",
+      "target_snippet": "เราเตอร์",
+      "variants": {
+        "written": "ใช้เน็ตบ้านแล้วกระตุกและสะดุดตลอด ต่อไวไฟไม่ติด ควรทำอย่างไร",
+        "spoken": "เน็ตบ้านอืดๆ ตัดๆ ต่อไวไฟไม่ติด ทำไงดี",
+        "codeswitch": "internet บ้านช้าและ disconnect บ่อย แก้ยังไง"
+      }
+    },
+    {
+      "id": "q0008",
+      "domain": "telecom",
+      "provider": "ais",
+      "target_doc": "faq:ais:36",
+      "target_snippet": "AIS PLAYBOX",
+      "variants": {
+        "written": "ต่อกล่องดูทีวีของเอไอเอสแล้วจอไม่ขึ้นภาพ ควรทำอย่างไร",
+        "spoken": "ต่อกล่องเพลย์บอกซ์แล้วทีวีจอดำ ทำไงดี",
+        "codeswitch": "ต่อ AIS PLAYBOX แล้ว TV ไม่ขึ้นภาพ"
+      }
+    },
+    {
+      "id": "q0009",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:0",
+      "target_snippet": "สมัครบัตรเครดิต",
+      "variants": {
+        "written": "อยากทำบัตรเครดิตกับธนาคารไทยพาณิชย์ ต้องเริ่มอย่างไร",
+        "spoken": "อยากได้บัตรเครดิต SCB ต้องทำไง",
+        "codeswitch": "apply บัตรเครดิต SCB เริ่มยังไง"
+      }
+    },
+    {
+      "id": "q0010",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:3",
+      "target_snippet": "SCB EASY",
+      "variants": {
+        "written": "จ่ายยอดบัตรเครดิตได้ทางไหนบ้าง",
+        "spoken": "จ่ายบัตรเครดิตจ่ายช่องทางไหนได้บ้าง",
+        "codeswitch": "pay ยอดบัตรเครดิตผ่านช่องทางไหนได้บ้าง"
+      }
+    },
+    {
+      "id": "q0011",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:9",
+      "target_snippet": "ตรวจสอบคะแนนบัตรเครดิต",
+      "variants": {
+        "written": "ดูแต้มสะสมที่ได้จากการใช้บัตรว่ามีเท่าไหร่ได้ที่ไหน",
+        "spoken": "เช็คแต้มบัตรเครดิตดูยังไง",
+        "codeswitch": "check แต้มสะสมบัตร SCB ดูที่ไหน"
+      }
+    },
+    {
+      "id": "q0012",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:14",
+      "target_snippet": "อายัดบัตรชั่วคราว",
+      "variants": {
+        "written": "ทำบัตรเครดิตหาย กลัวมีคนเอาไปรูด ต้องทำอย่างไร",
+        "spoken": "บัตรเครดิตหาย ทำไงไม่ให้โดนรูดมั่ว",
+        "codeswitch": "บัตรเครดิตหาย อยาก lock บัตรด่วน ทำไง"
+      }
+    },
+    {
+      "id": "q0013",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:6",
+      "target_snippet": "e-mail",
+      "variants": {
+        "written": "อยากให้ส่งใบเรียกเก็บเงินมาทางเมลแทนทางไปรษณีย์ ทำได้ไหม",
+        "spoken": "ขอรับบิลบัตรทางเมลแทนได้ไหม",
+        "codeswitch": "ขอรับ statement ทาง email แทนจดหมายได้ไหม"
+      }
+    },
+    {
+      "id": "q0014",
+      "domain": "insurance",
+      "provider": "aia",
+      "target_doc": "faq:aia:1",
+      "target_snippet": "ตัวแทนประกัน",
+      "variants": {
+        "written": "ทำประกันชีวิตทุกคนต้องไปตรวจร่างกายก่อนหรือเปล่า",
+        "spoken": "ซื้อประกันชีวิตต้องตรวจร่างกายทุกคนเลยไหม",
+        "codeswitch": "ทำ life insurance ต้องไปเช็คร่างกายทุกคนไหม"
+      }
+    },
+    {
+      "id": "q0015",
+      "domain": "insurance",
+      "provider": "aia",
+      "target_doc": "faq:aia:5",
+      "target_snippet": "Cashless",
+      "variants": {
+        "written": "เบิกค่ารักษาจากโรงพยาบาลทำอย่างไร และรอนานแค่ไหนกว่าจะได้",
+        "spoken": "เบิกค่าหมอค่าโรงพยาบาลยังไง รอนานไหม",
+        "codeswitch": "เบิก claim ค่ารักษาที่โรงพยาบาล ทำยังไง"
+      }
+    },
+    {
+      "id": "q0016",
+      "domain": "insurance",
+      "provider": "aia",
+      "target_doc": "faq:aia:8",
+      "target_snippet": "AIA+",
+      "variants": {
+        "written": "อยากรู้ว่าเรื่องเบิกเงินอนุมัติหรือยัง ดูได้จากที่ไหน",
+        "spoken": "เช็คว่าเรื่องเบิกผ่านยังดูตรงไหน",
+        "codeswitch": "track สถานะการเบิกเงินดูที่ไหน"
+      }
+    },
+    {
+      "id": "q0017",
+      "domain": "insurance",
+      "provider": "aia",
+      "target_doc": "faq:aia:13",
+      "target_snippet": "ระยะเวลารอคอย",
+      "variants": {
+        "written": "ช่วงแรกหลังเริ่มทำประกันที่ยังเบิกอะไรไม่ได้เรียกว่าอะไร",
+        "spoken": "เพิ่งทำประกันแล้วป่วยเลย เบิกได้ไหม",
+        "codeswitch": "ช่วง waiting หลังสมัครประกัน ป่วยแล้วเคลมได้ไหม"
+      }
+    },
+    {
+      "id": "q0018",
+      "domain": "insurance",
+      "provider": "aia",
+      "target_doc": "faq:aia:18",
+      "target_snippet": "ต่ออายุกรมธรรม์",
+      "variants": {
+        "written": "ไม่ได้จ่ายเบี้ยจนประกันหลุดไปแล้ว อยากกลับมาทำต่อได้ไหม",
+        "spoken": "ประกันขาดไปแล้ว เอากลับมาใช้ใหม่ได้ไหม",
+        "codeswitch": "policy หลุดแล้ว reactivate ได้ไหม"
+      }
+    },
+    {
+      "id": "q0019",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:19",
+      "target_snippet": "อายุระหว่าง 20-60 ปี",
+      "variants": {
+        "written": "อยากขอกู้เงินก้อนแบบสินเชื่อส่วนบุคคลกับธนาคารไทยพาณิชย์ ต้องทำอย่างไร",
+        "spoken": "อยากกู้เงินด่วนกับ SCB เริ่มยังไง",
+        "codeswitch": "apply personal loan กับ SCB ทำไง"
+      }
+    },
+    {
+      "id": "q0020",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:36",
+      "target_snippet": "Statement",
+      "variants": {
+        "written": "ไม่มีหลักฐานรายได้ประจำเป็นเอกสาร ขอกู้ซื้อบ้านได้ไหม",
+        "spoken": "ไม่มีสลิปเงินเดือน กู้บ้านได้ป่ะ",
+        "codeswitch": "ไม่มี payslip กู้บ้านได้ไหม"
+      }
+    },
+    {
+      "id": "q0021",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:54",
+      "target_snippet": "Refinance",
+      "variants": {
+        "written": "อยากย้ายสินเชื่อบ้านจากธนาคารอื่นมาที่ไทยพาณิชย์ ต้องทำอย่างไร",
+        "spoken": "อยากย้ายบ้านที่ผ่อนอยู่มา SCB ทำไง",
+        "codeswitch": "move home loan มา SCB ทำยังไง"
+      }
+    },
+    {
+      "id": "q0022",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:104",
+      "target_snippet": "เว็ปไซต์ของ SCB",
+      "variants": {
+        "written": "อยากรู้ผลตอบแทนจากการฝากเงินกับไทยพาณิชย์ หาดูได้ที่ไหน",
+        "spoken": "อยากรู้ว่าฝากเงิน SCB ได้ดอกเท่าไหร่ ดูตรงไหน",
+        "codeswitch": "เช็ค interest จากการฝากเงิน SCB ดูที่ไหน"
+      }
+    },
+    {
+      "id": "q0023",
+      "domain": "banking",
+      "provider": "scb",
+      "target_doc": "faq:scb:98",
+      "target_snippet": "SCB Call Center",
+      "variants": {
+        "written": "อยากระงับการใช้บัญชีและบัตรไว้ชั่วคราว ต้องติดต่อใคร",
+        "spoken": "อยากล็อกบัญชีกับบัตรไว้ก่อน โทรหาใคร",
+        "codeswitch": "อยาก freeze บัญชีและบัตร ติดต่อยังไง"
+      }
+    },
+    {
+      "id": "q0024",
+      "domain": "insurance",
+      "provider": "mtl",
+      "target_doc": "faq:mtl:5",
+      "target_snippet": "เบี้ยประกัน",
+      "variants": {
+        "written": "แบบประกันที่จ่ายเงินกลับมาให้ทุกสามปี ได้รับคืนทั้งหมดหรือไม่",
+        "spoken": "ประกันที่คืนเงินทุก 3 ปี ได้คืนหมดเลยป่าว",
+        "codeswitch": "ประกันแบบ money back ทุก 3 ปี ได้คืนเต็มไหม"
+      }
+    },
+    {
+      "id": "q0025",
+      "domain": "insurance",
+      "provider": "mtl",
+      "target_doc": "faq:mtl:7",
+      "target_snippet": "ความคุ้มครอง",
+      "variants": {
+        "written": "ทำประกันสุขภาพไปแล้วมาป่วยหนักทีหลัง บริษัทจะถอนการคุ้มครองไหม",
+        "spoken": "ซื้อประกันสุขภาพแล้วป่วยหนักทีหลัง เขาจะตัดเราออกไหม",
+        "codeswitch": "ทำ health insurance แล้วป่วยหนักทีหลัง โดนถอนคุ้มครองไหม"
+      }
+    }
+  ]
+}
