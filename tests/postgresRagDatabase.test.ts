@@ -778,21 +778,21 @@ describe("PostgresRagDatabase IVFFlat iterative scans", () => {
     expect(gucNames(calls)).toContain("ivfflat.probes=10");
   });
 
-  it("strict_order sets the GUC without max_probes when unset", async () => {
-    const { txProvider, calls } = recordingTx();
-    await new PostgresRagDatabase(txProvider, {
-      ivfflatIterativeScan: "strict_order",
-    }).hybridSearch(params);
-    expect(gucNames(calls)).toContain("ivfflat.iterative_scan=strict_order");
-    expect(gucNames(calls).some((g) => g.startsWith("ivfflat.max_probes"))).toBe(false);
+  it("rejects strict_order (HNSW-only in pgvector)", () => {
+    const { txProvider } = recordingTx();
+    expect(
+      () =>
+        new PostgresRagDatabase(txProvider, {
+          ivfflatIterativeScan: "strict_order" as unknown as "off",
+        }),
+    ).toThrow(/ivfflatIterativeScan/);
   });
 
-  it("default (off) leaves the vector SQL un-wrapped and sets no iterative GUCs", async () => {
+  it("default (off) vector leg SQL + params equal the Task 5 snapshot exactly", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider).hybridSearch(params);
-    const sql = vectorSql(calls)?.sql ?? "";
-    expect(sql).not.toContain("MATERIALIZED");
-    expect(sql).toContain("AND 1 - (embedding <=> $2::vector) >= $3");
+    const leg = calls.find((c) => c.sql.includes("embedding <=> $2::vector"));
+    expect({ sql: leg?.sql, params: leg?.params }).toEqual(NO_FILTER_SNAPSHOT.default?.[1]);
     expect(gucNames(calls)).toEqual(["ivfflat.probes=10"]);
   });
 

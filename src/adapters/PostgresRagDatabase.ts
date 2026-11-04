@@ -29,9 +29,9 @@ const DEFAULT_IVFFLAT_PROBES = 10;
  */
 const CJK_BIGM_CANDIDATE_FLOOR = 0.0001;
 
-export type IvfflatIterativeScan = "off" | "relaxed_order" | "strict_order";
+export type IvfflatIterativeScan = "off" | "relaxed_order";
 
-const IVFFLAT_ITERATIVE_SCAN_MODES: readonly string[] = ["off", "relaxed_order", "strict_order"];
+const IVFFLAT_ITERATIVE_SCAN_MODES: readonly string[] = ["off", "relaxed_order"];
 
 export interface PostgresRagDatabaseOptions {
   /** Enable pg_bigm for CJK keyword search. Requires the pg_bigm extension. Default: false. */
@@ -48,8 +48,8 @@ export interface PostgresRagDatabaseOptions {
    * pgvector 0.8 iterative index scans (`ivfflat.iterative_scan`). A selective filter applied
    * inside an approximate scan can return fewer than `candidateLimit` rows; an iterative scan keeps
    * probing more lists until enough rows pass. "relaxed_order" may return results slightly out of
-   * order (the leg re-sorts them); "strict_order" preserves order. Default: "off". A no-op for the
-   * vchordrq index.
+   * order (the leg re-sorts them). "strict_order" is HNSW-only in pgvector and is rejected for
+   * IVFFlat. Default: "off". A no-op for the vchordrq index.
    */
   ivfflatIterativeScan?: IvfflatIterativeScan;
   /**
@@ -186,7 +186,7 @@ export class PostgresRagDatabase implements RagDatabase {
     this.ivfflatIterativeScan = options?.ivfflatIterativeScan ?? "off";
     if (!IVFFLAT_ITERATIVE_SCAN_MODES.includes(this.ivfflatIterativeScan)) {
       throw new Error(
-        `ivfflatIterativeScan must be "off", "relaxed_order" or "strict_order" (got ${String(this.ivfflatIterativeScan)})`,
+        `ivfflatIterativeScan must be "off" or "relaxed_order" (got ${String(this.ivfflatIterativeScan)})`,
       );
     }
     const maxProbes = options?.ivfflatMaxProbes;
