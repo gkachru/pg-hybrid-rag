@@ -1,4 +1,10 @@
-import type { AttributeType, FilterLimits, FilterOp, FilterScalar } from "../types.js";
+import type {
+  AttributeType,
+  FilterLimits,
+  FilterOp,
+  FilterScalar,
+  MetadataCatalog,
+} from "../types.js";
 import { foldCase, isDecimalString, isValidDate, normalizeDatetime } from "./attributes.js";
 
 export const DEFAULT_FILTER_LIMITS: FilterLimits = {
@@ -116,6 +122,12 @@ export type ValidatedFilter =
 
 export interface FilterValidationOptions {
   limits?: Partial<FilterLimits>;
+  /** Tenant catalog used by `rejectUnknownKeys` and `enforceAllowedValues`. */
+  catalog?: MetadataCatalog;
+  /** Reject `(ns, key)` pairs absent from the catalog. Default false. */
+  rejectUnknownKeys?: boolean;
+  /** Reject `equals` values outside a registered key's `allowedValues`. Default false. */
+  enforceAllowedValues?: boolean;
 }
 
 export class FilterValidationError extends Error {
@@ -198,7 +210,36 @@ function normalizeValue(
 class Ctx {
   errors: string[] = [];
   conditions = 0;
-  constructor(readonly limits: FilterLimits) {}
+  constructor(
+    readonly limits: FilterLimits,
+    readonly options: FilterValidationOptions = {},
+  ) {}
+}
+
+/** Catalog-aware checks on a resolved condition; returns an error message or null. */
+function catalogError(ctx: Ctx, c: ResolvedCondition): string | null {
+  const { catalog, rejectUnknownKeys, enforceAllowedValues } = ctx.options;
+  if (!catalog) return null;
+  const matches = catalog.keys.filter(
+    (k) => k.key === c.key && (c.ns === null || c.ns.includes(k.ns)),
+  );
+  if (rejectUnknownKeys && matches.length === 0) {
+    const where = c.ns ? ` in namespace ${c.ns.join(", ")}` : "";
+    return `unknown metadata key "${c.key}"${where}`;
+  }
+  if (enforceAllowedValues && c.op === "equals" && c.type === "string") {
+    const restricted = matches.filter((k) => k.allowedValues && k.allowedValues.length > 0);
+    if (restricted.length > 0) {
+      const fold = (v: string) => (c.caseSensitive ? v : foldCase(v));
+      const bad = c.values.filter(
+        (v) => !restricted.some((k) => (k.allowedValues ?? []).some((a) => fold(a) === v)),
+      );
+      if (bad.length > 0) {
+        return `value ${bad.map((v) => JSON.stringify(v)).join(", ")} is not an allowed value for "${c.key}"`;
+      }
+    }
+  }
+  return null;
 }
 
 function validateNode(
@@ -342,7 +383,9 @@ function validateCondition(node: Json, path: string, ctx: Ctx): ResolvedConditio
   if (o === "between" && compareValues(type, out[0] as FilterScalar, out[1] as FilterScalar) > 0) {
     return fail("between needs lo <= hi");
   }
-  return { ns, key, op: o, type, values: out, caseSensitive };
+  const resolved: ResolvedCondition = { ns, key, op: o, type, values: out, caseSensitive };
+  const ce = catalogError(ctx, resolved);
+  return ce ? fail(ce) : resolved;
 }
 
 /** Validate and normalize a filter expression. */
@@ -350,7 +393,7 @@ export function validateFilter(
   expr: unknown,
   options: FilterValidationOptions = {},
 ): { ok: true; filter: ValidatedFilter } | { ok: false; errors: string[] } {
-  const ctx = new Ctx({ ...DEFAULT_FILTER_LIMITS, ...options.limits });
+  const ctx = new Ctx({ ...DEFAULT_FILTER_LIMITS, ...options.limits }, options);
   const filter = validateNode(expr, "$", 1, ctx);
   if (ctx.errors.length > 0 || !filter) {
     return { ok: false, errors: ctx.errors.length > 0 ? ctx.errors : ["invalid filter"] };

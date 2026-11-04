@@ -7,6 +7,7 @@ import {
   type ResolvedCondition,
   validateFilter,
 } from "../src/metadata/filterSchema.js";
+import type { MetadataCatalog } from "../src/types.js";
 
 function leaf(f: unknown): ResolvedCondition {
   const r = validateFilter(f);
@@ -134,5 +135,67 @@ describe("schemas", () => {
   test("lenient schema does not require ns/type/caseSensitive", () => {
     const defs = (FILTER_JSON_SCHEMA as { $defs: Record<string, { required?: string[] }> }).$defs;
     expect(defs.condition?.required).toEqual(["key", "op", "value"]);
+  });
+});
+
+describe("catalog-aware validation", () => {
+  const catalog: MetadataCatalog = {
+    tenantId: "t",
+    generatedAt: "2026-01-01T00:00:00Z",
+    keys: [
+      {
+        ns: "knowmax",
+        key: "region",
+        registered: true,
+        declaredType: "string",
+        allowedValues: ["EU", "UK"],
+        observed: [{ type: "string", articleCount: 3 }],
+      },
+      {
+        ns: "global",
+        key: "priority",
+        registered: false,
+        observed: [{ type: "number", articleCount: 2 }],
+      },
+    ],
+  };
+  const region = (value: unknown, extra: object = {}) => ({
+    key: "region",
+    op: "equals",
+    value,
+    ...extra,
+  });
+
+  test("rejectUnknownKeys flags a key absent from the catalog", () => {
+    const r = validateFilter(
+      { key: "fare_class", op: "equals", value: "x" },
+      { catalog, rejectUnknownKeys: true },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join(" ")).toContain("fare_class");
+  });
+
+  test("rejectUnknownKeys respects the ns list", () => {
+    const opts = { catalog, rejectUnknownKeys: true };
+    expect(validateFilter(region("eu", { ns: "knowmax" }), opts).ok).toBe(true);
+    expect(validateFilter(region("eu", { ns: ["global", "knowmax"] }), opts).ok).toBe(true);
+    expect(validateFilter(region("eu", { ns: "global" }), opts).ok).toBe(false);
+    expect(validateFilter(region("eu"), opts).ok).toBe(true);
+  });
+
+  test("enforceAllowedValues", () => {
+    const opts = { catalog, enforceAllowedValues: true };
+    expect(validateFilter(region("Europe"), opts).ok).toBe(false);
+    expect(validateFilter(region("eu"), opts).ok).toBe(true);
+    expect(validateFilter(region(["eu", "Europe"]), opts).ok).toBe(false);
+    expect(validateFilter(region("eu", { caseSensitive: true }), opts).ok).toBe(false);
+    expect(validateFilter(region("EU", { caseSensitive: true }), opts).ok).toBe(true);
+  });
+
+  test("neither flag set leaves the filters valid", () => {
+    expect(validateFilter(region("Europe"), { catalog }).ok).toBe(true);
+    expect(validateFilter({ key: "fare_class", op: "equals", value: "x" }, { catalog }).ok).toBe(
+      true,
+    );
   });
 });
