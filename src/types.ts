@@ -295,7 +295,11 @@ export interface MetadataCatalog {
   keys: CatalogKey[];
 }
 
-/** Diagnostics describing how the (explicit + model-generated) metadata filter was handled. */
+/**
+ * Diagnostics describing how the (explicit + model-generated) metadata filter was handled.
+ * After a retry-on-empty, `generatedFilterStatus` stays "applied" and
+ * `retriedWithoutGeneratedFilter` is true.
+ */
 export interface SearchDiagnostics {
   explicitFilter: FilterExpression | null;
   /** Raw model output (unvalidated). */

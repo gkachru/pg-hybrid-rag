@@ -92,7 +92,14 @@ Three-way hybrid search fused via RRF:
 | `sql/012_drop_dead_index.sql` | Drops the unused `content_stemmed` index + column (dead since migration 008) |
 | `sql/015_bm25_normalized_textsearch.sql` | Rebuilds the BM25 indexes on `content_normalized` (gated by `bm25`) |
 | `sql/016_source_index.sql` | Composite `(tenant_id, source_type, source_id)` index for the delete/replace path |
-| `sql/001-016_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK, normalization) |
+| `src/metadata/attributes.ts` | Attribute normalization/validation (types, formats, E.164/date/decimal checks, JS case folding) and the stored-entry encoding |
+| `src/metadata/filterSchema.ts` | Filter grammar: `FILTER_JSON_SCHEMA` / `FILTER_GENERATION_SCHEMA`, `validateFilter`, limits, catalog-aware checks |
+| `src/metadata/compileFilter.ts` | Compiles a validated filter to parameterized SQL (GIN-friendly `@>` containment where possible) |
+| `src/metadata/briefing.ts` | Renders the tenant catalog into a bounded prompt briefing for the filter model |
+| `src/adapters/CachingMetadataCatalog.ts` | Per-tenant catalog (observed + registered keys), TTL cache, `register`/`unregister`/`describe` |
+| `src/adapters/OpenAiCompatibleFilterModel.ts` | Fetch-based `FilterModelProvider` using strict `json_schema` output, with timeout + retry |
+| `sql/017-019_*.sql` | `attributes` JSONB column + GIN index, `rag_metadata_registry`, registry RLS (019, only with `rls`) |
+| `sql/001-019_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK, normalization) |
 
 ## Design patterns
 
@@ -116,6 +123,7 @@ Three-way hybrid search fused via RRF:
 - **Punctuation handling** — trailing punctuation stripped before matching (Latin, Hindi, Arabic, CJK).
 - **Pluggable FTS strategy** — the FTS leg is an injectable `FtsStrategy` on `PostgresRagDatabase` (`fts` option). `TsvectorFts` (default) uses tsvector/tsquery + `rag_fts_config()`; `Bm25Fts` uses pg_textsearch BM25 (`content_normalized <@> query`, dropping zero-score non-matches so only genuine lexical hits feed RRF — pg_textsearch otherwise pads top-K up to LIMIT, and RRF fuses by rank). The pipeline passes `synonymLookup` (not a pre-built tsquery); the strategy builds its own query form (`buildFtsQuery` vs `buildBm25Query`).
 - **BM25 per-language partial indexes** — `Bm25Fts` scopes the FTS leg to `params.language`'s group via `bm25LanguagePredicate()` so the planner uses the matching partial `bm25` index. The bm25 indexes match `content_normalized` (migration 015 rebuilds migration 011's raw-`content` indexes on the normalized column, so a normalized query — e.g. Arabic orthographic folds — aligns with indexed content like the pg_trgm/tsvector legs). `BM25_LANGUAGE_GROUPS` (TS) and the `sql/011` + `sql/015` literals are kept in sync by a test.
+- **Typed attribute filters** — articles carry typed, namespaced attributes (`index(..., { attributes })`, stored as a JSONB entry array in `rag_documents.attributes`, returned as `RagResult.attributes`). `search({ filter })` takes an `and`/`or`/`not` tree of `{ ns, key, op, value, type, caseSensitive }` conditions, validated (`validateFilter`) before any embedding/SQL work and compiled to parameterized SQL applied in all three legs. Matching is type-strict; case folding is JS `toLowerCase()` (no accent/ß folding). Legacy rows hold `[]` (no backfill): they match `not` and `exists: false` only. **Fails closed**: a `RagDatabase`/`FtsStrategy` must set `supportsAttributeFilters: true` or a filtered search throws `AttributeFiltersUnsupportedError`. Optional `autoFilter` uses a pluggable `FilterModelProvider` + `MetadataCatalogProvider`; generated filters are validated (`rejectUnknownKeys`, `enforceAllowedValues`), dropped with a warn when invalid, ANDed with the explicit filter, and re-run without the generated filter when all legs are empty (`autoFilterRetryOnEmpty`, default true; `SearchDiagnostics.generatedFilterStatus` stays `applied` after a retry). `ivfflatIterativeScan` accepts only `off`/`relaxed_order`.
 - **Gated optional extensions** — `ragMigrate` flags `vectorchord` (migration 010, `vchordrq` index swap) and `bm25` (migration 011, pg_textsearch). Both require `shared_preload_libraries` + restart (ops prerequisite, not in the migration).
 
 ## Schema

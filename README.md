@@ -339,6 +339,125 @@ To prefix chunks with entity context, pass a `prefixFn` to the constructor. It r
 prefixFn: (m) => m.brand ? `[${m.name} | ${m.brand}]` : m.name ? `[${m.name}]` : undefined
 ```
 
+### Metadata filters
+
+Articles can carry typed, namespaced attributes, and searches can restrict results with an explicit filter expression. An optional filter model can derive that filter from the query text. All of this is opt-in; searches without a filter behave as before.
+
+**Attribute types.** Each attribute has `ns` (namespace, default `"global"`), `key`, `type`, optional `format`, and a `value`:
+
+| type | formats | value and caller duties |
+|---|---|---|
+| `string` | `text`, `email`, `url`, `phone`, `enum` | `phone` must be E.164 (`+14155550100`). `enum` may set `multi: true` with a `string[]` value. A plain string may also be a list. |
+| `number` | `float`, `decimal` | `float` is a JS number. `decimal` is a **string** (`"10.50"`), kept exact. |
+| `boolean` | none | `true` / `false` |
+| `date` | none | `YYYY-MM-DD` |
+| `datetime` | none | ISO 8601 with `Z` or an offset (naive datetimes are rejected); stored as UTC |
+
+The library validates but does not guess: normalize phones, dates and decimals before indexing. A duplicate `(ns, key)` within one article's input is rejected; give multiple values as a list.
+
+```typescript
+await indexer.index("faq", "article-42", chunks, "en", {
+  attributes: [
+    { ns: "cms", key: "region", type: "string", format: "enum", multi: true, value: ["EU", "UK"] },
+    { ns: "cms", key: "effective_date", type: "date", value: "2026-03-15" },
+    { key: "priority", type: "number", value: 3 }, // ns defaults to "global"
+  ],
+});
+```
+
+Attributes are stamped on every chunk row of the article and returned as `RagResult.attributes` (`[]` when none). Limits are configurable through `RagIndexerConfig.attributeLimits` (`maxAttributes`, `maxValuesPerAttribute`, `maxStringLength`). Invalid input throws `AttributeValidationError` before any embedding call.
+
+**Filters.** A filter is a tree of `and` / `or` / `not` nodes with leaf conditions `{ ns?, key, op, value, type?, caseSensitive? }`:
+
+```typescript
+const results = await pipeline.search("refund policy", {
+  language: "en",
+  filter: {
+    and: [
+      { key: "region", op: "equals", value: ["EU", "UK"] }, // any namespace; any of these values
+      { ns: "cms", key: "effective_date", op: "gte", value: "2026-01-01" },
+      { not: { ns: ["cms", "confluence"], key: "cabin", op: "equals", value: "business" } },
+      {
+        or: [
+          { ns: "confluence", key: "team", op: "startsWith", value: "pay" },
+          { key: "priority", op: "exists", value: true },
+        ],
+      },
+    ],
+  },
+});
+```
+
+- Operators: `equals`, `startsWith`, `endsWith`, `contains` (strings); `equals`, `gt`, `gte`, `lt`, `lte`, `between` (number, date, datetime); `equals` (boolean); `exists` (`value: true | false`) for any type.
+- `ns` omitted or `null` matches in any namespace, including global. A list of namespaces matches any of them.
+- List attributes match when any element matches.
+- **Type resolution.** Matching is type-strict. Each condition targets one stored type: `type` if given, otherwise inferred from the operator and the JSON type of `value`. A string value meant as a decimal number, date or datetime is ambiguous, so set `type` (`"number"`, `"date"` or `"datetime"`); decimal strings need `type: "number"`. A value stored under another type for that key does not match. Filter datetimes must carry `Z` or an offset.
+- String matching is case-insensitive by default (`caseSensitive: true` overrides). `%`, `_` and regex characters are literal.
+- Case folding uses JS `toLowerCase()` at index and query time, not database collation. It does not fold accents or `ß`: `"İstanbul"` folds to `"i̇stanbul"` (i plus combining dot U+0307), so `"istanbul"` does not match it, and `"ß"` does not match `"ss"`. Normalize such values yourself before indexing and filtering.
+- Every filter is validated before any embedding or SQL work and throws `FilterValidationError` on failure. Limits (`DEFAULT_FILTER_LIMITS`) cap depth, condition count, list size and string length. Unknown keys in an explicit filter are allowed and match nothing.
+- `FILTER_JSON_SCHEMA` and `FILTER_GENERATION_SCHEMA` (strict-mode form with nullable-required fields) are exported for structured-output use; `validateFilter` / `assertValidFilter` expose the validator.
+
+**Legacy rows.** There is no backfill. Rows indexed before the upgrade hold `attributes = []`: they match `not {...}` conditions and `exists: false`, and never match a positive condition. Re-index an article with `attributes` to make it filterable.
+
+**Catalog.** `CachingMetadataCatalog` describes the keys of a tenant: keys observed in indexed data (with article counts and top string values) merged with keys you register (description, declared type/format, `allowedValues`).
+
+```typescript
+import { CachingMetadataCatalog } from "pg-hybrid-rag";
+
+const catalog = new CachingMetadataCatalog({ txProvider, ttlMs: 300_000, topValuesPerKey: 20 });
+
+await catalog.register(tenantId, [
+  {
+    ns: "cms",
+    key: "region",
+    description: "Sales region",
+    type: "string",
+    format: "enum",
+    multi: true,
+    allowedValues: ["EU", "UK", "US"],
+  },
+]);
+const described = await catalog.describe(tenantId); // { tenantId, generatedAt, keys: CatalogKey[] }
+await catalog.unregister(tenantId, [{ ns: "cms", key: "region" }]);
+```
+
+`register` and `unregister` invalidate that tenant's cache; changes made by other processes appear after the TTL (or after `invalidate(tenantId)`).
+
+**Auto-filter.** With a `filterModel` and `metadataCatalog` on the pipeline, `autoFilter: true` asks the model to derive a filter from the query:
+
+```typescript
+import { OpenAiCompatibleFilterModel, RagPipeline } from "pg-hybrid-rag";
+
+const pipeline = new RagPipeline({
+  /* ...usual config... */
+  metadataCatalog: catalog,
+  filterModel: new OpenAiCompatibleFilterModel({
+    baseUrl: "https://llm.example.com/v1",
+    model: "my-model",
+    apiKey,
+  }),
+});
+
+const { results, diagnostics } = await pipeline.searchWithDiagnostics("EU policies from this year", {
+  language: "en",
+  autoFilter: true,
+  filter: { key: "status", op: "equals", value: "published" }, // optional explicit filter, ANDed
+});
+```
+
+- `autoFilter` throws if `filterModel` or `metadataCatalog` is missing, and throws `AttributeFiltersUnsupportedError` up front if the database does not support attribute filters.
+- Generated filters are validated against the catalog: unknown keys and values outside registered `allowedValues` are rejected. An invalid filter, or a model error, drops the generated filter with a warning; the search continues with the explicit filter only.
+- Explicit and generated filters are ANDed.
+- `autoFilterRetryOnEmpty` (default `true`): if an applied generated filter leaves all three legs empty, the search re-runs once without it.
+- `searchWithDiagnostics` returns `{ results, diagnostics }`. `diagnostics.generatedFilterStatus` is `not_requested | none | applied | invalid | error`. After a retry the status stays `"applied"` and `retriedWithoutGeneratedFilter` is `true`.
+- `OpenAiCompatibleFilterModel` sends a chat completion with strict `json_schema` structured output (`FILTER_GENERATION_SCHEMA`). Compatibility with specific providers is not verified here; a server without `json_schema` support needs a custom `FilterModelProvider` (`generateFilter(query, catalog, ctx): Promise<unknown>`; the pipeline validates whatever it returns).
+
+**Fail closed.** A filter is only safe if every search leg applies it. `RagDatabase` and `FtsStrategy` carry an optional `supportsAttributeFilters` flag; `PostgresRagDatabase` reports support when its FTS strategy does (`TsvectorFts` and `Bm25Fts` both do). A custom implementation that does not set `supportsAttributeFilters: true` makes any filtered search throw `AttributeFiltersUnsupportedError` rather than silently ignoring the filter.
+
+**Migrations.** `017` adds `rag_documents.attributes JSONB NOT NULL DEFAULT '[]'` plus a GIN index; `018` creates `rag_metadata_registry`; `019` adds RLS on the registry and applies only with `ragMigrate(db, { rls: true })`. 017 and 018 apply by default.
+
+**Selective filters and IVFFlat.** An approximate vector index applies a filter after it fetches candidates, so a selective filter can return fewer rows than requested. `PostgresRagDatabase` accepts `ivfflatIterativeScan: "relaxed_order"` (and `ivfflatMaxProbes`) to let pgvector keep scanning until it has enough rows; the only other value is `"off"` (the default), because pgvector rejects `strict_order` for IVFFlat. In a measurement on 20k rows with a 2%-selective filter, every leg still returned a full candidate set with the default, BM25 needed no over-fetch, and with selective filters the planner often used the attributes GIN index (exact). `relaxed_order` is a reasonable safeguard for single-tenant databases; it was not shown to be necessary.
+
 ### Pure Utilities
 
 ```typescript
@@ -813,7 +932,7 @@ Reranking is opt-in (`rerank: false` by default). If the reranker throws, the pi
 
 ## Schema
 
-The package manages 3 tables: `rag_documents`, `rag_stop_words`, `rag_synonyms`. All include `tenant_id` for multi-tenant isolation. RLS policies are optional (migration 007). CJK support via pg_bigm is optional (migration 009).
+The package manages 4 tables: `rag_documents`, `rag_stop_words`, `rag_synonyms`, `rag_metadata_registry`. All include `tenant_id` for multi-tenant isolation. RLS policies are optional (migration 007). CJK support via pg_bigm is optional (migration 009).
 
 Stemming is handled by the `rag_fts_config()` SQL function which maps language codes to Postgres `regconfig` names. The tsvector trigger auto-applies the correct stemmer per row based on the `language` column.
 
