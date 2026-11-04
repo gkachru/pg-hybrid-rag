@@ -363,7 +363,7 @@ export class PostgresRagDatabase implements RagDatabase {
         chunk.attributes,
       );
       valueClauses.push(
-        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}::vector, $${offset + 8}, $${offset + 9}, $${offset + 10}::jsonb)`,
+        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}::vector, $${offset + 8}, $${offset + 9}, $${offset + 10}::text::jsonb)`,
       );
     }
 

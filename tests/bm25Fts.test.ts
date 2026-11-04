@@ -126,7 +126,7 @@ describe("Bm25Fts attribute filter", () => {
       synonyms: new Map(),
       attributeFilter: f,
     });
-    expect(calls[0].sql).toContain("attributes @> $4::jsonb");
+    expect(calls[0].sql).toContain("attributes @> $4::text::jsonb");
     expect(calls[0].params).toEqual(["t1", "phones", 10, '[{"k":"region","t":"string","l":"eu"}]']);
   });
 });

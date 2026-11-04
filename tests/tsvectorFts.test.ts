@@ -107,7 +107,7 @@ describe("TsvectorFts attribute filter", () => {
       synonyms: new Map(),
       attributeFilter: f,
     });
-    expect(calls[0].sql).toContain("attributes @> $5::jsonb");
+    expect(calls[0].sql).toContain("attributes @> $5::text::jsonb");
     expect(calls[0].params).toEqual([
       "t1",
       "phones",

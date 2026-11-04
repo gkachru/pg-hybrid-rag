@@ -7,7 +7,7 @@ const compile = (expr: unknown, idx = 5) => compileAttributeFilter(assertValidFi
 describe("compileAttributeFilter", () => {
   test("case-insensitive string equality uses containment on l", () => {
     expect(compile({ key: "region", op: "equals", value: "EU" })).toEqual({
-      clause: "AND (attributes @> $5::jsonb)",
+      clause: "AND (attributes @> $5::text::jsonb)",
       params: ['[{"k":"region","t":"string","l":"eu"}]'],
     });
   });
@@ -25,7 +25,7 @@ describe("compileAttributeFilter", () => {
   test("multiple ns produce OR of containments", () => {
     const r = compile({ ns: ["a", "b"], key: "region", op: "equals", value: "eu" });
     expect(r.params).toHaveLength(2);
-    expect(r.clause).toBe("AND ((attributes @> $5::jsonb OR attributes @> $6::jsonb))");
+    expect(r.clause).toBe("AND ((attributes @> $5::text::jsonb OR attributes @> $6::text::jsonb))");
   });
 
   test("multiple values produce OR of containments", () => {
@@ -51,7 +51,7 @@ describe("compileAttributeFilter", () => {
   test("exists true omits t; exists false negates", () => {
     expect(compile({ key: "x", op: "exists", value: true }).params[0]).toBe('[{"k":"x"}]');
     const r = compile({ key: "x", op: "exists", value: false });
-    expect(r.clause).toBe("AND (NOT (attributes @> $5::jsonb))");
+    expect(r.clause).toBe("AND (NOT (attributes @> $5::text::jsonb))");
   });
 
   test("numeric range uses the CASE guard and ::numeric", () => {
@@ -97,7 +97,7 @@ describe("compileAttributeFilter", () => {
     const a = { key: "a", op: "equals", value: "x" };
     const b = { key: "b", op: "equals", value: "y" };
     expect(compile({ and: [a, b] }).clause).toBe(
-      "AND ((attributes @> $5::jsonb AND attributes @> $6::jsonb))",
+      "AND ((attributes @> $5::text::jsonb AND attributes @> $6::text::jsonb))",
     );
     expect(compile({ or: [a, b] }).clause).toContain(" OR ");
     expect(compile({ not: { key: "x", op: "exists", value: true } }).clause).toStartWith(

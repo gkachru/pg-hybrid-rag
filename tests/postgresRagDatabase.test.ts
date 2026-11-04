@@ -401,7 +401,7 @@ describe("PostgresRagDatabase.insertChunks", () => {
     ]);
     // The embedding column carries the ::vector cast (7th of each row's 10 placeholders).
     expect(calls[0].sql).toContain("$7::vector");
-    expect(calls[0].sql).toContain("$10::jsonb");
+    expect(calls[0].sql).toContain("$10::text::jsonb");
   });
 
   it("batches multiple chunks into one INSERT with sequential placeholders", async () => {

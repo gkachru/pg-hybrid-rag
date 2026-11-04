@@ -9,7 +9,12 @@ const DECIMAL_SENTINEL = "__decimal_literal__";
 class ParamList {
   readonly params: string[] = [];
   constructor(private readonly startIdx: number) {}
-  /** Bind a value as text and return its `$n` placeholder. */
+  /**
+   * Bind a value as text and return its `$n` placeholder. JSON-valued params are cast
+   * `::text::jsonb` (not bare `::jsonb`): drivers such as postgres.js serialize a string bound to a
+   * jsonb-typed parameter with JSON.stringify, which double-encodes it into a jsonb string scalar
+   * and silently matches nothing.
+   */
   add(value: string): string {
     this.params.push(value);
     return `$${this.startIdx + this.params.length - 1}`;
@@ -52,7 +57,7 @@ function compileContainment(c: ResolvedCondition, p: ParamList): string {
   const parts: string[] = [];
   for (const ns of nsList) {
     for (const v of values) {
-      parts.push(`attributes @> ${p.add(containmentJson(c, ns, v))}::jsonb`);
+      parts.push(`attributes @> ${p.add(containmentJson(c, ns, v))}::text::jsonb`);
     }
   }
   return parts.length === 1 ? (parts[0] as string) : `(${parts.join(" OR ")})`;
@@ -64,7 +69,7 @@ function compileScan(c: ResolvedCondition, p: ParamList): string {
   const preds = [`e->>'k' = ${p.add(c.key)}`, `e->>'t' = ${p.add(c.type)}`];
   if (c.ns) {
     preds.push(
-      `e->>'ns' IN (SELECT jsonb_array_elements_text(${p.add(JSON.stringify(c.ns))}::jsonb))`,
+      `e->>'ns' IN (SELECT jsonb_array_elements_text(${p.add(JSON.stringify(c.ns))}::text::jsonb))`,
     );
   }
 
