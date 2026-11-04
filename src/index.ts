@@ -41,6 +41,14 @@ export type {
 export { detectLanguage } from "./language.js";
 // Utilities
 export { applyLinearFusion } from "./linearFusion.js";
+export {
+  AttributeValidationError,
+  DEFAULT_ATTRIBUTE_LIMITS,
+  GLOBAL_NS,
+  normalizeAttributes,
+  parseAttributes,
+  serializeAttributes,
+} from "./metadata/attributes.js";
 export type { MigrateOptions } from "./migrate.js";
 export { ragMigrate } from "./migrate.js";
 export type { ArabicNormalizeOptions } from "./normalize.js";
@@ -57,6 +65,11 @@ export { removeStopWords } from "./stopWords.js";
 export { buildBm25Query, buildFtsQuery, expandQueryWithSynonyms } from "./synonymExpander.js";
 // Types
 export type {
+  AttributeFormat,
+  AttributeInput,
+  AttributeLimits,
+  AttributeOutput,
+  AttributeType,
   Chunk,
   FusionMethod,
   FusionNormalizer,
@@ -65,6 +78,7 @@ export type {
   RagSearchOptions,
   RankedCandidate,
   StopWordRow,
+  StoredAttributeEntry,
   SynonymLookup,
   SynonymRow,
 } from "./types.js";

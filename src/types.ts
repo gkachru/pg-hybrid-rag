@@ -144,3 +144,51 @@ export interface SynonymRow {
   synonyms: string[] | string;
   direction: "two_way" | "one_way";
 }
+
+/** Value type of a typed metadata attribute. */
+export type AttributeType = "string" | "number" | "boolean" | "date" | "datetime";
+
+/** Format refinement of an attribute type (string: text/email/url/phone/enum; number: float/decimal). */
+export type AttributeFormat = "text" | "email" | "url" | "phone" | "enum" | "float" | "decimal";
+
+/** A typed, namespaced attribute as supplied by callers at index time. */
+export interface AttributeInput {
+  ns?: string;
+  key: string;
+  type: AttributeType;
+  format?: AttributeFormat;
+  multi?: boolean;
+  value: string | number | boolean | string[];
+}
+
+/** A typed attribute as returned to callers. */
+export interface AttributeOutput {
+  ns: string;
+  key: string;
+  type: AttributeType;
+  format?: AttributeFormat;
+  value: string | number | boolean | string[];
+}
+
+/** One stored scalar (internal storage encoding, spec §6.4). */
+export interface StoredAttributeEntry {
+  ns: string;
+  k: string;
+  t: AttributeType;
+  f?: AttributeFormat;
+  /** decimal: the exact numeric literal (serialized raw). */
+  v: string | number | boolean;
+  /** Folded copy, strings only. */
+  l?: string;
+  /** decimal: original decimal string, for exact output. */
+  s?: string;
+  /** Entry came from a list value. */
+  m?: true;
+}
+
+/** Limits applied when normalizing attributes. */
+export interface AttributeLimits {
+  maxAttributes: number;
+  maxValuesPerAttribute: number;
+  maxStringLength: number;
+}
