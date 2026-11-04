@@ -395,7 +395,7 @@ export class PostgresRagDatabase implements RagDatabase {
       language: string;
       embedding: number[];
       metadata: string;
-      attributes: string;
+      attributes?: string;
     }>,
   ): { sql: string; params: unknown[] } {
     const params: unknown[] = [];
@@ -414,7 +414,7 @@ export class PostgresRagDatabase implements RagDatabase {
         embeddingStr,
         chunk.metadata,
         chunk.contentNormalized,
-        chunk.attributes,
+        chunk.attributes ?? "[]",
       );
       valueClauses.push(
         `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}::vector, $${offset + 8}, $${offset + 9}, $${offset + 10}::text::jsonb)`,
@@ -439,7 +439,7 @@ export class PostgresRagDatabase implements RagDatabase {
       language: string;
       embedding: number[];
       metadata: string;
-      attributes: string;
+      attributes?: string;
     }>,
   ): Promise<void> {
     if (chunks.length === 0) return;
@@ -477,7 +477,7 @@ export class PostgresRagDatabase implements RagDatabase {
       language: string;
       embedding: number[];
       metadata: string;
-      attributes: string;
+      attributes?: string;
     }>,
   ): Promise<void> {
     return this.txProvider.withConnection(async (client) => {

@@ -28,6 +28,14 @@
   `AttributeFiltersUnsupportedError` unless the implementation sets `supportsAttributeFilters: true`
   and applies the filter in every leg. Searches without a filter are unaffected.
 
+- `insertChunks` / `replaceSource` rows on `RagDatabase` and `PostgresRagDatabase` take an optional
+  `attributes` string (serialized JSON); it defaults to `"[]"` when omitted.
+- `RankedCandidate` gains `attributes`, and `RagResult` carries `attributes` (see above).
+- `RagIndexer.index` takes an optional fifth `options` parameter (`{ attributes }`).
+- Custom `RagDatabase` implementations must persist `attributes` and return
+  `attributes::text AS attributes` from every search leg. Otherwise attribute filters and the
+  catalog see no data.
+
 ### Notes
 
 - No backfill: rows indexed before upgrading hold `attributes = []`. They match `not {...}` and

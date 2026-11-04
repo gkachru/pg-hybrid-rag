@@ -130,6 +130,8 @@ describe("schemas", () => {
     walk(FILTER_GENERATION_SCHEMA, "$");
     expect(problems).toEqual([]);
     expect((FILTER_GENERATION_SCHEMA as { required: string[] }).required).toEqual(["filter"]);
+    expect("$schema" in FILTER_GENERATION_SCHEMA).toBe(false);
+    expect("$schema" in FILTER_JSON_SCHEMA).toBe(true);
   });
 
   test("lenient schema does not require ns/type/caseSensitive", () => {

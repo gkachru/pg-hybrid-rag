@@ -89,7 +89,7 @@ function buildSchema(strict: boolean): Json {
     ],
   };
   return {
-    $schema: "https://json-schema.org/draft/2020-12/schema",
+    ...(strict ? {} : { $schema: "https://json-schema.org/draft/2020-12/schema" }),
     type: "object",
     properties: { filter: { anyOf: [{ $ref: "#/$defs/expr" }, { type: "null" }] } },
     required: ["filter"],

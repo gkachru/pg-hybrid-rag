@@ -55,7 +55,9 @@ export function checkKeyShape(
   if (type === undefined && !typeRequired) {
     if (format !== undefined) issues.push(`${label}: format requires a type`);
   } else {
-    const allowed = FORMATS_BY_TYPE[type as AttributeType];
+    const allowed = Object.hasOwn(FORMATS_BY_TYPE, type as string)
+      ? FORMATS_BY_TYPE[type as AttributeType]
+      : undefined;
     if (!allowed) {
       issues.push(`${label}: unknown type "${String(type)}"`);
       return issues;
@@ -184,6 +186,8 @@ function buildEntry(
         return fail((err as Error).message);
       }
       break;
+    default:
+      return fail(`unknown type "${String(a.type)}"`);
   }
   if (multi) base.m = true;
   return base;

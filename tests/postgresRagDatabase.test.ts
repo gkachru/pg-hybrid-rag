@@ -384,6 +384,13 @@ describe("PostgresRagDatabase.insertChunks", () => {
     );
   });
 
+  it('binds "[]" for attributes when a row omits it', async () => {
+    const { txProvider, calls } = recordingTx();
+    const { attributes: _omit, ...noAttrs } = chunk;
+    await new PostgresRagDatabase(txProvider).insertChunks("t1", [noAttrs]);
+    expect(calls[0].params[9]).toBe("[]");
+  });
+
   it("binds the 10 columns per chunk in order and serializes the embedding as a vector literal", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider).insertChunks("t1", [chunk]);

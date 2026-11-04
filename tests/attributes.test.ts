@@ -42,6 +42,19 @@ describe("normalizeAttributes", () => {
     ).toThrow(AttributeValidationError);
   });
 
+  it("rejects inherited Object.prototype names as types", () => {
+    for (const type of ["toString", "__proto__", "constructor"]) {
+      expect(() => normalizeAttributes([{ key: "x", type: type as never, value: "a" }])).toThrow(
+        AttributeValidationError,
+      );
+    }
+    try {
+      normalizeAttributes([{ key: "x", type: "toString" as never, value: "a" }]);
+    } catch (err) {
+      expect((err as AttributeValidationError).issues.join()).toContain('unknown type "toString"');
+    }
+  });
+
   it("rejects impossible datetimes instead of rolling them over", () => {
     for (const value of ["2026-02-30T00:00:00Z", "2026-03-15T24:00:00Z", "2026-03-15T10:60:00Z"]) {
       expect(() => normalizeAttributes([{ key: "at", type: "datetime", value }])).toThrow(

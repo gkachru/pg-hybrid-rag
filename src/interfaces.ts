@@ -108,8 +108,8 @@ export interface RagDatabase {
       language: string;
       embedding: number[];
       metadata: string;
-      /** Serialized attribute JSON ("[]" when none). */
-      attributes: string;
+      /** Serialized attribute JSON; defaults to "[]" when omitted. */
+      attributes?: string;
     }>,
   ): Promise<void>;
 
@@ -135,8 +135,8 @@ export interface RagDatabase {
       language: string;
       embedding: number[];
       metadata: string;
-      /** Serialized attribute JSON ("[]" when none). */
-      attributes: string;
+      /** Serialized attribute JSON; defaults to "[]" when omitted. */
+      attributes?: string;
     }>,
   ): Promise<void>;
 }
