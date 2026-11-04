@@ -129,6 +129,8 @@ Three-way hybrid search fused via RRF:
 ## Schema
 
 - `rag_documents` — chunks with 384-dim embeddings, auto-populated tsvector (language-aware), metadata JSON, per-tenant
+- `rag_documents.attributes` — JSONB array of typed, namespaced attribute entries (migration 017, GIN-indexed); `[]` for legacy rows
+- `rag_metadata_registry` — per-tenant registered metadata keys (migration 018; RLS in 019)
 - `rag_stop_words` — per-tenant, per-language stop words
 - `rag_synonyms` — per-tenant synonyms with `direction` (two_way/one_way)
 - `_rag_migrations` — migration tracking

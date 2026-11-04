@@ -456,7 +456,7 @@ const { results, diagnostics } = await pipeline.searchWithDiagnostics("EU polici
 
 **Migrations.** `017` adds `rag_documents.attributes JSONB NOT NULL DEFAULT '[]'` plus a GIN index; `018` creates `rag_metadata_registry`; `019` adds RLS on the registry and applies only with `ragMigrate(db, { rls: true })`. 017 and 018 apply by default.
 
-**Selective filters and IVFFlat.** An approximate vector index applies a filter after it fetches candidates, so a selective filter can return fewer rows than requested. `PostgresRagDatabase` accepts `ivfflatIterativeScan: "relaxed_order"` (and `ivfflatMaxProbes`) to let pgvector keep scanning until it has enough rows; the only other value is `"off"` (the default), because pgvector rejects `strict_order` for IVFFlat. In a measurement on 20k rows with a 2%-selective filter, every leg still returned a full candidate set with the default, BM25 needed no over-fetch, and with selective filters the planner often used the attributes GIN index (exact). `relaxed_order` is a reasonable safeguard for single-tenant databases; it was not shown to be necessary.
+**Selective filters and IVFFlat.** An approximate vector index applies a filter after it fetches candidates, so a selective filter can return fewer rows than requested. `PostgresRagDatabase` accepts `ivfflatIterativeScan: "relaxed_order"` (and `ivfflatMaxProbes`) to let pgvector keep scanning until it has enough rows; the only other value is `"off"` (the default), because pgvector rejects `strict_order` for IVFFlat. In a test on 20,000 random-vector rows with a filter matching 2%, every leg returned a full candidate set (40). In the natural plan the vector, trigram and FTS legs used the attributes GIN index; with that index hidden, the IVFFlat leg also returned 40 with `"off"` and with `"relaxed_order"`, so under-return was not reproduced on this data. The test counts returned rows and does not measure recall. `relaxed_order` is a reasonable safeguard for single-tenant databases; it was not shown to be necessary.
 
 ### Pure Utilities
 
@@ -933,6 +933,8 @@ Reranking is opt-in (`rerank: false` by default). If the reranker throws, the pi
 ## Schema
 
 The package manages 4 tables: `rag_documents`, `rag_stop_words`, `rag_synonyms`, `rag_metadata_registry`. All include `tenant_id` for multi-tenant isolation. RLS policies are optional (migration 007). CJK support via pg_bigm is optional (migration 009).
+
+`rag_documents` also has an `attributes` JSONB column (migration 017) holding typed metadata attributes; `rag_metadata_registry` (migration 018) stores per-tenant registered metadata keys.
 
 Stemming is handled by the `rag_fts_config()` SQL function which maps language codes to Postgres `regconfig` names. The tsvector trigger auto-applies the correct stemmer per row based on the `language` column.
 
