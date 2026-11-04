@@ -16,7 +16,14 @@
 
 import { join } from "node:path";
 import postgres from "postgres";
-import { PostgresRagDatabase, type SqlClient, type TransactionProvider } from "../../src/index.js";
+import {
+  type AttributeInput,
+  normalizeAttributes,
+  PostgresRagDatabase,
+  type SqlClient,
+  serializeAttributes,
+  type TransactionProvider,
+} from "../../src/index.js";
 
 /** True when the operator has opted into the live-Postgres integration suite. */
 export const RUN_INTEGRATION = process.env.PG_INTEGRATION === "1";
@@ -279,6 +286,8 @@ export interface SeedSpec {
   rowsPerLanguage: number;
   /** Distinct source ids per language (so the delete predicate is selective). */
   sourcesPerLanguage: number;
+  /** Attributes stamped on every seeded row (default: none, stored as `[]`). */
+  attributes?: AttributeInput[];
 }
 
 /**
@@ -288,6 +297,7 @@ export interface SeedSpec {
  */
 export async function seed(testDb: TestDb, spec: SeedSpec): Promise<void> {
   const db = new PostgresRagDatabase(testDb.provider);
+  const attributes = serializeAttributes(normalizeAttributes(spec.attributes ?? []));
   let n = 1;
   for (const language of spec.languages) {
     const chunks = [];
@@ -302,7 +312,7 @@ export async function seed(testDb: TestDb, spec: SeedSpec): Promise<void> {
         language,
         embedding: randomVector(n),
         metadata: "{}",
-        attributes: "[]",
+        attributes,
       });
       n++;
     }
