@@ -1,4 +1,14 @@
-import type { RagResult, RankedCandidate } from "./types.js";
+import { parseAttributes } from "./metadata/attributes.js";
+import type { AttributeOutput, RagResult, RankedCandidate } from "./types.js";
+
+/** Parse stored attribute JSON; malformed input yields [] (mirrors parseMetadata). */
+function safeParseAttributes(raw: string): AttributeOutput[] {
+  try {
+    return parseAttributes(raw);
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Parse a candidate's metadata JSON, falling back to {} on malformed or non-object input.
@@ -26,5 +36,6 @@ export function toRagResult(candidate: RankedCandidate, score: number): RagResul
     sourceId: candidate.sourceId,
     score,
     metadata: parseMetadata(candidate.metadata),
+    attributes: safeParseAttributes(candidate.attributes ?? "[]"),
   };
 }

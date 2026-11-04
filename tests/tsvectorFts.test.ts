@@ -79,7 +79,14 @@ describe("TsvectorFts", () => {
       synonyms: new Map(),
     });
     expect(res).toEqual([
-      { id: "chunk-1", content: "c", sourceType: "faq", sourceId: "1", metadata: "{}" },
+      {
+        id: "chunk-1",
+        content: "c",
+        sourceType: "faq",
+        sourceId: "1",
+        metadata: "{}",
+        attributes: "[]",
+      },
     ]);
   });
 });

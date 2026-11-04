@@ -5,7 +5,8 @@ import type {
   RagLogger,
   Segmenter,
 } from "./interfaces.js";
-import type { Chunk } from "./types.js";
+import { normalizeAttributes, serializeAttributes } from "./metadata/attributes.js";
+import type { AttributeInput, AttributeLimits, Chunk } from "./types.js";
 
 const noopLogger: RagLogger = {
   info: () => {},
@@ -21,6 +22,8 @@ export interface RagIndexerConfig {
   /** Optional word segmenter; applied AFTER the normalizer to content_normalized (Thai/CJK). */
   segmenter?: Segmenter;
   logger?: RagLogger;
+  /** Overrides for the per-article attribute limits (defaults: DEFAULT_ATTRIBUTE_LIMITS). */
+  attributeLimits?: Partial<AttributeLimits>;
 }
 
 export class RagIndexer {
@@ -30,8 +33,10 @@ export class RagIndexer {
   private normalizer?: Normalizer;
   private segmenter?: Segmenter;
   private logger: RagLogger;
+  private attributeLimits?: Partial<AttributeLimits>;
 
   constructor(config: RagIndexerConfig) {
+    this.attributeLimits = config.attributeLimits;
     this.tenantId = config.tenantId;
     this.db = config.db;
     this.embedder = config.embedder;
@@ -50,8 +55,15 @@ export class RagIndexer {
     sourceId: string,
     chunks: Chunk[],
     language = "en",
+    options: { attributes?: AttributeInput[] } = {},
   ): Promise<number> {
     if (chunks.length === 0) return 0;
+
+    // Validate/normalize once, before embedding, so bad attributes fail before any embedding cost.
+    // The same serialized string is stamped on every chunk row of the article.
+    const attributes = serializeAttributes(
+      normalizeAttributes(options.attributes ?? [], this.attributeLimits),
+    );
 
     // Embed all chunks
     const texts = chunks.map((c) => c.content);
@@ -88,6 +100,7 @@ export class RagIndexer {
           language: lang,
           embedding: embeddings[i],
           metadata: JSON.stringify(chunk.metadata),
+          attributes,
         };
       }),
     );

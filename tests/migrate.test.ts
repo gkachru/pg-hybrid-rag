@@ -152,6 +152,12 @@ describe("ragMigrate", () => {
     expect(appliedMigrations).toContain("013_normalization.sql");
   });
 
+  it("applies the attributes migration (017) by default", async () => {
+    const { client, appliedMigrations } = createMockClient();
+    await ragMigrate(client, { sqlDir });
+    expect(appliedMigrations).toContain("017_attributes.sql");
+  });
+
   it("applies the Arabic FTS migration (014) by default", async () => {
     const { client, appliedMigrations } = createMockClient();
     await ragMigrate(client, { sqlDir });

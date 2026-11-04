@@ -57,6 +57,19 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     expect(keywordLeg?.sql).toContain("SELECT id, content");
   });
 
+  it("every leg selects attributes::text AS attributes", async () => {
+    for (const opts of [{}, { cjk: true }]) {
+      const { txProvider, calls } = recordingTx();
+      await new PostgresRagDatabase(txProvider, opts).hybridSearch({
+        ...params,
+        language: "cjk" in opts ? "ja" : "en",
+      });
+      const legs = calls.filter((c) => c.sql.includes("FROM rag_documents"));
+      expect(legs.length).toBe(3);
+      for (const leg of legs) expect(leg.sql).toContain("attributes::text AS attributes");
+    }
+  });
+
   it("scores the CJK keyword leg by query-bigram coverage (show_bigm), not bigm_similarity", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider, { cjk: true }).hybridSearch({
@@ -350,6 +363,7 @@ describe("PostgresRagDatabase.insertChunks", () => {
     language: "en",
     embedding: [0.1, 0.2, 0.3],
     metadata: '{"k":"v"}',
+    attributes: '[{"k":"region"}]',
   };
 
   it("is a no-op for an empty chunk list (issues no query)", async () => {
@@ -363,11 +377,11 @@ describe("PostgresRagDatabase.insertChunks", () => {
     await new PostgresRagDatabase(txProvider).insertChunks("t1", [chunk]);
     expect(calls).toHaveLength(1);
     expect(calls[0].sql).toContain(
-      "INSERT INTO rag_documents (tenant_id, source_type, source_id, chunk_index, content, language, embedding, metadata, content_normalized)",
+      "INSERT INTO rag_documents (tenant_id, source_type, source_id, chunk_index, content, language, embedding, metadata, content_normalized, attributes)",
     );
   });
 
-  it("binds the 9 columns per chunk in order and serializes the embedding as a vector literal", async () => {
+  it("binds the 10 columns per chunk in order and serializes the embedding as a vector literal", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider).insertChunks("t1", [chunk]);
     expect(calls[0].params).toEqual([
@@ -380,9 +394,11 @@ describe("PostgresRagDatabase.insertChunks", () => {
       "[0.1,0.2,0.3]",
       '{"k":"v"}',
       "hello world",
+      '[{"k":"region"}]',
     ]);
-    // The embedding column carries the ::vector cast (7th of each row's 9 placeholders).
+    // The embedding column carries the ::vector cast (7th of each row's 10 placeholders).
     expect(calls[0].sql).toContain("$7::vector");
+    expect(calls[0].sql).toContain("$10::jsonb");
   });
 
   it("batches multiple chunks into one INSERT with sequential placeholders", async () => {
@@ -395,13 +411,13 @@ describe("PostgresRagDatabase.insertChunks", () => {
     };
     await new PostgresRagDatabase(txProvider).insertChunks("t1", [chunk, second]);
     expect(calls).toHaveLength(1);
-    expect(calls[0].params).toHaveLength(18); // 9 per chunk
-    expect(calls[0].params?.[15]).toBe("[0.4,0.5,0.6]"); // 2nd row embedding ($16)
+    expect(calls[0].params).toHaveLength(20); // 10 per chunk
+    expect(calls[0].params?.[16]).toBe("[0.4,0.5,0.6]"); // 2nd row embedding ($17)
     expect(calls[0].sql).toContain("$7::vector");
-    expect(calls[0].sql).toContain("$16::vector");
+    expect(calls[0].sql).toContain("$17::vector");
     const refs = referencedPlaceholders(calls[0].sql);
-    for (let n = 1; n <= 18; n++) expect(refs.has(n)).toBe(true);
-    for (const ref of refs) expect(ref).toBeLessThanOrEqual(18);
+    for (let n = 1; n <= 20; n++) expect(refs.has(n)).toBe(true);
+    for (const ref of refs) expect(ref).toBeLessThanOrEqual(20);
   });
 });
 
@@ -430,6 +446,7 @@ describe("PostgresRagDatabase.replaceSource", () => {
     language: "en",
     embedding: [0.1, 0.2, 0.3],
     metadata: '{"k":"v"}',
+    attributes: '[{"k":"region"}]',
   };
 
   it("emits BEGIN, DELETE, INSERT, COMMIT on one client in order (DELETE before INSERT, both in txn)", async () => {

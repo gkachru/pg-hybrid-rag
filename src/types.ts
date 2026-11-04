@@ -11,6 +11,8 @@ export interface RagResult {
   sourceId: string | null;
   score: number;
   metadata: Record<string, string>;
+  /** Typed attributes stored with the article; `[]` when there are none. */
+  attributes: AttributeOutput[];
 }
 
 /** Options for RAG search. */
@@ -107,6 +109,8 @@ export interface RankedCandidate {
   sourceType: string;
   sourceId: string | null;
   metadata: string;
+  /** Raw attribute JSON text (`attributes::text`); absent on candidates built without it. */
+  attributes?: string;
   /**
    * Per-leg relevance score from the producing SQL (vector cosine, trgm word_similarity,
    * bigm coverage, ts_rank_cd, or bm25). Optional: RRF ignores it (rank-only), linear fusion

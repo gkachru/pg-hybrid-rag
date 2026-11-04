@@ -75,7 +75,7 @@ function buildTrigramKeywordSql(params: HybridSearchParams): KeywordLegSql {
   const baseParams: unknown[] = [params.tenantId, params.query, params.candidateLimit];
   const f = buildFilters(params, 4);
   const sql = `
-          SELECT id, content, source_type, source_id, metadata,
+          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,
                  word_similarity($2, content_normalized) as score
           FROM rag_documents
           WHERE tenant_id = $1
@@ -119,8 +119,8 @@ function buildBigmCoverageKeywordSql(params: HybridSearchParams): KeywordLegSql 
           WITH q AS (
             SELECT ARRAY(SELECT b FROM unnest(show_bigm($2)) AS b WHERE b NOT LIKE '% %') AS qb
           )
-          SELECT id, content, source_type, source_id, metadata, score FROM (
-            SELECT id, content, source_type, source_id, metadata,
+          SELECT id, content, source_type, source_id, metadata, attributes, score FROM (
+            SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,
                    cardinality(ARRAY(SELECT unnest(q.qb)
                                      INTERSECT
                                      SELECT unnest(show_bigm(content))))::float
@@ -194,7 +194,7 @@ export class PostgresRagDatabase implements RagDatabase {
         ];
         const f = buildFilters(params, 5);
         const sql = `
-          SELECT id, content, source_type, source_id, metadata,
+          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,
                  1 - (embedding <=> $2::vector) as score
           FROM rag_documents
           WHERE tenant_id = $1
@@ -326,6 +326,7 @@ export class PostgresRagDatabase implements RagDatabase {
       language: string;
       embedding: number[];
       metadata: string;
+      attributes: string;
     }>,
   ): { sql: string; params: unknown[] } {
     const params: unknown[] = [];
@@ -344,14 +345,15 @@ export class PostgresRagDatabase implements RagDatabase {
         embeddingStr,
         chunk.metadata,
         chunk.contentNormalized,
+        chunk.attributes,
       );
       valueClauses.push(
-        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}::vector, $${offset + 8}, $${offset + 9})`,
+        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}::vector, $${offset + 8}, $${offset + 9}, $${offset + 10}::jsonb)`,
       );
     }
 
     return {
-      sql: `INSERT INTO rag_documents (tenant_id, source_type, source_id, chunk_index, content, language, embedding, metadata, content_normalized)
+      sql: `INSERT INTO rag_documents (tenant_id, source_type, source_id, chunk_index, content, language, embedding, metadata, content_normalized, attributes)
          VALUES ${valueClauses.join(", ")}`,
       params,
     };
@@ -368,6 +370,7 @@ export class PostgresRagDatabase implements RagDatabase {
       language: string;
       embedding: number[];
       metadata: string;
+      attributes: string;
     }>,
   ): Promise<void> {
     if (chunks.length === 0) return;
@@ -405,6 +408,7 @@ export class PostgresRagDatabase implements RagDatabase {
       language: string;
       embedding: number[];
       metadata: string;
+      attributes: string;
     }>,
   ): Promise<void> {
     return this.txProvider.withConnection(async (client) => {

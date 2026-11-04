@@ -55,7 +55,14 @@ describe("toRankedCandidate", () => {
         source_id: null,
         metadata: null,
       }),
-    ).toEqual({ id: "chunk-1", content: "c", sourceType: "faq", sourceId: null, metadata: "{}" });
+    ).toEqual({
+      id: "chunk-1",
+      content: "c",
+      sourceType: "faq",
+      sourceId: null,
+      metadata: "{}",
+      attributes: "[]",
+    });
   });
 
   it("preserves existing metadata", () => {
@@ -73,6 +80,7 @@ describe("toRankedCandidate", () => {
       sourceType: "faq",
       sourceId: "1",
       metadata: '{"a":"b"}',
+      attributes: "[]",
     });
   });
 

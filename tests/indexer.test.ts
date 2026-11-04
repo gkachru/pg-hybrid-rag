@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { RagDatabase } from "../src/interfaces.js";
+import { AttributeValidationError } from "../src/metadata/attributes.js";
 import { RagIndexer } from "../src/RagIndexer.js";
 
 let capturedEmbedTexts: string[] = [];
@@ -234,5 +235,39 @@ describe("RagIndexer", () => {
     await indexer.index("faq", "f-1", [{ index: 0, content: "x", metadata: {} }], "th");
     const rows = capturedInsertChunks as Array<Record<string, unknown>>;
     expect(rows[0].contentNormalized).toBe("N:x>S"); // fold first, then segment
+  });
+});
+
+describe("RagIndexer attributes", () => {
+  const mk = () => new RagIndexer({ tenantId: "t-1", db: mockDb, embedder: mockEmbedder });
+  const chunks = [
+    { index: 0, content: "one", metadata: {} },
+    { index: 1, content: "two", metadata: {} },
+  ];
+
+  it("stamps the same serialized attributes on every row", async () => {
+    await mk().index("faq", "f-1", chunks, "en", {
+      attributes: [{ key: "region", type: "string", value: "EU" }],
+    });
+    const rows = capturedInsertChunks as Array<{ attributes: string }>;
+    expect(rows).toHaveLength(2);
+    expect(rows[0].attributes).toBe(rows[1].attributes);
+    expect(rows[0].attributes).toContain('"k":"region"');
+  });
+
+  it('passes "[]" when no attributes are given', async () => {
+    await mk().index("faq", "f-1", chunks);
+    const rows = capturedInsertChunks as Array<{ attributes: string }>;
+    expect(rows.every((r) => r.attributes === "[]")).toBe(true);
+  });
+
+  it("rejects invalid attributes before embedding anything", async () => {
+    mockEmbedder.embedDocuments.mockClear();
+    await expect(
+      mk().index("faq", "f-1", chunks, "en", {
+        attributes: [{ key: "n", type: "number", value: "not-a-number" } as never],
+      }),
+    ).rejects.toBeInstanceOf(AttributeValidationError);
+    expect(mockEmbedder.embedDocuments).not.toHaveBeenCalled();
   });
 });

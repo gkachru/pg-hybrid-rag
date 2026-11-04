@@ -31,7 +31,7 @@ export class Bm25Fts implements FtsStrategy {
     // the tsvector source) — the lexical query reaching ctx.query is normalized the same way, so
     // e.g. Arabic taa-marbuta/alef variants align. Raw `content` is still SELECTed for display.
     const sql = `
-          SELECT id, content, source_type, source_id, metadata,
+          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,
                  -(content_normalized <@> to_bm25query($2, '${idxName}')) as score
           FROM rag_documents
           WHERE tenant_id = $1

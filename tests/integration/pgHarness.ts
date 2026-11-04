@@ -302,6 +302,7 @@ export async function seed(testDb: TestDb, spec: SeedSpec): Promise<void> {
         language,
         embedding: randomVector(n),
         metadata: "{}",
+        attributes: "[]",
       });
       n++;
     }
