@@ -42,6 +42,31 @@ describe("normalizeAttributes", () => {
     ).toThrow(AttributeValidationError);
   });
 
+  it("rejects impossible datetimes instead of rolling them over", () => {
+    for (const value of ["2026-02-30T00:00:00Z", "2026-03-15T24:00:00Z", "2026-03-15T10:60:00Z"]) {
+      expect(() => normalizeAttributes([{ key: "at", type: "datetime", value }])).toThrow(
+        AttributeValidationError,
+      );
+    }
+    const [e] = normalizeAttributes([
+      { key: "at", type: "datetime", value: "2026-03-15T23:30:00-05:00" },
+    ]);
+    expect(e?.v).toBe("2026-03-16T04:30:00.000Z");
+  });
+
+  it("rejects duplicate (ns, key), treating omitted ns as global", () => {
+    try {
+      normalizeAttributes([
+        { key: "a", type: "boolean", value: true },
+        { ns: "global", key: "a", type: "boolean", value: false },
+      ]);
+      throw new Error("did not throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AttributeValidationError);
+      expect((err as AttributeValidationError).issues.join()).toContain("global/a");
+    }
+  });
+
   it("treats explicit ns global like omitted ns", () => {
     const a = normalizeAttributes([{ ns: "global", key: "k", type: "boolean", value: true }]);
     const b = normalizeAttributes([{ key: "k", type: "boolean", value: true }]);

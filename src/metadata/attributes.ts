@@ -20,7 +20,8 @@ const DECIMAL_RE = /^-?(0|[1-9]\d*)(\.\d+)?$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const DATETIME_ZONE_RE = /^\d{4}-\d{2}-\d{2}T.*(Z|[+-]\d{2}:?\d{2})$/i;
+const DATETIME_RE =
+  /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-](\d{2}):?(\d{2}))$/i;
 
 const FORMATS_BY_TYPE: Record<AttributeType, readonly AttributeFormat[]> = {
   string: ["text", "email", "url", "phone", "enum"],
@@ -61,8 +62,19 @@ export function isValidDate(s: string): boolean {
 
 /** Normalize a zoned datetime to UTC ISO. Throws on naive (no `Z`/offset) or invalid input. */
 export function normalizeDatetime(s: string): string {
-  if (!DATETIME_ZONE_RE.test(s)) {
-    throw new Error(`datetime "${s}" needs a timezone (Z or offset)`);
+  const m = DATETIME_RE.exec(s);
+  if (!m) throw new Error(`datetime "${s}" needs a timezone (Z or offset) and valid format`);
+  const [, date, hh, mm, ss, oh, om] = m;
+  const inRange = (v: string | undefined, max: number) => v === undefined || Number(v) <= max;
+  if (
+    !isValidDate(date as string) ||
+    !inRange(hh, 23) ||
+    !inRange(mm, 59) ||
+    !inRange(ss, 59) ||
+    !inRange(oh, 23) ||
+    !inRange(om, 59)
+  ) {
+    throw new Error(`datetime "${s}" is not valid`);
   }
   const t = new Date(s).getTime();
   if (Number.isNaN(t)) throw new Error(`datetime "${s}" is not valid`);
@@ -151,6 +163,7 @@ export function normalizeAttributes(
   const lim: AttributeLimits = { ...DEFAULT_ATTRIBUTE_LIMITS, ...limits };
   const issues: string[] = [];
   const out: StoredAttributeEntry[] = [];
+  const seen = new Set<string>();
 
   if (input.length > lim.maxAttributes) {
     issues.push(`too many attributes (${input.length} > ${lim.maxAttributes})`);
@@ -176,6 +189,13 @@ export function normalizeAttributes(
     }
     if (a.multi && a.format !== "enum") issues.push(`${label}: multi is only valid with enum`);
     if (issues.length > before) return;
+
+    const dupKey = JSON.stringify([ns, a.key]);
+    if (seen.has(dupKey)) {
+      issues.push(`duplicate attribute ${ns}/${a.key}; give multiple values as a list`);
+      return;
+    }
+    seen.add(dupKey);
 
     const id = `${ns}.${a.key}`;
     const isList = Array.isArray(a.value);
