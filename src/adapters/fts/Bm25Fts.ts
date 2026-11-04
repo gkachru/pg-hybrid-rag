@@ -14,6 +14,8 @@ import { bm25IndexName, bm25LanguagePredicate } from "./bm25LanguageGroups.js";
  * Requires migrations 011 + 015 + shared_preload_libraries includes 'pg_textsearch'.
  */
 export class Bm25Fts implements FtsStrategy {
+  readonly supportsAttributeFilters = true;
+
   async search(client: SqlClient, ctx: FtsContext): Promise<RankedCandidate[]> {
     const bm25Query = buildBm25Query(ctx.query, ctx.synonyms);
     if (!bm25Query) return [];

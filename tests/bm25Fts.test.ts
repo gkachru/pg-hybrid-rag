@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Bm25Fts } from "../src/adapters/fts/Bm25Fts.js";
 import type { SqlClient } from "../src/interfaces.js";
+import { assertValidFilter } from "../src/metadata/filterSchema.js";
 
 function capturingClient(rows: Record<string, unknown>[] = []) {
   const calls: Array<{ sql: string; params: unknown[] }> = [];
@@ -107,5 +108,25 @@ describe("Bm25Fts", () => {
     });
     expect(res).toEqual([]);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("Bm25Fts attribute filter", () => {
+  const f = assertValidFilter({ key: "region", op: "equals", value: "eu" });
+
+  it("declares attribute-filter support", () => {
+    expect(new Bm25Fts().supportsAttributeFilters).toBe(true);
+  });
+
+  it("applies the filter after the base params", async () => {
+    const { client, calls } = capturingClient();
+    await new Bm25Fts().search(client, {
+      ...base,
+      query: "phones",
+      synonyms: new Map(),
+      attributeFilter: f,
+    });
+    expect(calls[0].sql).toContain("attributes @> $4::jsonb");
+    expect(calls[0].params).toEqual(["t1", "phones", 10, '[{"k":"region","t":"string","l":"eu"}]']);
   });
 });

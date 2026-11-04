@@ -17,9 +17,9 @@ export type { PostgresRagDatabaseOptions } from "./adapters/PostgresRagDatabase.
 export { PostgresRagDatabase } from "./adapters/PostgresRagDatabase.js";
 export type { BuiltFilters, SearchFilters } from "./adapters/sqlHelpers.js";
 export { buildFilters, toRankedCandidate } from "./adapters/sqlHelpers.js";
-
-// Core
 export { Chunker, type ChunkerConfig } from "./Chunker.js";
+// Core
+export { AttributeFiltersUnsupportedError } from "./errors.js";
 // Interfaces
 export type {
   ChunkingProvider,

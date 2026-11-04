@@ -1,3 +1,4 @@
+import { AttributeFiltersUnsupportedError } from "../errors.js";
 import type {
   FtsStrategy,
   RagDatabase,
@@ -167,11 +168,24 @@ export class PostgresRagDatabase implements RagDatabase {
     this.segmenter = options?.segmenter;
   }
 
+  /** True when the configured FTS strategy can apply attribute filters (the other legs always can). */
+  get supportsAttributeFilters(): boolean {
+    return this.fts.supportsAttributeFilters === true;
+  }
+
   async hybridSearch(params: HybridSearchParams): Promise<{
     vectorRows: RankedCandidate[];
     keywordRows: RankedCandidate[];
     ftsRows: RankedCandidate[];
   }> {
+    // Fail closed: never run a filtered search where one leg would ignore the filter.
+    if (params.attributeFilter && !this.supportsAttributeFilters) {
+      throw new AttributeFiltersUnsupportedError(
+        "The configured FTS strategy does not support attribute filters " +
+          "(set supportsAttributeFilters = true once it applies FtsContext.attributeFilter).",
+      );
+    }
+
     const useBigm =
       this.cjk &&
       CJK_LANGUAGES.has(params.language) &&
@@ -233,6 +247,7 @@ export class PostgresRagDatabase implements RagDatabase {
           sourceTypes: params.sourceTypes,
           sourceIds: params.sourceIds,
           languages: params.languages,
+          attributeFilter: params.attributeFilter,
         }),
       ),
     ]);

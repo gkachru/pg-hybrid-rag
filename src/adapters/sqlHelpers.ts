@@ -1,3 +1,5 @@
+import { compileAttributeFilter } from "../metadata/compileFilter.js";
+import type { ValidatedFilter } from "../metadata/filterSchema.js";
 import type { RankedCandidate } from "../types.js";
 
 /** The optional result filters shared by all search legs. */
@@ -5,6 +7,8 @@ export interface SearchFilters {
   sourceTypes?: string[];
   sourceIds?: string[];
   languages?: string[];
+  /** Validated typed-attribute filter, compiled to a parameterized `attributes @>` clause. */
+  attributeFilter?: ValidatedFilter;
 }
 
 export interface BuiltFilters {
@@ -58,6 +62,11 @@ export function buildFilters(filters: SearchFilters, startIdx: number): BuiltFil
     clauses.push(`AND language = ANY(string_to_array($${idx}::text, ','))`);
     params.push(joinFilterValues("languages", filters.languages));
     idx++;
+  }
+  if (filters.attributeFilter) {
+    const attr = compileAttributeFilter(filters.attributeFilter, idx);
+    clauses.push(attr.clause);
+    params.push(...attr.params);
   }
 
   return { clause: clauses.join("\n            "), params };

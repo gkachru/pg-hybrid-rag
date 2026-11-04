@@ -1,3 +1,4 @@
+import type { ValidatedFilter } from "./metadata/filterSchema.js";
 import type {
   Chunk,
   HybridSearchParams,
@@ -80,6 +81,13 @@ export interface RerankerProvider {
 
 /** Database adapter for RAG search operations. */
 export interface RagDatabase {
+  /**
+   * True when this adapter applies `HybridSearchParams.attributeFilter` inside every search leg.
+   * Optional so existing custom implementations still compile; absent means unsupported and the
+   * pipeline rejects filtered searches rather than silently ignoring the filter.
+   */
+  readonly supportsAttributeFilters?: boolean;
+
   /** Execute the 3-way hybrid search (vector + keyword + FTS). */
   hybridSearch(params: HybridSearchParams): Promise<{
     vectorRows: RankedCandidate[];
@@ -144,6 +152,8 @@ export interface FtsContext {
   sourceTypes?: string[];
   sourceIds?: string[];
   languages?: string[];
+  /** Already-validated attribute filter the strategy must apply in its SQL. */
+  attributeFilter?: ValidatedFilter;
 }
 
 /**
@@ -151,6 +161,8 @@ export interface FtsContext {
  * AND the FTS-leg SQL. Injected into PostgresRagDatabase (default: TsvectorFts).
  */
 export interface FtsStrategy {
+  /** True when `search` honors `FtsContext.attributeFilter`. Absent means unsupported. */
+  readonly supportsAttributeFilters?: boolean;
   /** Run the FTS leg against one connection and return ranked candidates (best first). */
   search(client: SqlClient, ctx: FtsContext): Promise<RankedCandidate[]>;
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { buildFilters, toRankedCandidate } from "../src/adapters/sqlHelpers.js";
+import { assertValidFilter } from "../src/metadata/filterSchema.js";
 
 describe("buildFilters", () => {
   it("returns empty clause + params when no filters are set", () => {
@@ -105,5 +106,23 @@ describe("toRankedCandidate", () => {
       metadata: "{}",
     });
     expect("score" in c).toBe(false);
+  });
+});
+
+describe("buildFilters attributeFilter", () => {
+  const f = assertValidFilter({ key: "region", op: "equals", value: "eu" });
+
+  it("appends the attribute clause after the languages clause, continuing numbering", () => {
+    const built = buildFilters({ languages: ["en"], attributeFilter: f }, 5);
+    expect(built.clause).toContain("language = ANY(string_to_array($5::text, ','))");
+    expect(built.clause).toContain("attributes @> $6::jsonb");
+    expect(built.clause.indexOf("language =")).toBeLessThan(built.clause.indexOf("attributes @>"));
+    expect(built.params).toEqual(["en", '[{"k":"region","t":"string","l":"eu"}]']);
+  });
+
+  it("starts the attribute clause at startIdx when no other filters are set", () => {
+    const built = buildFilters({ attributeFilter: f }, 4);
+    expect(built.clause).toContain("attributes @> $4::jsonb");
+    expect(built.params).toHaveLength(1);
   });
 });

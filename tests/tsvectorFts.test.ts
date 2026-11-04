@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { TsvectorFts } from "../src/adapters/fts/TsvectorFts.js";
 import type { SqlClient } from "../src/interfaces.js";
+import { assertValidFilter } from "../src/metadata/filterSchema.js";
 import type { SynonymLookup } from "../src/types.js";
 
 function makeLookup(
@@ -87,6 +88,32 @@ describe("TsvectorFts", () => {
         metadata: "{}",
         attributes: "[]",
       },
+    ]);
+  });
+});
+
+describe("TsvectorFts attribute filter", () => {
+  const f = assertValidFilter({ key: "region", op: "equals", value: "eu" });
+
+  it("declares attribute-filter support", () => {
+    expect(new TsvectorFts().supportsAttributeFilters).toBe(true);
+  });
+
+  it("applies the filter after the base params", async () => {
+    const { client, calls } = capturingClient();
+    await new TsvectorFts().search(client, {
+      ...base,
+      query: "phones",
+      synonyms: new Map(),
+      attributeFilter: f,
+    });
+    expect(calls[0].sql).toContain("attributes @> $5::jsonb");
+    expect(calls[0].params).toEqual([
+      "t1",
+      "phones",
+      10,
+      "en",
+      '[{"k":"region","t":"string","l":"eu"}]',
     ]);
   });
 });

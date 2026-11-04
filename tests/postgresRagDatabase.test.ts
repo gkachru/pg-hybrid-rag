@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
+import { Bm25Fts } from "../src/adapters/fts/Bm25Fts.js";
 import { PostgresRagDatabase } from "../src/adapters/PostgresRagDatabase.js";
+import { AttributeFiltersUnsupportedError } from "../src/errors.js";
 import type { FtsContext, FtsStrategy, SqlClient, TransactionProvider } from "../src/interfaces.js";
+import { assertValidFilter } from "../src/metadata/filterSchema.js";
 import type { HybridSearchParams } from "../src/types.js";
 
 function recordingTx() {
@@ -627,5 +630,127 @@ describe("PostgresRagDatabase tuned-leg error handling", () => {
       true,
     );
     expect(calls).not.toContain("ROLLBACK"); // consumer's transaction owns rollback
+  });
+});
+
+/**
+ * Literal snapshot of each leg's SQL + params with NO attribute filter, captured from the code
+ * BEFORE attribute filters were wired in. Asserting equality proves the no-filter path is
+ * byte-identical.
+ */
+const NO_FILTER_SNAPSHOT: Record<string, Array<{ sql: string; params: unknown[] }>> = {
+  default: [
+    {
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)\n            \n          ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC\n          LIMIT $3\n        ",
+      params: ["t1", "phones", 10, "en"],
+    },
+    {
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 1 - (embedding <=> $2::vector) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND 1 - (embedding <=> $2::vector) >= $3\n            \n          ORDER BY embedding <=> $2::vector\n          LIMIT $4\n        ",
+      params: ["t1", "[0.1,0.2]", 0.8, 10],
+    },
+    {
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 word_similarity($2, content_normalized) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND $2 <% content_normalized\n            \n          ORDER BY word_similarity($2, content_normalized) DESC\n          LIMIT $3\n        ",
+      params: ["t1", "phones", 10],
+    },
+  ],
+  cjk: [
+    {
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)\n            \n          ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC\n          LIMIT $3\n        ",
+      params: ["t1", "phones", 10, "ja"],
+    },
+    {
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 1 - (embedding <=> $2::vector) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND 1 - (embedding <=> $2::vector) >= $3\n            \n          ORDER BY embedding <=> $2::vector\n          LIMIT $4\n        ",
+      params: ["t1", "[0.1,0.2]", 0.8, 10],
+    },
+    {
+      sql: "\n          WITH q AS (\n            SELECT ARRAY(SELECT b FROM unnest(show_bigm($2)) AS b WHERE b NOT LIKE '% %') AS qb\n          )\n          SELECT id, content, source_type, source_id, metadata, attributes, score FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                   cardinality(ARRAY(SELECT unnest(q.qb)\n                                     INTERSECT\n                                     SELECT unnest(show_bigm(content))))::float\n                     / NULLIF(cardinality(q.qb), 0) AS score\n            FROM rag_documents, q\n            WHERE tenant_id = $1\n              AND content =% $2\n              \n          ) c\n          WHERE score >= $4\n          ORDER BY score DESC\n          LIMIT $3\n        ",
+      params: ["t1", "phones", 10, 0.35],
+    },
+  ],
+  bm25: [
+    {
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 -(content_normalized <@> to_bm25query($2, 'idx_rag_bm25_en')) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND language IN ('en', 'en-US', 'en-IN')\n            \n          ORDER BY content_normalized <@> to_bm25query($2, 'idx_rag_bm25_en')\n          LIMIT $3\n        ",
+      params: ["t1", "phones", 10],
+    },
+    {
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 1 - (embedding <=> $2::vector) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND 1 - (embedding <=> $2::vector) >= $3\n            \n          ORDER BY embedding <=> $2::vector\n          LIMIT $4\n        ",
+      params: ["t1", "[0.1,0.2]", 0.8, 10],
+    },
+    {
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 word_similarity($2, content_normalized) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND $2 <% content_normalized\n            \n          ORDER BY word_similarity($2, content_normalized) DESC\n          LIMIT $3\n        ",
+      params: ["t1", "phones", 10],
+    },
+  ],
+};
+
+const attrFilter = assertValidFilter({ key: "region", op: "equals", value: "eu" });
+
+describe("PostgresRagDatabase attribute filters", () => {
+  for (const [name, opts, lang] of [
+    ["default", () => ({}), "en"],
+    ["cjk", () => ({ cjk: true }), "ja"],
+    ["bm25", () => ({ fts: new Bm25Fts() }), "en"],
+  ] as const) {
+    it(`no-filter SQL + params are unchanged (${name})`, async () => {
+      const { txProvider, calls } = recordingTx();
+      await new PostgresRagDatabase(txProvider, opts()).hybridSearch({ ...params, language: lang });
+      const legs = calls
+        .filter((c) => c.sql.includes("FROM rag_documents"))
+        .map((c) => ({ sql: c.sql, params: c.params }));
+      expect(legs).toEqual(NO_FILTER_SNAPSHOT[name]);
+    });
+
+    it(`every leg applies the attribute filter (${name})`, async () => {
+      const { txProvider, calls } = recordingTx();
+      await new PostgresRagDatabase(txProvider, opts()).hybridSearch({
+        ...params,
+        language: lang,
+        attributeFilter: attrFilter,
+      });
+      const legs = calls.filter((c) => c.sql.includes("FROM rag_documents"));
+      expect(legs.length).toBe(3);
+      for (const leg of legs) {
+        expect(leg.sql).toContain("attributes @>");
+        expect(leg.params).toContain('[{"k":"region","t":"string","l":"eu"}]');
+        const refs = referencedPlaceholders(leg.sql);
+        expect(Math.max(...refs)).toBe(leg.params.length);
+      }
+    });
+  }
+
+  it("rejects with AttributeFiltersUnsupportedError when the FTS strategy lacks the flag", async () => {
+    const { txProvider, calls } = recordingTx();
+    const fts: FtsStrategy = { search: async () => [] };
+    const db = new PostgresRagDatabase(txProvider, { fts });
+    expect(db.supportsAttributeFilters).toBe(false);
+    await expect(
+      db.hybridSearch({ ...params, attributeFilter: attrFilter }),
+    ).rejects.toBeInstanceOf(AttributeFiltersUnsupportedError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("supportsAttributeFilters is true for the built-in strategies", () => {
+    const { txProvider } = recordingTx();
+    expect(new PostgresRagDatabase(txProvider).supportsAttributeFilters).toBe(true);
+    expect(
+      new PostgresRagDatabase(txProvider, { fts: new Bm25Fts() }).supportsAttributeFilters,
+    ).toBe(true);
+  });
+
+  it("a custom FtsStrategy with the flag receives attributeFilter in its context", async () => {
+    const { txProvider } = recordingTx();
+    let seen: FtsContext | undefined;
+    const fts: FtsStrategy = {
+      supportsAttributeFilters: true,
+      search: async (_c, ctx) => {
+        seen = ctx;
+        return [];
+      },
+    };
+    await new PostgresRagDatabase(txProvider, { fts }).hybridSearch({
+      ...params,
+      attributeFilter: attrFilter,
+    });
+    expect(seen?.attributeFilter).toBe(attrFilter);
   });
 });

@@ -1,3 +1,4 @@
+import { AttributeFiltersUnsupportedError } from "./errors.js";
 import type {
   EmbeddingProvider,
   Normalizer,
@@ -11,6 +12,7 @@ import type {
   SynonymProvider,
 } from "./interfaces.js";
 import { applyLinearFusion } from "./linearFusion.js";
+import { assertValidFilter } from "./metadata/filterSchema.js";
 import { stripTrailingPunctuation } from "./punctuation.js";
 import { applyRRF } from "./rrf.js";
 import { removeStopWords } from "./stopWords.js";
@@ -39,6 +41,7 @@ const DEFAULTS = {
   | "language"
   | "normalizer"
   | "rerankCandidates"
+  | "filter"
 >;
 
 const noopSpan: RagSpan = {
@@ -117,6 +120,15 @@ export class RagPipeline {
           );
         }
         span.setAttribute("language", queryLanguage);
+
+        // Fail closed on attribute filters, before any embedding/DB work: an invalid filter
+        // throws FilterValidationError, and a db that cannot apply it in every leg must not
+        // silently return unfiltered results.
+        const attributeFilter =
+          opts.filter !== undefined ? assertValidFilter(opts.filter) : undefined;
+        if (attributeFilter && this.db.supportsAttributeFilters !== true) {
+          throw new AttributeFiltersUnsupportedError();
+        }
 
         // Auto-load merged stop words for the tenant (uses cached Set when available)
         let allStopWords: Set<string>;
@@ -221,6 +233,7 @@ export class RagPipeline {
               sourceTypes: opts.sourceTypes,
               sourceIds: opts.sourceIds,
               languages: opts.languages,
+              attributeFilter,
             });
           } finally {
             dbSpan.end();

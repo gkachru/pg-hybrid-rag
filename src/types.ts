@@ -1,3 +1,5 @@
+import type { ValidatedFilter } from "./metadata/filterSchema.js";
+
 /** Fusion method for combining the search legs. */
 export type FusionMethod = "rrf" | "linear";
 
@@ -52,6 +54,12 @@ export interface RagSearchOptions {
    * language for FTS stemming.
    */
   languages?: string[];
+  /**
+   * Filter results by typed article attributes. Validated before any embedding/DB work; an invalid
+   * filter throws `FilterValidationError`, and a database that cannot apply it in every search leg
+   * throws `AttributeFiltersUnsupportedError` (fail closed).
+   */
+  filter?: FilterExpression;
   /** Drop results scoring below this fraction of the top result (0–1). */
   minRelevance?: number;
   /**
@@ -132,6 +140,8 @@ export interface HybridSearchParams {
   sourceTypes?: string[];
   sourceIds?: string[];
   languages?: string[];
+  /** Already-validated attribute filter; applied inside every search leg. */
+  attributeFilter?: ValidatedFilter;
 }
 
 /** Row from stop_words table. */

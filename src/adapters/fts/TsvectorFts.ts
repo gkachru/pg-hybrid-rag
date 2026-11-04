@@ -8,6 +8,8 @@ import { buildFilters, toRankedCandidate } from "../sqlHelpers.js";
  * via rag_fts_config(). Preserves the original PostgresRagDatabase FTS-leg behavior.
  */
 export class TsvectorFts implements FtsStrategy {
+  readonly supportsAttributeFilters = true;
+
   async search(client: SqlClient, ctx: FtsContext): Promise<RankedCandidate[]> {
     const ftsQueryStr = buildFtsQuery(ctx.query, ctx.synonyms);
     // buildFtsQuery is the sole producer of ftsQueryStr, so we infer "this is a

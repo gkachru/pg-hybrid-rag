@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { AttributeFiltersUnsupportedError } from "../src/errors.js";
 import type { RagDatabase, RerankerProvider, Segmenter } from "../src/interfaces.js";
+import { assertValidFilter, FilterValidationError } from "../src/metadata/filterSchema.js";
 import { RagPipeline } from "../src/RagPipeline.js";
 import type { RagResult } from "../src/types.js";
 
@@ -694,5 +696,50 @@ describe("RagPipeline", () => {
     expect(lastSearchParams.query).toBe("กขค งจฉ");
     // The dense embedding sees the natural, unsegmented query.
     expect(mockEmbedQuery).toHaveBeenCalledWith("กขคงจฉ");
+  });
+});
+
+describe("RagPipeline explicit attribute filter", () => {
+  const supportingDb = (): RagDatabase =>
+    Object.assign({}, mockDb, { supportsAttributeFilters: true as const });
+  const mk = (db: RagDatabase) =>
+    new RagPipeline({ tenantId: "tenant-1", db, embedder: mockEmbedder });
+  const goodFilter = { key: "region", op: "equals", value: "EU" } as const;
+
+  beforeEach(() => {
+    lastSearchParams = {};
+    mockEmbedQuery.mockClear();
+    (mockDb.hybridSearch as ReturnType<typeof mock>).mockClear();
+  });
+
+  it("rejects an invalid filter with FilterValidationError before embedding", async () => {
+    const p = mk(supportingDb());
+    await expect(
+      p.search("q", {
+        language: "en",
+        filter: { key: "region", op: "bogus", value: "x" } as never,
+      }),
+    ).rejects.toBeInstanceOf(FilterValidationError);
+    expect(mockEmbedQuery).not.toHaveBeenCalled();
+    expect(mockDb.hybridSearch).not.toHaveBeenCalled();
+  });
+
+  it("rejects with AttributeFiltersUnsupportedError when the db lacks the flag", async () => {
+    const p = mk(mockDb);
+    await expect(p.search("q", { language: "en", filter: goodFilter })).rejects.toBeInstanceOf(
+      AttributeFiltersUnsupportedError,
+    );
+    expect(mockEmbedQuery).not.toHaveBeenCalled();
+    expect(mockDb.hybridSearch).not.toHaveBeenCalled();
+  });
+
+  it("passes a validated filter to hybridSearch as attributeFilter", async () => {
+    await mk(supportingDb()).search("q", { language: "en", filter: goodFilter });
+    expect(lastSearchParams.attributeFilter).toEqual(assertValidFilter(goodFilter));
+  });
+
+  it("omits attributeFilter when no filter is given", async () => {
+    await mk(mockDb).search("q", { language: "en" });
+    expect(lastSearchParams.attributeFilter).toBeUndefined();
   });
 });
