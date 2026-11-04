@@ -395,10 +395,29 @@ For local development, `examples/docker-compose.yml` builds a ready-to-use image
 
 #### VectorChord (`vchordrq`) — faster vector index
 
-VectorChord replaces the default IVFFlat index with a `vchordrq` (RaBitQ-quantized graph) index, giving significantly faster approximate nearest-neighbor search at high recall. No application code changes are needed — it keeps the same `<=>` cosine operator.
+VectorChord replaces the default IVFFlat index with a `vchordrq` index. It stores RaBitQ-quantized vectors, optionally IVF-partitioned, and reranks candidates on full-precision vectors. No application code changes are needed: it keeps the same `<=>` cosine operator. VectorChord's graph index is a separate type, `vchordg`, which this library doesn't use.
+
+The migration builds vchordrq **without IVF partitions**, so every search scans all quantized vectors. Whether that's faster than the alternatives depends on corpus size and dimension. In local measurements on vchord 0.4.3:
+- **1,380 real 1024-dim bge-m3 vectors:** recall@10 was 1.000, and queries took about 1 ms, versus about 6 ms for an exact sequential scan.
+- **400k random 384-dim vectors:** queries took about 340 ms, slower than a sequential scan at about 78 ms.
+
+For large corpora, an IVF-partitioned build is what keeps latency flat. It costs some recall, which you tune with `vchordrq.probes`. Benchmark on your own data before switching:
+
+```sql
+CREATE INDEX idx_rag_embedding_vchordrq ON rag_documents
+  USING vchordrq (embedding vector_cosine_ops) WITH (options = $$
+[build.internal]
+lists = [1000]
+$$);
+-- per query: SET vchordrq.probes = '10';  (only valid with lists; a flat index needs probes unset)
+```
 
 **Step 1 — install the extension.**
-Use the [`tensorchord/vchord-postgres`](https://github.com/tensorchord/VectorChord) Docker image (ships pgvector + vchord), or install the `.deb`/`.rpm` from the VectorChord releases page into your existing Postgres.
+Install the `.deb`/`.rpm` from the [VectorChord releases page](https://github.com/tensorchord/VectorChord/releases) into your existing Postgres. Make sure pgvector is **0.8.7 or later**: pgvector ≤ 0.8.6 has an IVFFlat index-build buffer overflow ([pgvector#1036](https://github.com/pgvector/pgvector/issues/1036)).
+
+Avoid the prebuilt `tensorchord/vchord-postgres` image for now. Its newest tag (`pg17-v1.1.1`) still bundles pgvector 0.8.2. Instead, start from `pgvector/pgvector:0.8.7-pg17-bookworm` and add the vchord `.deb`, as `examples/Dockerfile` does.
+
+> **Upgrading vchord on an existing database:** vchordrq's on-disk index format changes between releases (for example, 0.4.x → 1.x). After you swap the binaries, every insert and every vector search fails with `bad version number … please use REINDEX` until the index is rebuilt. Run `ALTER EXTENSION vchord UPDATE;`, then `REINDEX INDEX CONCURRENTLY idx_rag_embedding_vchordrq;`, or drop the index before the upgrade and recreate it after.
 
 **Step 2 — add to `shared_preload_libraries` and restart.**
 

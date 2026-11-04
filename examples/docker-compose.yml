@@ -7,9 +7,9 @@
 #   EMBEDDING_API_KEY=your-key podman compose up
 #
 # The db service builds a custom image from examples/Dockerfile on first run.
-# It extends tensorchord/vchord-postgres (pgvector + vchord) with pg_textsearch
-# (.deb) and pg_bigm (compiled from source), then sets shared_preload_libraries
-# so all four extensions are available without a separate compose file.
+# It extends pgvector/pgvector with VectorChord and pg_textsearch (.debs) and
+# pg_bigm (compiled from source), then sets shared_preload_libraries so all four
+# extensions are available without a separate compose file.
 #
 # Playground flags (all work with this single compose file):
 #   bun run examples/playground.ts --vectorchord          # vchordrq index
@@ -37,7 +37,9 @@ services:
       - -c
       - shared_preload_libraries=vchord,pg_textsearch,pg_bigm
     ports:
-      - "5432:5432"
+      # Host port follows POSTGRES_PORT (the playground and integration harness read the same
+      # var), so another local Postgres on 5432 doesn't block this one.
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
