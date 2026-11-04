@@ -49,6 +49,19 @@ export {
   parseAttributes,
   serializeAttributes,
 } from "./metadata/attributes.js";
+export type {
+  FilterValidationOptions,
+  ResolvedCondition,
+  ValidatedFilter,
+} from "./metadata/filterSchema.js";
+export {
+  assertValidFilter,
+  DEFAULT_FILTER_LIMITS,
+  FILTER_GENERATION_SCHEMA,
+  FILTER_JSON_SCHEMA,
+  FilterValidationError,
+  validateFilter,
+} from "./metadata/filterSchema.js";
 export type { MigrateOptions } from "./migrate.js";
 export { ragMigrate } from "./migrate.js";
 export type { ArabicNormalizeOptions } from "./normalize.js";
@@ -71,6 +84,11 @@ export type {
   AttributeOutput,
   AttributeType,
   Chunk,
+  FilterCondition,
+  FilterExpression,
+  FilterLimits,
+  FilterOp,
+  FilterScalar,
   FusionMethod,
   FusionNormalizer,
   HybridSearchParams,

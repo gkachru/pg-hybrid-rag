@@ -196,3 +196,45 @@ export interface AttributeLimits {
   maxValuesPerAttribute: number;
   maxStringLength: number;
 }
+
+/** Operators usable in a metadata filter condition. */
+export type FilterOp =
+  | "equals"
+  | "startsWith"
+  | "endsWith"
+  | "contains"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "between"
+  | "exists";
+
+/** A scalar operand in a filter condition. */
+export type FilterScalar = string | number | boolean;
+
+/** A leaf filter condition on a typed attribute. */
+export interface FilterCondition {
+  /** Omitted/null = any namespace (global included). */
+  ns?: string | string[] | null;
+  key: string;
+  op: FilterOp;
+  value: FilterScalar | FilterScalar[];
+  type?: AttributeType | null;
+  caseSensitive?: boolean | null;
+}
+
+/** A filter expression tree. */
+export type FilterExpression =
+  | FilterCondition
+  | { and: FilterExpression[] }
+  | { or: FilterExpression[] }
+  | { not: FilterExpression };
+
+/** Limits applied when validating filters. */
+export interface FilterLimits {
+  maxDepth: number;
+  maxConditions: number;
+  maxListSize: number;
+  maxStringLength: number;
+}
