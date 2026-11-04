@@ -3,7 +3,7 @@ import { AttributeFiltersUnsupportedError } from "../src/errors.js";
 import type { RagDatabase, RerankerProvider, Segmenter } from "../src/interfaces.js";
 import { assertValidFilter, FilterValidationError } from "../src/metadata/filterSchema.js";
 import { RagPipeline } from "../src/RagPipeline.js";
-import type { RagResult } from "../src/types.js";
+import type { MetadataCatalog, RagResult } from "../src/types.js";
 
 const mockEmbedQuery = mock(() => Promise.resolve(new Array(384).fill(0.5)));
 const mockEmbedder = {
@@ -741,5 +741,209 @@ describe("RagPipeline explicit attribute filter", () => {
   it("omits attributeFilter when no filter is given", async () => {
     await mk(mockDb).search("q", { language: "en" });
     expect(lastSearchParams.attributeFilter).toBeUndefined();
+  });
+});
+
+describe("RagPipeline auto-filter", () => {
+  const catalog: MetadataCatalog = {
+    tenantId: "tenant-1",
+    generatedAt: "2026-01-01T00:00:00Z",
+    keys: [
+      {
+        ns: "knowmax",
+        key: "region",
+        registered: true,
+        declaredType: "string",
+        allowedValues: ["EU", "UK"],
+        observed: [{ type: "string", articleCount: 3 }],
+      },
+      {
+        ns: "knowmax",
+        key: "tier",
+        registered: true,
+        declaredType: "string",
+        observed: [{ type: "string", articleCount: 3 }],
+      },
+    ],
+  };
+  const explicit = { key: "tier", op: "equals", value: "gold" } as const;
+  const generatedGood = { key: "region", op: "equals", value: "EU" } as const;
+
+  const supportingDb = (): RagDatabase =>
+    Object.assign({}, mockDb, { supportsAttributeFilters: true as const });
+  const hybrid = mockDb.hybridSearch as ReturnType<typeof mock>;
+  const warn = mock(() => {});
+  const describeCatalog = mock(async () => catalog);
+  const mkModel = (impl: () => Promise<unknown>) => ({ generateFilter: mock(impl) });
+  const mk = (model?: ReturnType<typeof mkModel>, db: RagDatabase = supportingDb()) =>
+    new RagPipeline({
+      tenantId: "tenant-1",
+      db,
+      embedder: mockEmbedder,
+      filterModel: model,
+      metadataCatalog: { describe: describeCatalog, invalidate: () => {} },
+      logger: { info: () => {}, warn },
+    });
+
+  beforeEach(() => {
+    vectorRows = [...defaultVectorRows];
+    keywordRows = [...defaultKeywordRows];
+    ftsRows = [];
+    lastSearchParams = {};
+    mockEmbedQuery.mockClear();
+    hybrid.mockClear();
+    warn.mockClear();
+  });
+
+  it("ANDs a valid generated filter with the explicit filter", async () => {
+    const p = mk(mkModel(async () => generatedGood));
+    const { diagnostics } = await p.searchWithDiagnostics("q", {
+      language: "en",
+      filter: explicit,
+      autoFilter: true,
+    });
+    expect(diagnostics.generatedFilterStatus).toBe("applied");
+    expect(diagnostics.explicitFilter).toEqual(explicit);
+    expect(diagnostics.generatedFilter).toEqual(generatedGood);
+    expect(diagnostics.retriedWithoutGeneratedFilter).toBe(false);
+    expect(lastSearchParams.attributeFilter).toEqual({
+      and: [assertValidFilter(explicit), assertValidFilter(generatedGood)],
+    });
+  });
+
+  it("drops an invalid generated filter with one warning", async () => {
+    const bad = { key: "region", op: "equals", value: "Europe" };
+    const p = mk(mkModel(async () => bad));
+    const { diagnostics, results } = await p.searchWithDiagnostics("q", {
+      language: "en",
+      filter: explicit,
+      autoFilter: true,
+    });
+    expect(diagnostics.generatedFilterStatus).toBe("invalid");
+    expect(diagnostics.generatedFilterErrors?.length).toBeGreaterThan(0);
+    expect(diagnostics.generatedFilter).toEqual(bad);
+    expect(lastSearchParams.attributeFilter).toEqual(assertValidFilter(explicit));
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it("treats a model rejection as status error and still returns results", async () => {
+    const p = mk(
+      mkModel(async () => {
+        throw new Error("boom");
+      }),
+    );
+    const { diagnostics, results } = await p.searchWithDiagnostics("q", {
+      language: "en",
+      autoFilter: true,
+    });
+    expect(diagnostics.generatedFilterStatus).toBe("error");
+    expect(diagnostics.generatedFilterErrors?.[0]).toContain("boom");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(lastSearchParams.attributeFilter).toBeUndefined();
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it("reports none when the model returns null", async () => {
+    const p = mk(mkModel(async () => null));
+    const { diagnostics } = await p.searchWithDiagnostics("q", {
+      language: "en",
+      autoFilter: true,
+    });
+    expect(diagnostics.generatedFilterStatus).toBe("none");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("reports not_requested when autoFilter is off", async () => {
+    const model = mkModel(async () => generatedGood);
+    const { diagnostics } = await mk(model).searchWithDiagnostics("q", { language: "en" });
+    expect(diagnostics.generatedFilterStatus).toBe("not_requested");
+    expect(model.generateFilter).not.toHaveBeenCalled();
+  });
+
+  it("retries once without the generated filter when all legs are empty", async () => {
+    vectorRows = [];
+    keywordRows = [];
+    const p = mk(mkModel(async () => generatedGood));
+    const { diagnostics, results } = await p.searchWithDiagnostics("q", {
+      language: "en",
+      filter: explicit,
+      autoFilter: true,
+    });
+    expect(hybrid).toHaveBeenCalledTimes(2);
+    expect(mockEmbedQuery).toHaveBeenCalledTimes(1);
+    expect(hybrid.mock.calls[0][0].attributeFilter).toEqual({
+      and: [assertValidFilter(explicit), assertValidFilter(generatedGood)],
+    });
+    expect(hybrid.mock.calls[1][0].attributeFilter).toEqual(assertValidFilter(explicit));
+    expect(diagnostics.retriedWithoutGeneratedFilter).toBe(true);
+    expect(diagnostics.generatedFilterStatus).toBe("applied");
+    expect(results).toEqual([]);
+  });
+
+  it("does not retry when autoFilterRetryOnEmpty is false", async () => {
+    vectorRows = [];
+    keywordRows = [];
+    const p = mk(mkModel(async () => generatedGood));
+    const { diagnostics, results } = await p.searchWithDiagnostics("q", {
+      language: "en",
+      filter: explicit,
+      autoFilter: true,
+      autoFilterRetryOnEmpty: false,
+    });
+    expect(hybrid).toHaveBeenCalledTimes(1);
+    expect(diagnostics.retriedWithoutGeneratedFilter).toBe(false);
+    expect(results).toEqual([]);
+  });
+
+  it("throws when autoFilter is set without a filterModel", async () => {
+    const p = mk(undefined);
+    await expect(p.search("q", { language: "en", autoFilter: true })).rejects.toThrow(
+      /filterModel/,
+    );
+    expect(hybrid).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a generated filter is applied on an unsupporting db", async () => {
+    const p = mk(
+      mkModel(async () => generatedGood),
+      mockDb,
+    );
+    await expect(p.search("q", { language: "en", autoFilter: true })).rejects.toBeInstanceOf(
+      AttributeFiltersUnsupportedError,
+    );
+    expect(hybrid).not.toHaveBeenCalled();
+  });
+
+  it("starts the model call and the embedding before either resolves", async () => {
+    let releaseModel: (v: unknown) => void = () => {};
+    let releaseEmbed: (v: number[]) => void = () => {};
+    const model = mkModel(() => new Promise((r) => (releaseModel = r)));
+    const embedder = {
+      embedQuery: mock(() => new Promise<number[]>((r) => (releaseEmbed = r))),
+      embedDocuments: mock(() => Promise.resolve([])),
+    };
+    const p = new RagPipeline({
+      tenantId: "tenant-1",
+      db: supportingDb(),
+      embedder,
+      filterModel: model,
+      metadataCatalog: { describe: describeCatalog, invalidate: () => {} },
+    });
+    const pending = p.search("q", { language: "en", autoFilter: true });
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(model.generateFilter).toHaveBeenCalledTimes(1);
+    expect(embedder.embedQuery).toHaveBeenCalledTimes(1);
+    releaseModel(null);
+    releaseEmbed([0.5]);
+    await pending;
+  });
+
+  it("search() returns the same results as searchWithDiagnostics().results", async () => {
+    const p = mk(mkModel(async () => generatedGood));
+    const opts = { language: "en", autoFilter: true } as const;
+    const a = await p.search("return policy", opts);
+    const b = await p.searchWithDiagnostics("return policy", opts);
+    expect(a).toEqual(b.results);
   });
 });

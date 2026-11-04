@@ -110,6 +110,7 @@ export type {
   RagSearchOptions,
   RankedCandidate,
   RegisteredKeyInput,
+  SearchDiagnostics,
   StopWordRow,
   StoredAttributeEntry,
   SynonymLookup,

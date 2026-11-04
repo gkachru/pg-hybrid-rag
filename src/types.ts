@@ -60,6 +60,17 @@ export interface RagSearchOptions {
    * throws `AttributeFiltersUnsupportedError` (fail closed).
    */
   filter?: FilterExpression;
+  /**
+   * Let the configured `filterModel` derive a metadata filter from the query (validated against
+   * the tenant catalog and ANDed with `filter`). Requires `filterModel` and `metadataCatalog`
+   * on the pipeline. Default false.
+   */
+  autoFilter?: boolean;
+  /**
+   * When an applied generated filter leaves all three legs empty, search once more with only the
+   * explicit filter. Default true.
+   */
+  autoFilterRetryOnEmpty?: boolean;
   /** Drop results scoring below this fraction of the top result (0–1). */
   minRelevance?: number;
   /**
@@ -282,4 +293,14 @@ export interface MetadataCatalog {
   tenantId: string;
   generatedAt: string;
   keys: CatalogKey[];
+}
+
+/** Diagnostics describing how the (explicit + model-generated) metadata filter was handled. */
+export interface SearchDiagnostics {
+  explicitFilter: FilterExpression | null;
+  /** Raw model output (unvalidated). */
+  generatedFilter: unknown | null;
+  generatedFilterStatus: "not_requested" | "none" | "applied" | "invalid" | "error";
+  generatedFilterErrors?: string[];
+  retriedWithoutGeneratedFilter: boolean;
 }

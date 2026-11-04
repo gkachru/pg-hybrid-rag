@@ -1,6 +1,8 @@
 import { AttributeFiltersUnsupportedError } from "./errors.js";
 import type {
   EmbeddingProvider,
+  FilterModelProvider,
+  MetadataCatalogProvider,
   Normalizer,
   RagDatabase,
   RagLogger,
@@ -12,11 +14,15 @@ import type {
   SynonymProvider,
 } from "./interfaces.js";
 import { applyLinearFusion } from "./linearFusion.js";
-import { assertValidFilter } from "./metadata/filterSchema.js";
+import {
+  assertValidFilter,
+  type ValidatedFilter,
+  validateFilter,
+} from "./metadata/filterSchema.js";
 import { stripTrailingPunctuation } from "./punctuation.js";
 import { applyRRF } from "./rrf.js";
 import { removeStopWords } from "./stopWords.js";
-import type { RagResult, RagSearchOptions } from "./types.js";
+import type { RagResult, RagSearchOptions, SearchDiagnostics } from "./types.js";
 
 const DEFAULTS = {
   topK: 5,
@@ -32,6 +38,8 @@ const DEFAULTS = {
   rerankerMinAbsoluteScore: 0,
   fusion: "rrf",
   fusionNormalizer: "minmax",
+  autoFilter: false,
+  autoFilterRetryOnEmpty: true,
 } satisfies Omit<
   Required<RagSearchOptions>,
   | "sourceTypes"
@@ -71,6 +79,10 @@ export interface RagPipelineConfig {
   reranker?: RerankerProvider;
   logger?: RagLogger;
   tracer?: RagTracer;
+  /** Derives a metadata filter from the query when `autoFilter` is set. */
+  filterModel?: FilterModelProvider;
+  /** Tenant catalog; required with `filterModel` for `autoFilter`. */
+  metadataCatalog?: MetadataCatalogProvider;
 }
 
 export class RagPipeline {
@@ -84,6 +96,8 @@ export class RagPipeline {
   private reranker?: RerankerProvider;
   private logger: RagLogger;
   private tracer: RagTracer;
+  private filterModel?: FilterModelProvider;
+  private metadataCatalog?: MetadataCatalogProvider;
 
   constructor(config: RagPipelineConfig) {
     this.tenantId = config.tenantId;
@@ -96,9 +110,61 @@ export class RagPipeline {
     this.reranker = config.reranker;
     this.logger = config.logger ?? noopLogger;
     this.tracer = config.tracer ?? noopTracer;
+    this.filterModel = config.filterModel;
+    this.metadataCatalog = config.metadataCatalog;
   }
 
   async search(query: string, options: RagSearchOptions = {}): Promise<RagResult[]> {
+    return (await this.searchWithDiagnostics(query, options)).results;
+  }
+
+  /** Ask the filter model for a filter and validate it against the tenant catalog. Never throws. */
+  private async generateFilter(
+    query: string,
+    language: string,
+  ): Promise<{
+    raw: unknown | null;
+    filter: ValidatedFilter | null;
+    status: "none" | "applied" | "invalid" | "error";
+    errors?: string[];
+  }> {
+    let raw: unknown = null;
+    try {
+      const catalog = await (this.metadataCatalog as MetadataCatalogProvider).describe(
+        this.tenantId,
+      );
+      raw = await (this.filterModel as FilterModelProvider).generateFilter(query, catalog, {
+        tenantId: this.tenantId,
+        language,
+      });
+      if (raw === null || raw === undefined) return { raw: null, filter: null, status: "none" };
+      const v = validateFilter(raw, {
+        catalog,
+        rejectUnknownKeys: true,
+        enforceAllowedValues: true,
+      });
+      if (!v.ok) {
+        this.logger.warn(
+          { tenantId: this.tenantId, status: "invalid", errors: v.errors },
+          "Generated metadata filter failed validation; dropped",
+        );
+        return { raw, filter: null, status: "invalid", errors: v.errors };
+      }
+      return { raw, filter: v.filter, status: "applied" };
+    } catch (err) {
+      const message = String(err);
+      this.logger.warn(
+        { tenantId: this.tenantId, status: "error", errors: [message] },
+        "Filter model failed; searching without a generated filter",
+      );
+      return { raw, filter: null, status: "error", errors: [message] };
+    }
+  }
+
+  async searchWithDiagnostics(
+    query: string,
+    options: RagSearchOptions = {},
+  ): Promise<{ results: RagResult[]; diagnostics: SearchDiagnostics }> {
     return this.tracer.startActiveSpan("rag-pipeline.search", async (span) => {
       try {
         const opts = { ...DEFAULTS, ...options };
@@ -124,10 +190,15 @@ export class RagPipeline {
         // Fail closed on attribute filters, before any embedding/DB work: an invalid filter
         // throws FilterValidationError, and a db that cannot apply it in every leg must not
         // silently return unfiltered results.
-        const attributeFilter =
+        const explicitFilter =
           opts.filter !== undefined ? assertValidFilter(opts.filter) : undefined;
-        if (attributeFilter && this.db.supportsAttributeFilters !== true) {
+        if (explicitFilter && this.db.supportsAttributeFilters !== true) {
           throw new AttributeFiltersUnsupportedError();
+        }
+        if (opts.autoFilter && (!this.filterModel || !this.metadataCatalog)) {
+          throw new Error(
+            "autoFilter requires both `filterModel` and `metadataCatalog` on the RagPipeline config.",
+          );
         }
 
         // Auto-load merged stop words for the tenant (uses cached Set when available)
@@ -201,7 +272,7 @@ export class RagPipeline {
         const candidateLimit = opts.topK * opts.candidateMultiplier;
 
         // Embed query + load synonyms in parallel (independent async operations)
-        const [queryEmbedding, synonymLookup] = await Promise.all([
+        const [queryEmbedding, synonymLookup, generated] = await Promise.all([
           this.tracer.startActiveSpan("rag.embedQuery", async (embedSpan) => {
             try {
               // Embed the natural query (stop words preserved) — see naturalQuery above.
@@ -213,32 +284,61 @@ export class RagPipeline {
           this.synonyms
             ? this.synonyms.load(this.tenantId)
             : Promise.resolve(new Map() as Map<string, Map<string, string[]>>),
+          // Filter generation runs concurrently with embedding; it never throws.
+          opts.autoFilter ? this.generateFilter(query, queryLanguage) : Promise.resolve(null),
         ]);
+
+        const generatedFilter = generated?.filter ?? null;
+        const attributeFilter: ValidatedFilter | undefined =
+          explicitFilter && generatedFilter
+            ? { and: [explicitFilter, generatedFilter] }
+            : (explicitFilter ?? generatedFilter ?? undefined);
+        if (attributeFilter && this.db.supportsAttributeFilters !== true) {
+          throw new AttributeFiltersUnsupportedError();
+        }
+        span.setAttribute("generatedFilterStatus", generated?.status ?? "not_requested");
 
         span.setAttribute("synonymsApplied", synonymLookup.size > 0);
         const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
         // Run 3-way hybrid search
-        const results = await this.tracer.startActiveSpan("rag.dbSearch", async (dbSpan) => {
-          try {
-            return await this.db.hybridSearch({
-              tenantId: this.tenantId,
-              embeddingStr,
-              query: lexicalQuery,
-              synonymLookup,
-              language: queryLanguage,
-              candidateLimit,
-              vectorMinScore: opts.vectorMinScore,
-              keywordMinScore: opts.keywordMinScore,
-              sourceTypes: opts.sourceTypes,
-              sourceIds: opts.sourceIds,
-              languages: opts.languages,
-              attributeFilter,
-            });
-          } finally {
-            dbSpan.end();
-          }
-        });
+        const runSearch = (filter: ValidatedFilter | undefined) =>
+          this.tracer.startActiveSpan("rag.dbSearch", async (dbSpan) => {
+            try {
+              return await this.db.hybridSearch({
+                tenantId: this.tenantId,
+                embeddingStr,
+                query: lexicalQuery,
+                synonymLookup,
+                language: queryLanguage,
+                candidateLimit,
+                vectorMinScore: opts.vectorMinScore,
+                keywordMinScore: opts.keywordMinScore,
+                sourceTypes: opts.sourceTypes,
+                sourceIds: opts.sourceIds,
+                languages: opts.languages,
+                attributeFilter: filter,
+              });
+            } finally {
+              dbSpan.end();
+            }
+          });
+        let results = await runSearch(attributeFilter);
+
+        // A generated filter that wipes out every leg is likelier a bad guess than a true
+        // empty answer: retry once with only the explicit filter, reusing the embedding.
+        let retried = false;
+        if (
+          generated?.status === "applied" &&
+          opts.autoFilterRetryOnEmpty !== false &&
+          results.vectorRows.length === 0 &&
+          results.keywordRows.length === 0 &&
+          results.ftsRows.length === 0
+        ) {
+          retried = true;
+          results = await runSearch(explicitFilter);
+        }
+        span.setAttribute("retriedWithoutGeneratedFilter", retried);
 
         // Rerank the BOUNDED UNION, not just the RRF top-K: when reranking, fuse up to
         // max(topK, rerankCandidates) candidates so the cross-encoder can recover a true
@@ -346,7 +446,16 @@ export class RagPipeline {
           "Search completed",
         );
 
-        return filtered;
+        return {
+          results: filtered,
+          diagnostics: {
+            explicitFilter: opts.filter ?? null,
+            generatedFilter: generated?.raw ?? null,
+            generatedFilterStatus: generated?.status ?? "not_requested",
+            ...(generated?.errors ? { generatedFilterErrors: generated.errors } : {}),
+            retriedWithoutGeneratedFilter: retried,
+          },
+        };
       } finally {
         span.end();
       }
