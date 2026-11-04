@@ -1,0 +1,718 @@
+{
+  "_about": "Committed reference metrics for the benchmark regression check (examples/benchmark/regression.ts). Overall metrics per config, recorded on the GPU (infinity, device=cuda). See examples/benchmark/BASELINES.md. Refresh with: bun run examples/benchmark/regression.ts --update-baselines",
+  "suites": {
+    "ar-matrix": {
+      "runner": "examples/benchmark/run.ts",
+      "args": [
+        "--matrix"
+      ],
+      "env": {},
+      "recordedAt": "2026-11-04T06:40:14.083Z",
+      "settings": {
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024",
+        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
+        "VECTOR_MIN_SCORE": "0",
+        "FUSION": null,
+        "NORMALIZER": null,
+        "RERANK_CANDIDATES": null,
+        "CANDIDATE_MULTIPLIER": null,
+        "SEARCH_CONCURRENCY": null,
+        "EMBEDDING_BATCH_SIZE": "32",
+        "EMBEDDING_CONCURRENCY": null,
+        "EMBEDDING_TIMEOUT_MS": null
+      },
+      "server": {
+        "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
+        "pg_bigm": "1.2",
+        "pg_textsearch": "1.3.0",
+        "pg_trgm": "1.6",
+        "vchord": "1.1.1",
+        "vector": "0.8.7"
+      },
+      "configs": {
+        "baseline": {
+          "n": 267,
+          "recallAt1": 0.516854,
+          "recallAt3": 0.689139,
+          "recallAt5": 0.737828,
+          "recallAt10": 0.820225,
+          "mrr10": 0.617028,
+          "ndcg10": 0.665959
+        },
+        "+bm25": {
+          "n": 267,
+          "recallAt1": 0.460674,
+          "recallAt3": 0.659176,
+          "recallAt5": 0.726592,
+          "recallAt10": 0.797753,
+          "mrr10": 0.57061,
+          "ndcg10": 0.625666
+        },
+        "+vectorchord": {
+          "n": 267,
+          "recallAt1": 0.516854,
+          "recallAt3": 0.689139,
+          "recallAt5": 0.737828,
+          "recallAt10": 0.820225,
+          "mrr10": 0.617028,
+          "ndcg10": 0.665959
+        },
+        "+rerank": {
+          "n": 267,
+          "recallAt1": 0.696629,
+          "recallAt3": 0.805243,
+          "recallAt5": 0.812734,
+          "recallAt10": 0.816479,
+          "mrr10": 0.748876,
+          "ndcg10": 0.766121
+        },
+        "all": {
+          "n": 267,
+          "recallAt1": 0.677903,
+          "recallAt3": 0.775281,
+          "recallAt5": 0.786517,
+          "recallAt10": 0.794007,
+          "mrr10": 0.725655,
+          "ndcg10": 0.742926
+        }
+      }
+    },
+    "ar-qcontent-A_bm25_u30": {
+      "runner": "examples/benchmark/run.ts",
+      "args": [
+        "--bm25",
+        "--rerank"
+      ],
+      "env": {
+        "FUSION": "rrf",
+        "RERANK_CANDIDATES": "30",
+        "CANDIDATE_MULTIPLIER": "3"
+      },
+      "recordedAt": "2026-11-04T06:42:00.707Z",
+      "settings": {
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024",
+        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
+        "VECTOR_MIN_SCORE": "0",
+        "FUSION": "rrf",
+        "NORMALIZER": null,
+        "RERANK_CANDIDATES": "30",
+        "CANDIDATE_MULTIPLIER": "3",
+        "SEARCH_CONCURRENCY": null,
+        "EMBEDDING_BATCH_SIZE": "32",
+        "EMBEDDING_CONCURRENCY": null,
+        "EMBEDDING_TIMEOUT_MS": null
+      },
+      "server": {
+        "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
+        "pg_bigm": "1.2",
+        "pg_textsearch": "1.3.0",
+        "pg_trgm": "1.6",
+        "vchord": "1.1.1",
+        "vector": "0.8.7"
+      },
+      "configs": {
+        "custom": {
+          "n": 267,
+          "recallAt1": 0.715356,
+          "recallAt3": 0.831461,
+          "recallAt5": 0.850187,
+          "recallAt10": 0.865169,
+          "mrr10": 0.773429,
+          "ndcg10": 0.796225
+        }
+      }
+    },
+    "ar-qcontent-A_bm25_lin20": {
+      "runner": "examples/benchmark/run.ts",
+      "args": [
+        "--bm25",
+        "--rerank"
+      ],
+      "env": {
+        "FUSION": "linear",
+        "NORMALIZER": "minmax",
+        "RERANK_CANDIDATES": "20",
+        "CANDIDATE_MULTIPLIER": "2"
+      },
+      "recordedAt": "2026-11-04T06:43:20.874Z",
+      "settings": {
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024",
+        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
+        "VECTOR_MIN_SCORE": "0",
+        "FUSION": "linear",
+        "NORMALIZER": "minmax",
+        "RERANK_CANDIDATES": "20",
+        "CANDIDATE_MULTIPLIER": "2",
+        "SEARCH_CONCURRENCY": null,
+        "EMBEDDING_BATCH_SIZE": "32",
+        "EMBEDDING_CONCURRENCY": null,
+        "EMBEDDING_TIMEOUT_MS": null
+      },
+      "server": {
+        "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
+        "pg_bigm": "1.2",
+        "pg_textsearch": "1.3.0",
+        "pg_trgm": "1.6",
+        "vchord": "1.1.1",
+        "vector": "0.8.7"
+      },
+      "configs": {
+        "custom": {
+          "n": 267,
+          "recallAt1": 0.722846,
+          "recallAt3": 0.827715,
+          "recallAt5": 0.846442,
+          "recallAt10": 0.857678,
+          "mrr10": 0.776159,
+          "ndcg10": 0.796502
+        }
+      }
+    },
+    "ar-qcontent-A_lin20": {
+      "runner": "examples/benchmark/run.ts",
+      "args": [
+        "--rerank"
+      ],
+      "env": {
+        "FUSION": "linear",
+        "NORMALIZER": "minmax",
+        "RERANK_CANDIDATES": "20",
+        "CANDIDATE_MULTIPLIER": "2"
+      },
+      "recordedAt": "2026-11-04T06:44:43.514Z",
+      "settings": {
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024",
+        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
+        "VECTOR_MIN_SCORE": "0",
+        "FUSION": "linear",
+        "NORMALIZER": "minmax",
+        "RERANK_CANDIDATES": "20",
+        "CANDIDATE_MULTIPLIER": "2",
+        "SEARCH_CONCURRENCY": null,
+        "EMBEDDING_BATCH_SIZE": "32",
+        "EMBEDDING_CONCURRENCY": null,
+        "EMBEDDING_TIMEOUT_MS": null
+      },
+      "server": {
+        "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
+        "pg_bigm": "1.2",
+        "pg_textsearch": "1.3.0",
+        "pg_trgm": "1.6",
+        "vchord": "1.1.1",
+        "vector": "0.8.7"
+      },
+      "configs": {
+        "custom": {
+          "n": 267,
+          "recallAt1": 0.71161,
+          "recallAt3": 0.820225,
+          "recallAt5": 0.842697,
+          "recallAt10": 0.853933,
+          "mrr10": 0.767425,
+          "ndcg10": 0.78907
+        }
+      }
+    },
+    "ar-qcontent-Q_bm25_u30": {
+      "runner": "examples/benchmark/run.ts",
+      "args": [
+        "--bm25",
+        "--rerank",
+        "--include-question"
+      ],
+      "env": {
+        "FUSION": "rrf",
+        "RERANK_CANDIDATES": "30",
+        "CANDIDATE_MULTIPLIER": "3"
+      },
+      "recordedAt": "2026-11-04T06:46:33.042Z",
+      "settings": {
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024",
+        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
+        "VECTOR_MIN_SCORE": "0",
+        "FUSION": "rrf",
+        "NORMALIZER": null,
+        "RERANK_CANDIDATES": "30",
+        "CANDIDATE_MULTIPLIER": "3",
+        "SEARCH_CONCURRENCY": null,
+        "EMBEDDING_BATCH_SIZE": "32",
+        "EMBEDDING_CONCURRENCY": null,
+        "EMBEDDING_TIMEOUT_MS": null
+      },
+      "server": {
+        "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
+        "pg_bigm": "1.2",
+        "pg_textsearch": "1.3.0",
+        "pg_trgm": "1.6",
+        "vchord": "1.1.1",
+        "vector": "0.8.7"
+      },
+      "configs": {
+        "custom": {
+          "n": 267,
+          "recallAt1": 0.955056,
+          "recallAt3": 0.977528,
+          "recallAt5": 0.981273,
+          "recallAt10": 0.985019,
+          "mrr10": 0.967764,
+          "ndcg10": 0.972096
+        }
+      }
+    },
+    "ar-qcontent-Q_bm25_lin20": {
+      "runner": "examples/benchmark/run.ts",
+      "args": [
+        "--bm25",
+        "--rerank",
+        "--include-question"
+      ],
+      "env": {
+        "FUSION": "linear",
+        "NORMALIZER": "minmax",
+        "RERANK_CANDIDATES": "20",
+        "CANDIDATE_MULTIPLIER": "2"
+      },
+      "recordedAt": "2026-11-04T06:47:53.202Z",
+      "settings": {
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024",
+        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
+        "VECTOR_MIN_SCORE": "0",
+        "FUSION": "linear",
+        "NORMALIZER": "minmax",
+        "RERANK_CANDIDATES": "20",
+        "CANDIDATE_MULTIPLIER": "2",
+        "SEARCH_CONCURRENCY": null,
+        "EMBEDDING_BATCH_SIZE": "32",
+        "EMBEDDING_CONCURRENCY": null,
+        "EMBEDDING_TIMEOUT_MS": null
+      },
+      "server": {
+        "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
+        "pg_bigm": "1.2",
+        "pg_textsearch": "1.3.0",
+        "pg_trgm": "1.6",
+        "vchord": "1.1.1",
+        "vector": "0.8.7"
+      },
+      "configs": {
+        "custom": {
+          "n": 267,
+          "recallAt1": 0.955056,
+          "recallAt3": 0.977528,
+          "recallAt5": 0.977528,
+          "recallAt10": 0.981273,
+          "mrr10": 0.966916,
+          "ndcg10": 0.970568
+        }
+      }
+    },
+    "ar-qcontent-Q_lin20": {
+      "runner": "examples/benchmark/run.ts",
+      "args": [
+        "--rerank",
+        "--include-question"
+      ],
+      "env": {
+        "FUSION": "linear",
+        "NORMALIZER": "minmax",
+        "RERANK_CANDIDATES": "20",
+        "CANDIDATE_MULTIPLIER": "2"
+      },
+      "recordedAt": "2026-11-04T06:49:13.481Z",
+      "settings": {
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024",
+        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
+        "VECTOR_MIN_SCORE": "0",
+        "FUSION": "linear",
+        "NORMALIZER": "minmax",
+        "RERANK_CANDIDATES": "20",
+        "CANDIDATE_MULTIPLIER": "2",
+        "SEARCH_CONCURRENCY": null,
+        "EMBEDDING_BATCH_SIZE": "32",
+        "EMBEDDING_CONCURRENCY": null,
+        "EMBEDDING_TIMEOUT_MS": null
+      },
+      "server": {
+        "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
+        "pg_bigm": "1.2",
+        "pg_textsearch": "1.3.0",
+        "pg_trgm": "1.6",
+        "vchord": "1.1.1",
+        "vector": "0.8.7"
+      },
+      "configs": {
+        "custom": {
+          "n": 267,
+          "recallAt1": 0.940075,
+          "recallAt3": 0.962547,
+          "recallAt5": 0.966292,
+          "recallAt10": 0.966292,
+          "mrr10": 0.952247,
+          "ndcg10": 0.955866
+        }
+      }
+    },
+    "ar-matrix-withq": {
+      "runner": "examples/benchmark/run.ts",
+      "args": [
+        "--matrix",
+        "--include-question"
+      ],
+      "env": {},
+      "recordedAt": "2026-11-04T06:51:34.577Z",
+      "settings": {
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024",
+        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
+        "VECTOR_MIN_SCORE": "0",
+        "FUSION": null,
+        "NORMALIZER": null,
+        "RERANK_CANDIDATES": null,
+        "CANDIDATE_MULTIPLIER": null,
+        "SEARCH_CONCURRENCY": null,
+        "EMBEDDING_BATCH_SIZE": "32",
+        "EMBEDDING_CONCURRENCY": null,
+        "EMBEDDING_TIMEOUT_MS": null
+      },
+      "server": {
+        "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
+        "pg_bigm": "1.2",
+        "pg_textsearch": "1.3.0",
+        "pg_trgm": "1.6",
+        "vchord": "1.1.1",
+        "vector": "0.8.7"
+      },
+      "configs": {
+        "baseline": {
+          "n": 267,
+          "recallAt1": 0.891386,
+          "recallAt3": 0.93633,
+          "recallAt5": 0.947566,
+          "recallAt10": 0.962547,
+          "mrr10": 0.917509,
+          "ndcg10": 0.928533
+        },
+        "+bm25": {
+          "n": 267,
+          "recallAt1": 0.925094,
+          "recallAt3": 0.966292,
+          "recallAt5": 0.981273,
+          "recallAt10": 0.981273,
+          "mrr10": 0.948627,
+          "ndcg10": 0.956885
+        },
+        "+vectorchord": {
+          "n": 267,
+          "recallAt1": 0.891386,
+          "recallAt3": 0.93633,
+          "recallAt5": 0.947566,
+          "recallAt10": 0.962547,
+          "mrr10": 0.917509,
+          "ndcg10": 0.928533
+        },
+        "+rerank": {
+          "n": 267,
+          "recallAt1": 0.93633,
+          "recallAt3": 0.955056,
+          "recallAt5": 0.958801,
+          "recallAt10": 0.962547,
+          "mrr10": 0.947004,
+          "ndcg10": 0.95084
+        },
+        "all": {
+          "n": 267,
+          "recallAt1": 0.951311,
+          "recallAt3": 0.973783,
+          "recallAt5": 0.977528,
+          "recallAt10": 0.981273,
+          "mrr10": 0.964018,
+          "ndcg10": 0.968351
+        }
+      }
+    },
+    "th-segmatrix-queries": {
+      "runner": "examples/benchmark-thai/run.ts",
+      "args": [
+        "--seg-matrix",
+        "--queries",
+        "examples/benchmark-thai/queries.json"
+      ],
+      "env": {},
+      "recordedAt": "2026-11-04T06:53:36.211Z",
+      "settings": {
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024",
+        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
+        "VECTOR_MIN_SCORE": "0",
+        "SEARCH_CONCURRENCY": null,
+        "EMBEDDING_BATCH_SIZE": "32",
+        "EMBEDDING_CONCURRENCY": null,
+        "EMBEDDING_TIMEOUT_MS": null
+      },
+      "server": {
+        "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
+        "pg_bigm": "1.2",
+        "pg_textsearch": "1.3.0",
+        "pg_trgm": "1.6",
+        "vchord": "1.1.1",
+        "vector": "0.8.7"
+      },
+      "configs": {
+        "baseline/none": {
+          "n": 75,
+          "recallAt1": 0.586667,
+          "recallAt3": 0.8,
+          "recallAt5": 0.853333,
+          "recallAt10": 0.906667,
+          "mrr10": 0.697476,
+          "ndcg10": 0.74869
+        },
+        "+rerank/none": {
+          "n": 75,
+          "recallAt1": 0.72,
+          "recallAt3": 0.8,
+          "recallAt5": 0.88,
+          "recallAt10": 0.906667,
+          "mrr10": 0.772889,
+          "ndcg10": 0.805107
+        },
+        "baseline/intl": {
+          "n": 75,
+          "recallAt1": 0.56,
+          "recallAt3": 0.76,
+          "recallAt5": 0.826667,
+          "recallAt10": 0.88,
+          "mrr10": 0.678238,
+          "ndcg10": 0.727803
+        },
+        "+rerank/intl": {
+          "n": 75,
+          "recallAt1": 0.733333,
+          "recallAt3": 0.813333,
+          "recallAt5": 0.866667,
+          "recallAt10": 0.88,
+          "mrr10": 0.777683,
+          "ndcg10": 0.802486
+        },
+        "baseline/attacut": {
+          "n": 75,
+          "recallAt1": 0.56,
+          "recallAt3": 0.746667,
+          "recallAt5": 0.826667,
+          "recallAt10": 0.88,
+          "mrr10": 0.679164,
+          "ndcg10": 0.728432
+        },
+        "+rerank/attacut": {
+          "n": 75,
+          "recallAt1": 0.733333,
+          "recallAt3": 0.813333,
+          "recallAt5": 0.866667,
+          "recallAt10": 0.88,
+          "mrr10": 0.777683,
+          "ndcg10": 0.802486
+        },
+        "baseline/bigram": {
+          "n": 75,
+          "recallAt1": 0.586667,
+          "recallAt3": 0.8,
+          "recallAt5": 0.853333,
+          "recallAt10": 0.906667,
+          "mrr10": 0.697476,
+          "ndcg10": 0.74869
+        },
+        "+rerank/bigram": {
+          "n": 75,
+          "recallAt1": 0.72,
+          "recallAt3": 0.8,
+          "recallAt5": 0.88,
+          "recallAt10": 0.906667,
+          "mrr10": 0.772889,
+          "ndcg10": 0.805107
+        }
+      }
+    },
+    "th-segmatrix-lowoverlap": {
+      "runner": "examples/benchmark-thai/run.ts",
+      "args": [
+        "--seg-matrix",
+        "--queries",
+        "examples/benchmark-thai/queries-lowoverlap.json"
+      ],
+      "env": {},
+      "recordedAt": "2026-11-04T06:55:29.442Z",
+      "settings": {
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024",
+        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
+        "VECTOR_MIN_SCORE": "0",
+        "SEARCH_CONCURRENCY": null,
+        "EMBEDDING_BATCH_SIZE": "32",
+        "EMBEDDING_CONCURRENCY": null,
+        "EMBEDDING_TIMEOUT_MS": null
+      },
+      "server": {
+        "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
+        "pg_bigm": "1.2",
+        "pg_textsearch": "1.3.0",
+        "pg_trgm": "1.6",
+        "vchord": "1.1.1",
+        "vector": "0.8.7"
+      },
+      "configs": {
+        "baseline/none": {
+          "n": 75,
+          "recallAt1": 0.506667,
+          "recallAt3": 0.693333,
+          "recallAt5": 0.746667,
+          "recallAt10": 0.84,
+          "mrr10": 0.617513,
+          "ndcg10": 0.671241
+        },
+        "+rerank/none": {
+          "n": 75,
+          "recallAt1": 0.613333,
+          "recallAt3": 0.76,
+          "recallAt5": 0.8,
+          "recallAt10": 0.84,
+          "mrr10": 0.689016,
+          "ndcg10": 0.725981
+        },
+        "baseline/intl": {
+          "n": 75,
+          "recallAt1": 0.453333,
+          "recallAt3": 0.666667,
+          "recallAt5": 0.746667,
+          "recallAt10": 0.84,
+          "mrr10": 0.583862,
+          "ndcg10": 0.645912
+        },
+        "+rerank/intl": {
+          "n": 75,
+          "recallAt1": 0.6,
+          "recallAt3": 0.773333,
+          "recallAt5": 0.8,
+          "recallAt10": 0.84,
+          "mrr10": 0.68346,
+          "ndcg10": 0.721985
+        },
+        "baseline/attacut": {
+          "n": 75,
+          "recallAt1": 0.426667,
+          "recallAt3": 0.653333,
+          "recallAt5": 0.76,
+          "recallAt10": 0.84,
+          "mrr10": 0.565974,
+          "ndcg10": 0.632606
+        },
+        "+rerank/attacut": {
+          "n": 75,
+          "recallAt1": 0.6,
+          "recallAt3": 0.76,
+          "recallAt5": 0.8,
+          "recallAt10": 0.84,
+          "mrr10": 0.682349,
+          "ndcg10": 0.72106
+        },
+        "baseline/bigram": {
+          "n": 75,
+          "recallAt1": 0.506667,
+          "recallAt3": 0.693333,
+          "recallAt5": 0.746667,
+          "recallAt10": 0.84,
+          "mrr10": 0.617513,
+          "ndcg10": 0.671241
+        },
+        "+rerank/bigram": {
+          "n": 75,
+          "recallAt1": 0.613333,
+          "recallAt3": 0.76,
+          "recallAt5": 0.8,
+          "recallAt10": 0.84,
+          "mrr10": 0.689016,
+          "ndcg10": 0.725981
+        }
+      }
+    },
+    "th-matrix": {
+      "runner": "examples/benchmark-thai/run.ts",
+      "args": [
+        "--matrix"
+      ],
+      "env": {},
+      "recordedAt": "2026-11-04T06:57:09.673Z",
+      "settings": {
+        "EMBEDDING_MODEL": "BAAI/bge-m3",
+        "EMBEDDING_DIM": "1024",
+        "RERANKER_MODEL": "BAAI/bge-reranker-v2-m3",
+        "VECTOR_MIN_SCORE": "0",
+        "SEARCH_CONCURRENCY": null,
+        "EMBEDDING_BATCH_SIZE": "32",
+        "EMBEDDING_CONCURRENCY": null,
+        "EMBEDDING_TIMEOUT_MS": null
+      },
+      "server": {
+        "postgres": "17.11 (Debian 17.11-1.pgdg12+2)",
+        "pg_bigm": "1.2",
+        "pg_textsearch": "1.3.0",
+        "pg_trgm": "1.6",
+        "vchord": "1.1.1",
+        "vector": "0.8.7"
+      },
+      "configs": {
+        "baseline": {
+          "n": 75,
+          "recallAt1": 0.56,
+          "recallAt3": 0.746667,
+          "recallAt5": 0.826667,
+          "recallAt10": 0.88,
+          "mrr10": 0.679164,
+          "ndcg10": 0.728432
+        },
+        "+bm25": {
+          "n": 75,
+          "recallAt1": 0.506667,
+          "recallAt3": 0.706667,
+          "recallAt5": 0.746667,
+          "recallAt10": 0.866667,
+          "mrr10": 0.621296,
+          "ndcg10": 0.680017
+        },
+        "+vectorchord": {
+          "n": 75,
+          "recallAt1": 0.56,
+          "recallAt3": 0.746667,
+          "recallAt5": 0.826667,
+          "recallAt10": 0.88,
+          "mrr10": 0.679164,
+          "ndcg10": 0.728432
+        },
+        "+rerank": {
+          "n": 75,
+          "recallAt1": 0.733333,
+          "recallAt3": 0.813333,
+          "recallAt5": 0.866667,
+          "recallAt10": 0.88,
+          "mrr10": 0.777683,
+          "ndcg10": 0.802486
+        },
+        "all": {
+          "n": 75,
+          "recallAt1": 0.72,
+          "recallAt3": 0.773333,
+          "recallAt5": 0.84,
+          "recallAt10": 0.866667,
+          "mrr10": 0.762667,
+          "ndcg10": 0.787784
+        }
+      }
+    }
+  }
+}

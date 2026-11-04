@@ -46,6 +46,13 @@ handoff plans and orchestration scripts. Every experiment here is reproducible f
 | `VECTOR_MIN_SCORE` | Dense-leg cosine floor (0 disables). **Set to 0 for bge-m3** — see Experiment 1. |
 | `SEARCH_CONCURRENCY` | Concurrent (query × dialect) searches. |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | Swap embedder for head-to-heads (e.g. 1024 for bge-m3 / e5-large). |
+| `EMBEDDING_TIMEOUT_MS` | Per-request embed timeout (default 30000; `0` disables). Set `0` on a CPU embedder, which can't finish a 32 × 512-token batch in 30s. |
+| `EMBEDDING_CONCURRENCY` | In-flight embed requests (default 4). Set `1` on CPU so requests don't queue past the timeout. |
+
+Since 2026-11-04, every result JSON records these knobs under `settings` and the Postgres +
+extension versions under `server`, so a result can be matched to its setup later. To check that a
+change didn't move quality, use the regression check in [BASELINES.md](BASELINES.md) rather than
+re-deriving a baseline by hand.
 
 ---
 
@@ -64,11 +71,15 @@ handoff plans and orchestration scripts. Every experiment here is reproducible f
 - Bring-up:
   ```
   podman machine start
+  podman machine ssh "nvidia-ctk cdi list"   # must list nvidia.com/gpu=all (see Gotchas if not)
   podman compose -f examples/docker-compose.yml up -d db
   podman compose -f examples/benchmark/docker-compose.infinity-min.yml up -d --force-recreate
   curl http://localhost:7997/models       # confirm models present
   podman logs infinity-embed-infinity-1 | grep -i device   # confirm device=cuda
   ```
+  The DB's host port follows `POSTGRES_PORT` (default 5432) in both `examples/docker-compose.yml`
+  and the runners, so use the same value for `compose up` and the benchmark run. If another local
+  Postgres already holds 5432, pick a free port, e.g. `POSTGRES_PORT=55440`, for both.
 
 ### Gotchas (hard-won)
 
@@ -77,6 +88,22 @@ handoff plans and orchestration scripts. Every experiment here is reproducible f
   fault in the benchmark or infinity config. **Do not use the camera during a run.** With the camera
   out of the picture, `SEARCH_CONCURRENCY=8` runs fine and crash-free (a no-rerank pass finished in
   ~40s). The earlier `SEARCH_CONCURRENCY=2` / 2-model mitigations helped VRAM but were not the fix.
+- **`unresolvable CDI devices nvidia.com/gpu=all` = the toolkit is gone from the podman VM.** The
+  VM's OS image can be replaced by a podman machine update (seen 2026-11: VM on Fedora 44, no
+  `nvidia-ctk`, no `/etc/cdi`). The container images and the infinity model-cache volume may be gone
+  too. Reinstall the toolkit inside the VM, generate both CDI specs (next bullet), then verify:
+  ```
+  podman machine ssh "curl -fsSL https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo"
+  podman machine ssh "sudo dnf install -y nvidia-container-toolkit"
+  podman run --rm --device nvidia.com/gpu=all -e LD_LIBRARY_PATH=/usr/lib/wsl/lib --entrypoint nvidia-smi docker.io/michaelf34/infinity:latest -L
+  ```
+  The last command must list the GPU. In Git Bash, prefix `podman run` commands that pass container
+  paths with `MSYS_NO_PATHCONV=1`, or MSYS rewrites `/app/...` into a Windows path.
+- **CPU fallback is slow and not comparable.** infinity `--device cpu` works with
+  `EMBEDDING_TIMEOUT_MS=0 EMBEDDING_CONCURRENCY=1`. But embedding the 1380-chunk corpus takes about
+  35–40 min per process, versus seconds on the GPU, and fp32-CPU vs fp16-GPU inference shifts
+  scores slightly. Measured 2026-11-04: Arabic `+rerank` showed −.005 nDCG on CPU but reproduced
+  .766 exactly on the GPU. Don't judge small deltas against the GPU baselines with a CPU run.
 - **CDI stale after a driver *reinstall*.** A driver reinstall changes the WSL driver hash, so
   `nvidia.com/gpu=all` fails with `crun: cannot stat .../libcuda.so.1.1`. Regenerate both CDI specs
   then `--force-recreate`:

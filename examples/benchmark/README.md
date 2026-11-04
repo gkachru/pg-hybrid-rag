@@ -23,7 +23,8 @@ POSTGRES_USER=...
 POSTGRES_PASSWORD=...
 POSTGRES_DB=...
 POSTGRES_HOST=localhost    # optional, default localhost
-POSTGRES_PORT=5432         # optional, default 5432
+POSTGRES_PORT=5432         # optional, default 5432; must match the port compose publishes the db on
+                           # (examples/docker-compose.yml also reads POSTGRES_PORT)
 
 # Embedder (required)
 EMBEDDING_BASE_URL=http://localhost:8080
@@ -156,6 +157,18 @@ bun run examples/benchmark/run.ts --matrix --cjk
 
 ```bash
 bun run examples/benchmark/run.ts --limit-queries 6 --topk 10
+```
+
+### Regression check (after an infra or retrieval change)
+
+To confirm that a change didn't move retrieval quality, run every committed suite (Arabic and Thai)
+and compare against `baselines.json`. Examples of such changes: a DB image or extension upgrade, a
+migration, an adapter change. Setup, interpretation and refreshing are covered in
+[BASELINES.md](BASELINES.md).
+
+```bash
+bun run examples/benchmark/regression.ts            # all suites (~20 min on GPU)
+bun run examples/benchmark/regression.ts --list     # what each suite runs
 ```
 
 ---

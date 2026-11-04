@@ -27,6 +27,17 @@ PG_INTEGRATION=1 POSTGRES_USER=user POSTGRES_PASSWORD=password bun test tests/in
 
 `pgHarness.ts` captures the **real** SQL+params the adapter issues (no hand-copied SQL → can't drift), then EXPLAINs each with seq scans penalized AND the tenant btrees hidden, so a leg must use its own vector/GIN/BM25 index or fail. Covers: ivfflat/vchordrq vector, pg_trgm keyword, pg_bigm CJK keyword, tsvector FTS (both `plainto`/`to_tsquery` forms), BM25 partial-index routing, and the migration-016 `idx_rag_source` delete path.
 
+### Benchmark regression check (`examples/benchmark/regression.ts`)
+
+After a change that could move retrieval quality, such as a DB image or extension upgrade, a migration, or an adapter/SQL/fusion change, re-run the Arabic + Thai benchmark suites and compare them against the committed `examples/benchmark/baselines.json`. This needs the DB, GPU infinity and thai-segmenter up, plus local corpus caches. Full setup is in `examples/benchmark/BASELINES.md`.
+
+```bash
+bun run examples/benchmark/regression.ts   # all suites, ~20 min on GPU; exit 1 on regression (POSTGRES_PORT must match the compose db port)
+bun run examples/benchmark/regression.ts --list
+```
+
+A metric is flagged when |Δ| > max(0.005, 1/n), where 1/n is one query's worth. Results served from a CPU embedder aren't comparable to the GPU baselines. Result JSONs record `settings` (env knobs) and `server` (Postgres + extension versions).
+
 ### Playground setup
 
 ```bash

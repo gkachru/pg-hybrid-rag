@@ -42,8 +42,10 @@ import {
   createDatabase,
   createEmbedder,
   createReranker,
+  describeServer,
   dropDatabase,
   logger,
+  runSettings,
   TENANT_ID,
   withDatabase,
 } from "./infra.js";
@@ -711,12 +713,15 @@ async function main(): Promise<void> {
     const resultsDir = fileURLToPath(new URL("./results", import.meta.url));
     mkdirSync(resultsDir, { recursive: true });
     const outPath = `${resultsDir}/${Date.now()}.json`;
+    const server = await describeServer(adminUrl);
     writeFileSync(
       outPath,
       JSON.stringify(
         {
           generatedAt: new Date().toISOString(),
           args,
+          settings: runSettings(),
+          server,
           corpus: {
             chunks: corpus.length,
             faqChunks: corpus.filter((c) => c.source === "faq").length,

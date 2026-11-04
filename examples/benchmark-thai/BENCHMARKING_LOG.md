@@ -48,12 +48,17 @@ are about the **embedder** and the **keyword-leg threshold**. Experiments are re
 | `--seg-matrix` | Headline sweep: `{none, intl (ICU/Intl.Segmenter), attacut (HTTP sidecar)} × {baseline, +rerank}`. |
 | `--segmenter none\|intl\|attacut\|bigram` | Pick a single keyword-leg arm (`bigram` = no-segmenter + pg_bigm). Default: `attacut`. |
 | `--lexical-only` | Drop the dense leg (`vectorWeight=0`) — isolates the lexical (trgm/bigm + FTS) legs. |
-| `--keyword-min-score <k>` | Set the keyword-leg relevance gate (pg_trgm `word_similarity_threshold` / pg_bigm coverage). **Branch:** `feat/thai-benchmark-keyword-threshold`. |
-| `--queries <file>` | Swap the query set (e.g. the low-overlap set). **Branch:** `feat/thai-benchmark-lowoverlap-queries`. |
+| `--keyword-min-score <k>` | Set the keyword-leg relevance gate (pg_trgm `word_similarity_threshold` / pg_bigm coverage). |
+| `--queries <file>` | Swap the query set (e.g. the low-overlap set). |
 | `--rerank` | Attach the cross-encoder reranker. |
 | `--cjk` / `--bm25` / `--vectorchord` | Optional extensions. |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | Swap embedder for head-to-heads (bge-m3 / e5-large, both 1024d). |
 | `VECTOR_MIN_SCORE` | Dense-leg cosine floor (0 disables). **Set to 0 for bge-m3.** |
+| `EMBEDDING_TIMEOUT_MS` / `EMBEDDING_CONCURRENCY` | Embed timeout (default 30000, `0` disables) / in-flight requests (default 4). Use `0` / `1` on a CPU embedder. CPU runs aren't comparable to the GPU baselines; see the Arabic log's Gotchas. |
+
+Result JSONs record these knobs (`settings`) and the Postgres + extension versions (`server`). To
+check a change against the committed baselines, use the regression check in
+[`../benchmark/BASELINES.md`](../benchmark/BASELINES.md); it covers the Thai suites too.
 
 ---
 

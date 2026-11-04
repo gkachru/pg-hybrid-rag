@@ -40,8 +40,10 @@ import {
   createEmbedder,
   createReranker,
   createSegmenter,
+  describeServer,
   dropDatabase,
   logger,
+  runSettings,
   type SegmenterKind,
   TENANT_ID,
   withDatabase,
@@ -803,12 +805,15 @@ async function main(): Promise<void> {
     const resultsDir = fileURLToPath(new URL("./results", import.meta.url));
     mkdirSync(resultsDir, { recursive: true });
     const outPath = `${resultsDir}/${Date.now()}.json`;
+    const server = await describeServer(adminUrl);
     writeFileSync(
       outPath,
       JSON.stringify(
         {
           generatedAt: new Date().toISOString(),
           args,
+          settings: runSettings(),
+          server,
           corpus: {
             chunks: corpus.length,
             faqChunks: corpus.filter((c) => c.source === "faq").length,

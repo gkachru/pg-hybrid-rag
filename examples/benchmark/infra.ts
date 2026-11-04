@@ -65,6 +65,51 @@ export async function dropDatabase(adminUrl: string, dbName: string): Promise<vo
   await admin.end();
 }
 
+// ── Run provenance (recorded in the results JSON) ───────────────────────────
+
+/** Env knobs that change benchmark results. Recorded so a result can be matched to its setup. */
+const RESULT_AFFECTING_ENV = [
+  "EMBEDDING_MODEL",
+  "EMBEDDING_DIM",
+  "RERANKER_MODEL",
+  "VECTOR_MIN_SCORE",
+  "FUSION",
+  "NORMALIZER",
+  "RERANK_CANDIDATES",
+  "CANDIDATE_MULTIPLIER",
+  "SEARCH_CONCURRENCY",
+  "EMBEDDING_BATCH_SIZE",
+  "EMBEDDING_CONCURRENCY",
+  "EMBEDDING_TIMEOUT_MS",
+] as const;
+
+/** Snapshot of the result-affecting env knobs (unset → null). Never includes keys or URLs. */
+export function runSettings(): Record<string, string | null> {
+  return Object.fromEntries(RESULT_AFFECTING_ENV.map((k) => [k, process.env[k] ?? null]));
+}
+
+/**
+ * Postgres server version + the default (= installed-on-CREATE) version of each extension the
+ * benchmark uses, so a result can be tied to the DB image it ran on. Best-effort: returns an
+ * `error` field instead of throwing, since provenance must never fail a finished run.
+ */
+export async function describeServer(adminUrl: string): Promise<Record<string, string | null>> {
+  const admin = postgres(adminUrl, { max: 1 });
+  try {
+    const [row] = await admin`SELECT current_setting('server_version') AS server_version`;
+    const exts = await admin`
+      SELECT name, default_version FROM pg_available_extensions
+      WHERE name IN ('vector', 'vchord', 'pg_textsearch', 'pg_bigm', 'pg_trgm')`;
+    const out: Record<string, string | null> = { postgres: String(row?.server_version ?? "") };
+    for (const e of exts) out[String(e.name)] = String(e.default_version);
+    return out;
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  } finally {
+    await admin.end({ timeout: 5 }).catch(() => {});
+  }
+}
+
 // ── Postgres adapter (postgres.js → SqlClient/TransactionProvider) ──────────
 
 export function createAdapter(sql: postgres.Sql): {

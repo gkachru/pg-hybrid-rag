@@ -38,12 +38,15 @@ then drop the database.
 ## Prerequisites
 
 - **PostgreSQL** with `pgvector` + `pg_trgm`. Start via `cd examples && podman compose up -d db`
-  (or `docker compose up -d db`).
+  (or `docker compose up -d db`). The host port follows `POSTGRES_PORT` (default 5432). If another
+  local Postgres holds 5432, use a free port such as `POSTGRES_PORT=55440` for both `compose up`
+  and the benchmark run.
 - **Embedding + reranker API** — the existing Infinity compose serves both on `:7997`:
   ```bash
   podman compose -f examples/benchmark/docker-compose.infinity.yml up -d
   ```
-  (BGE-M3 embedder + bge-reranker-v2-m3, on the GPU.)
+  (BGE-M3 embedder + bge-reranker-v2-m3, on the GPU. If it fails with `unresolvable CDI devices`,
+  see the Gotchas in [`../benchmark/BENCHMARKING_LOG.md`](../benchmark/BENCHMARKING_LOG.md).)
 - **attacut Thai segmenter sidecar** on host `:8100`:
   ```bash
   cd examples && podman compose up -d thai-segmenter
@@ -63,8 +66,9 @@ EMBEDDING_MODEL=BAAI/bge-m3
 EMBEDDING_API_KEY=dummy
 EMBEDDING_DIM=1024
 EMBEDDING_BATCH_SIZE=8
-# Lower the vector floor: the 0.8 default is e5-calibrated and zeroes the dense leg for BGE-M3.
-VECTOR_MIN_SCORE=0.4
+# Disable the vector floor: the 0.8 default is e5-calibrated and zeroes the dense leg for BGE-M3.
+# 0 is what every logged run and the committed baselines use.
+VECTOR_MIN_SCORE=0
 
 # Reranker (optional — enables --rerank)
 RERANKER_BASE_URL=http://localhost:7997
