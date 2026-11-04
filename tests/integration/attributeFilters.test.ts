@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   type AttributeInput,
   Bm25Fts,
+  CachingMetadataCatalog,
   type EmbeddingProvider,
   type FilterExpression,
   normalizeAttributes,
@@ -172,6 +173,51 @@ function suite(
     });
     afterAll(async () => {
       await dropTestDb(testDb, dbName);
+    });
+
+    test("catalog: counts articles (not chunks) and merges registry", async () => {
+      // A second chunk for article A must not change the article count.
+      const extra = new PostgresRagDatabase(testDb.provider);
+      await extra.insertChunks(TENANT, [
+        { ...toChunk(A, CORPUS[0]?.attrs ?? [], 900), chunkIndex: "1" },
+      ]);
+      const catalog = new CachingMetadataCatalog({ txProvider: testDb.provider });
+      const before = await catalog.describe(TENANT);
+      const region = before.keys.find((k) => k.ns === "kx" && k.key === "region");
+      expect(region?.registered).toBe(false);
+      expect(region?.observed[0]?.articleCount).toBe(3); // A, B, C
+      expect(region?.topValues?.map((v) => v.value)).toContain("EU");
+      expect(region?.topValues?.find((v) => v.value === "EU")?.articleCount).toBe(2);
+
+      await catalog.register(TENANT, [
+        {
+          ns: "kx",
+          key: "region",
+          description: "Sales region",
+          type: "string",
+          format: "enum",
+          multi: true,
+          allowedValues: ["EU", "UK", "US"],
+        },
+        { ns: "kx", key: "never_indexed", description: "Registered only" },
+      ]);
+      const after = await catalog.describe(TENANT);
+      expect(after.keys[0]?.registered).toBe(true);
+      const merged = after.keys.find((k) => k.ns === "kx" && k.key === "region");
+      expect(merged?.description).toBe("Sales region");
+      expect(merged?.allowedValues).toEqual(["EU", "UK", "US"]);
+      expect(merged?.observed[0]?.articleCount).toBe(3);
+      expect(after.keys.find((k) => k.key === "never_indexed")?.observed).toEqual([]);
+
+      await catalog.unregister(TENANT, [{ ns: "kx", key: "never_indexed" }]);
+      expect((await catalog.describe(TENANT)).keys.some((k) => k.key === "never_indexed")).toBe(
+        false,
+      );
+      await testDb.sql.unsafe("DELETE FROM rag_metadata_registry");
+      await testDb.sql.unsafe(
+        "DELETE FROM rag_documents WHERE source_id = $1 AND chunk_index = '1'",
+        [A],
+      );
     });
 
     test("baseline: no filter returns every article, including untagged", async () => {

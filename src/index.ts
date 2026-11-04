@@ -1,4 +1,7 @@
 // Adapters
+
+export type { CachingMetadataCatalogConfig } from "./adapters/CachingMetadataCatalog.js";
+export { CachingMetadataCatalog } from "./adapters/CachingMetadataCatalog.js";
 export type { CachingStopWordsLoaderConfig } from "./adapters/CachingStopWordsLoader.js";
 export { CachingStopWordsLoader } from "./adapters/CachingStopWordsLoader.js";
 export type { CachingSynonymLoaderConfig } from "./adapters/CachingSynonymLoader.js";
@@ -26,6 +29,7 @@ export type {
   EmbeddingProvider,
   FtsContext,
   FtsStrategy,
+  MetadataCatalogProvider,
   Normalizer,
   RagDatabase,
   RagLogger,
@@ -83,6 +87,7 @@ export type {
   AttributeLimits,
   AttributeOutput,
   AttributeType,
+  CatalogKey,
   Chunk,
   FilterCondition,
   FilterExpression,
@@ -92,9 +97,11 @@ export type {
   FusionMethod,
   FusionNormalizer,
   HybridSearchParams,
+  MetadataCatalog,
   RagResult,
   RagSearchOptions,
   RankedCandidate,
+  RegisteredKeyInput,
   StopWordRow,
   StoredAttributeEntry,
   SynonymLookup,

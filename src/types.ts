@@ -248,3 +248,38 @@ export interface FilterLimits {
   maxListSize: number;
   maxStringLength: number;
 }
+
+/** A metadata key an integrator registers (description + optional declared shape). */
+export interface RegisteredKeyInput {
+  /** Defaults to "global". */
+  ns?: string;
+  key: string;
+  description: string;
+  type?: AttributeType;
+  format?: AttributeFormat;
+  multi?: boolean;
+  allowedValues?: string[];
+}
+
+/** One key in a tenant catalog: registry info merged with what is observed in indexed data. */
+export interface CatalogKey {
+  ns: string;
+  key: string;
+  registered: boolean;
+  description?: string;
+  declaredType?: AttributeType;
+  declaredFormat?: AttributeFormat;
+  multi?: boolean;
+  allowedValues?: string[];
+  /** One row per observed (type, format); counts are distinct articles, not chunks. */
+  observed: Array<{ type: AttributeType; format?: AttributeFormat; articleCount: number }>;
+  /** Most common string values by article count. */
+  topValues?: Array<{ value: string; articleCount: number }>;
+}
+
+/** Tenant-level description of the metadata keys available for filtering. */
+export interface MetadataCatalog {
+  tenantId: string;
+  generatedAt: string;
+  keys: CatalogKey[];
+}

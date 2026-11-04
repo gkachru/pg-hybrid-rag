@@ -31,6 +31,43 @@ const FORMATS_BY_TYPE: Record<AttributeType, readonly AttributeFormat[]> = {
   datetime: [],
 };
 
+/**
+ * Shared ns/key/type/format/multi rules, used for stored attributes and registry entries.
+ * `type` may be omitted only by registry entries (which then must omit `format` too).
+ * Returns the list of issues (empty when valid).
+ */
+export function checkKeyShape(
+  label: string,
+  ns: unknown,
+  key: unknown,
+  type: AttributeType | undefined,
+  format: AttributeFormat | undefined,
+  multi: boolean | undefined,
+  typeRequired = false,
+): string[] {
+  const issues: string[] = [];
+  if (typeof key !== "string" || key.length === 0 || key.length > MAX_NAME_LENGTH) {
+    issues.push(`${label}: key must be 1-${MAX_NAME_LENGTH} chars`);
+  }
+  if (typeof ns !== "string" || ns.length === 0 || ns.length > MAX_NAME_LENGTH) {
+    issues.push(`${label}: ns must be 1-${MAX_NAME_LENGTH} chars`);
+  }
+  if (type === undefined && !typeRequired) {
+    if (format !== undefined) issues.push(`${label}: format requires a type`);
+  } else {
+    const allowed = FORMATS_BY_TYPE[type as AttributeType];
+    if (!allowed) {
+      issues.push(`${label}: unknown type "${String(type)}"`);
+      return issues;
+    }
+    if (format !== undefined && !allowed.includes(format)) {
+      issues.push(`${label}: format "${format}" is not valid for type "${type}"`);
+    }
+  }
+  if (multi && format !== "enum") issues.push(`${label}: multi is only valid with enum`);
+  return issues;
+}
+
 /** Thrown when attribute input fails validation; `issues` lists every problem found. */
 export class AttributeValidationError extends Error {
   readonly issues: string[];
@@ -173,22 +210,9 @@ export function normalizeAttributes(
     const ns = a.ns ?? GLOBAL_NS;
     const label = `attribute[${i}]`;
     const before = issues.length;
-    if (typeof a.key !== "string" || a.key.length === 0 || a.key.length > MAX_NAME_LENGTH) {
-      issues.push(`${label}: key must be 1-${MAX_NAME_LENGTH} chars`);
-    }
-    if (typeof ns !== "string" || ns.length === 0 || ns.length > MAX_NAME_LENGTH) {
-      issues.push(`${label}: ns must be 1-${MAX_NAME_LENGTH} chars`);
-    }
-    const allowed = FORMATS_BY_TYPE[a.type];
-    if (!allowed) {
-      issues.push(`${label}: unknown type "${String(a.type)}"`);
-      return;
-    }
-    if (a.format !== undefined && !allowed.includes(a.format)) {
-      issues.push(`${label}: format "${a.format}" is not valid for type "${a.type}"`);
-    }
-    if (a.multi && a.format !== "enum") issues.push(`${label}: multi is only valid with enum`);
-    if (issues.length > before) return;
+    const shape = checkKeyShape(label, ns, a.key, a.type, a.format, a.multi, true);
+    issues.push(...shape);
+    if (shape.length > 0) return;
 
     const dupKey = JSON.stringify([ns, a.key]);
     if (seen.has(dupKey)) {

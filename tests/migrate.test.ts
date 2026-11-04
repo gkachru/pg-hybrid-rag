@@ -158,6 +158,16 @@ describe("ragMigrate", () => {
     expect(appliedMigrations).toContain("017_attributes.sql");
   });
 
+  it("applies the registry migration (018) by default, its RLS (019) only with rls: true", async () => {
+    const plain = createMockClient();
+    await ragMigrate(plain.client, { sqlDir });
+    expect(plain.appliedMigrations).toContain("018_metadata_registry.sql");
+    expect(plain.appliedMigrations).not.toContain("019_metadata_registry_rls.sql");
+    const rls = createMockClient();
+    await ragMigrate(rls.client, { sqlDir, rls: true });
+    expect(rls.appliedMigrations).toContain("019_metadata_registry_rls.sql");
+  });
+
   it("applies the Arabic FTS migration (014) by default", async () => {
     const { client, appliedMigrations } = createMockClient();
     await ragMigrate(client, { sqlDir });

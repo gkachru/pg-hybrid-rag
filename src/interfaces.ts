@@ -2,6 +2,7 @@ import type { ValidatedFilter } from "./metadata/filterSchema.js";
 import type {
   Chunk,
   HybridSearchParams,
+  MetadataCatalog,
   RagResult,
   RankedCandidate,
   SynonymLookup,
@@ -202,4 +203,10 @@ export interface Segmenter {
    *  segmented language's keyword leg to trgm instead of pg_bigm. Routing only — this
    *  method must never segment. Must agree with `segment`. */
   segmentsLanguage(language: string): boolean;
+}
+
+/** Describes which metadata keys exist for a tenant (observed in data + registered). */
+export interface MetadataCatalogProvider {
+  describe(tenantId: string): Promise<MetadataCatalog>;
+  invalidate(tenantId: string): void;
 }
