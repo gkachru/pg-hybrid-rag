@@ -210,3 +210,21 @@ export interface MetadataCatalogProvider {
   describe(tenantId: string): Promise<MetadataCatalog>;
   invalidate(tenantId: string): void;
 }
+
+/** Context passed to a filter model alongside the query and catalog. */
+export interface FilterModelContext {
+  tenantId: string;
+  language: string;
+}
+
+/**
+ * Turns a user query into a metadata filter. The return type is `unknown` on purpose:
+ * the pipeline validates whatever comes back against the catalog before using it.
+ */
+export interface FilterModelProvider {
+  generateFilter(
+    query: string,
+    catalog: MetadataCatalog,
+    ctx: FilterModelContext,
+  ): Promise<unknown>;
+}

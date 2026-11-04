@@ -16,6 +16,12 @@ export {
   EmbeddingResponseError,
   OpenAiCompatibleEmbedder,
 } from "./adapters/OpenAiCompatibleEmbedder.js";
+export type { OpenAiCompatibleFilterModelConfig } from "./adapters/OpenAiCompatibleFilterModel.js";
+export {
+  FilterModelApiError,
+  FilterModelResponseError,
+  OpenAiCompatibleFilterModel,
+} from "./adapters/OpenAiCompatibleFilterModel.js";
 export type { PostgresRagDatabaseOptions } from "./adapters/PostgresRagDatabase.js";
 export { PostgresRagDatabase } from "./adapters/PostgresRagDatabase.js";
 export type { BuiltFilters, SearchFilters } from "./adapters/sqlHelpers.js";
@@ -27,6 +33,8 @@ export { AttributeFiltersUnsupportedError } from "./errors.js";
 export type {
   ChunkingProvider,
   EmbeddingProvider,
+  FilterModelContext,
+  FilterModelProvider,
   FtsContext,
   FtsStrategy,
   MetadataCatalogProvider,
