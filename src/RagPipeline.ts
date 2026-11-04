@@ -200,6 +200,10 @@ export class RagPipeline {
             "autoFilter requires both `filterModel` and `metadataCatalog` on the RagPipeline config.",
           );
         }
+        // Static misconfiguration: fail fast regardless of what the model would return.
+        if (opts.autoFilter && this.db.supportsAttributeFilters !== true) {
+          throw new AttributeFiltersUnsupportedError();
+        }
 
         // Auto-load merged stop words for the tenant (uses cached Set when available)
         let allStopWords: Set<string>;

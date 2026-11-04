@@ -905,13 +905,24 @@ describe("RagPipeline auto-filter", () => {
   });
 
   it("fails closed when a generated filter is applied on an unsupporting db", async () => {
-    const p = mk(
-      mkModel(async () => generatedGood),
-      mockDb,
-    );
+    const model = mkModel(async () => generatedGood);
+    const p = mk(model, mockDb);
     await expect(p.search("q", { language: "en", autoFilter: true })).rejects.toBeInstanceOf(
       AttributeFiltersUnsupportedError,
     );
+    expect(hybrid).not.toHaveBeenCalled();
+    expect(model.generateFilter).not.toHaveBeenCalled();
+    expect(mockEmbedQuery).not.toHaveBeenCalled();
+  });
+
+  it("fails fast on an unsupporting db even when the model would return null", async () => {
+    const model = mkModel(async () => null);
+    const p = mk(model, mockDb);
+    await expect(p.search("q", { language: "en", autoFilter: true })).rejects.toBeInstanceOf(
+      AttributeFiltersUnsupportedError,
+    );
+    expect(model.generateFilter).not.toHaveBeenCalled();
+    expect(mockEmbedQuery).not.toHaveBeenCalled();
     expect(hybrid).not.toHaveBeenCalled();
   });
 
