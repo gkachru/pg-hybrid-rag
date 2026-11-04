@@ -754,3 +754,58 @@ describe("PostgresRagDatabase attribute filters", () => {
     expect(seen?.attributeFilter).toBe(attrFilter);
   });
 });
+
+describe("PostgresRagDatabase IVFFlat iterative scans", () => {
+  const vectorSql = (calls: Array<{ sql: string; params: unknown[] }>) =>
+    calls.find((c) => c.sql.includes("embedding <=> $2::vector"));
+  const gucNames = (calls: Array<{ sql: string; params: unknown[] }>) =>
+    calls
+      .filter((c) => c.sql.includes("set_config('ivfflat."))
+      .map((c) => `${/set_config\('([^']+)'/.exec(c.sql)?.[1]}=${c.params[0]}`);
+
+  it("relaxed_order wraps the vector leg in a MATERIALIZED CTE and sets the GUCs", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider, {
+      ivfflatIterativeScan: "relaxed_order",
+      ivfflatMaxProbes: 100,
+    }).hybridSearch(params);
+    const sql = vectorSql(calls)?.sql ?? "";
+    expect(sql).toContain("AS MATERIALIZED");
+    expect(sql).toContain("distance + 0");
+    expect(sql).toContain("1 - distance >= $3");
+    expect(gucNames(calls)).toContain("ivfflat.iterative_scan=relaxed_order");
+    expect(gucNames(calls)).toContain("ivfflat.max_probes=100");
+    expect(gucNames(calls)).toContain("ivfflat.probes=10");
+  });
+
+  it("strict_order sets the GUC without max_probes when unset", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider, {
+      ivfflatIterativeScan: "strict_order",
+    }).hybridSearch(params);
+    expect(gucNames(calls)).toContain("ivfflat.iterative_scan=strict_order");
+    expect(gucNames(calls).some((g) => g.startsWith("ivfflat.max_probes"))).toBe(false);
+  });
+
+  it("default (off) leaves the vector SQL un-wrapped and sets no iterative GUCs", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider).hybridSearch(params);
+    const sql = vectorSql(calls)?.sql ?? "";
+    expect(sql).not.toContain("MATERIALIZED");
+    expect(sql).toContain("AND 1 - (embedding <=> $2::vector) >= $3");
+    expect(gucNames(calls)).toEqual(["ivfflat.probes=10"]);
+  });
+
+  it("ivfflatMaxProbes must be a positive integer", () => {
+    const { txProvider } = recordingTx();
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      expect(
+        () =>
+          new PostgresRagDatabase(txProvider, {
+            ivfflatIterativeScan: "relaxed_order",
+            ivfflatMaxProbes: bad,
+          }),
+      ).toThrow();
+    }
+  });
+});

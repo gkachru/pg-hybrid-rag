@@ -29,6 +29,10 @@ const DEFAULT_IVFFLAT_PROBES = 10;
  */
 const CJK_BIGM_CANDIDATE_FLOOR = 0.0001;
 
+export type IvfflatIterativeScan = "off" | "relaxed_order" | "strict_order";
+
+const IVFFLAT_ITERATIVE_SCAN_MODES: readonly string[] = ["off", "relaxed_order", "strict_order"];
+
 export interface PostgresRagDatabaseOptions {
   /** Enable pg_bigm for CJK keyword search. Requires the pg_bigm extension. Default: false. */
   cjk?: boolean;
@@ -40,6 +44,19 @@ export interface PostgresRagDatabaseOptions {
    * Ignored when the migration-010 vchordrq index is in use. Must be a positive integer.
    */
   ivfflatProbes?: number;
+  /**
+   * pgvector 0.8 iterative index scans (`ivfflat.iterative_scan`). A selective filter applied
+   * inside an approximate scan can return fewer than `candidateLimit` rows; an iterative scan keeps
+   * probing more lists until enough rows pass. "relaxed_order" may return results slightly out of
+   * order (the leg re-sorts them); "strict_order" preserves order. Default: "off". A no-op for the
+   * vchordrq index.
+   */
+  ivfflatIterativeScan?: IvfflatIterativeScan;
+  /**
+   * Upper bound on lists probed during an iterative scan (`ivfflat.max_probes`). Only applied when
+   * `ivfflatIterativeScan` isn't "off". Must be a positive integer.
+   */
+  ivfflatMaxProbes?: number;
   /**
    * Whether the tuned search legs open their own `BEGIN`/`COMMIT` around the planner-GUC
    * `set_config` calls + SELECT. Default: true. Set false when the consumer's `withConnection`
@@ -156,6 +173,8 @@ export class PostgresRagDatabase implements RagDatabase {
   private cjk: boolean;
   private fts: FtsStrategy;
   private ivfflatProbes: number;
+  private ivfflatIterativeScan: IvfflatIterativeScan;
+  private ivfflatMaxProbes?: number;
   private manageTransaction: boolean;
   private segmenter?: Segmenter;
 
@@ -164,6 +183,17 @@ export class PostgresRagDatabase implements RagDatabase {
     this.cjk = options?.cjk ?? false;
     this.fts = options?.fts ?? new TsvectorFts();
     this.ivfflatProbes = options?.ivfflatProbes ?? DEFAULT_IVFFLAT_PROBES;
+    this.ivfflatIterativeScan = options?.ivfflatIterativeScan ?? "off";
+    if (!IVFFLAT_ITERATIVE_SCAN_MODES.includes(this.ivfflatIterativeScan)) {
+      throw new Error(
+        `ivfflatIterativeScan must be "off", "relaxed_order" or "strict_order" (got ${String(this.ivfflatIterativeScan)})`,
+      );
+    }
+    const maxProbes = options?.ivfflatMaxProbes;
+    if (maxProbes !== undefined && !(Number.isInteger(maxProbes) && maxProbes > 0)) {
+      throw new Error(`ivfflatMaxProbes must be a positive integer (got ${maxProbes})`);
+    }
+    this.ivfflatMaxProbes = maxProbes;
     this.manageTransaction = options?.manageTransaction ?? true;
     this.segmenter = options?.segmenter;
   }
@@ -207,7 +237,29 @@ export class PostgresRagDatabase implements RagDatabase {
           params.candidateLimit,
         ];
         const f = buildFilters(params, 5);
-        const sql = `
+        const iterative = this.ivfflatIterativeScan !== "off";
+        // The "off" SQL is the original, unwrapped query. With an iterative scan the floor must sit
+        // OUTSIDE the CTE (a WHERE inside would stop the scan early), and relaxed_order may emit
+        // slightly unordered rows, so re-sort outside; `+ 0` is needed on Postgres 17+ so the
+        // planner can't push the sort back into the index scan.
+        const sql = iterative
+          ? `
+          WITH candidates AS MATERIALIZED (
+            SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,
+                   embedding <=> $2::vector AS distance
+            FROM rag_documents
+            WHERE tenant_id = $1
+              ${f.clause}
+            ORDER BY embedding <=> $2::vector
+            LIMIT $4
+          )
+          SELECT id, content, source_type, source_id, metadata, attributes, 1 - distance AS score
+          FROM candidates
+          WHERE 1 - distance >= $3
+          ORDER BY distance + 0
+          LIMIT $4
+        `
+          : `
           SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,
                  1 - (embedding <=> $2::vector) as score
           FROM rag_documents
@@ -217,15 +269,17 @@ export class PostgresRagDatabase implements RagDatabase {
           ORDER BY embedding <=> $2::vector
           LIMIT $4
         `;
+        const gucs = [{ name: "ivfflat.probes", value: String(this.ivfflatProbes) }];
+        if (iterative) {
+          gucs.push({ name: "ivfflat.iterative_scan", value: this.ivfflatIterativeScan });
+          if (this.ivfflatMaxProbes !== undefined) {
+            gucs.push({ name: "ivfflat.max_probes", value: String(this.ivfflatMaxProbes) });
+          }
+        }
         // Probe more than the IVFFlat default of 1 cell for usable recall. SET LOCAL can't take
         // a bind param, so use set_config(..., is_local => true) — same transaction-local scope.
-        // No-op for the migration-010 vchordrq index, which ignores ivfflat.probes.
-        const rows = await this.runTuned(
-          client,
-          [{ name: "ivfflat.probes", value: String(this.ivfflatProbes) }],
-          sql,
-          [...baseParams, ...f.params],
-        );
+        // No-op for the migration-010 vchordrq index, which ignores ivfflat.* GUCs.
+        const rows = await this.runTuned(client, gucs, sql, [...baseParams, ...f.params]);
         return rows.map(toRankedCandidate);
       }),
 
