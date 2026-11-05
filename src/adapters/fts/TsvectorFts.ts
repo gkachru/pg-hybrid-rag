@@ -32,15 +32,20 @@ export class TsvectorFts implements FtsStrategy {
       ? "to_tsquery(rag_fts_config($4), $2)"
       : "plainto_tsquery(rag_fts_config($4), $2)";
 
+    // attributes is cast to text above the LIMIT so the cast runs on <= candidateLimit rows.
     const sql = `
-          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,
-                 ts_rank_cd(content_tsvector, ${tsExpr}) as score
-          FROM rag_documents
-          WHERE tenant_id = $1
-            AND content_tsvector @@ ${tsExpr}
-            ${f.clause}
-          ORDER BY ts_rank_cd(content_tsvector, ${tsExpr}) DESC
-          LIMIT $3
+          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score
+          FROM (
+            SELECT id, content, source_type, source_id, metadata, attributes,
+                   ts_rank_cd(content_tsvector, ${tsExpr}) as score
+            FROM rag_documents
+            WHERE tenant_id = $1
+              AND content_tsvector @@ ${tsExpr}
+              ${f.clause}
+            ORDER BY ts_rank_cd(content_tsvector, ${tsExpr}) DESC
+            LIMIT $3
+          ) top
+          ORDER BY score DESC
         `;
     const rows = await client.query<Record<string, unknown>>(sql, [...baseParams, ...f.params]);
     return rows.map(toRankedCandidate);

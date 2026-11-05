@@ -21,6 +21,13 @@
 
 ### Changed
 
+- Performance: the tsvector FTS, pg_trgm keyword and pg_bigm keyword legs now cast `attributes` to
+  text above the `LIMIT` (outer query), so the cast runs on at most `candidateLimit` rows instead of
+  every matched row. Equal-score ties may be returned in a different order than before.
+- Performance: with `ivfflatIterativeScan: "relaxed_order"` and no `ivfflatMaxProbes`,
+  `ivfflat.max_probes` now defaults to `4 * ivfflatProbes` (40 by default) instead of unbounded. Very
+  selective filters may return fewer rows; set `ivfflatMaxProbes` explicitly to raise the cap.
+- Performance: the per-leg planner GUCs are applied in a single `set_config` statement (one round trip).
 - `RagResult` gains a required `attributes: AttributeOutput[]` field. Code that constructs
   `RagResult` values (for example test doubles) must add it.
 - `RagDatabase` and `FtsStrategy` gain an optional `supportsAttributeFilters` flag. Custom

@@ -648,7 +648,7 @@ describe("PostgresRagDatabase tuned-leg error handling", () => {
 const NO_FILTER_SNAPSHOT: Record<string, Array<{ sql: string; params: unknown[] }>> = {
   default: [
     {
-      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)\n            \n          ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC\n          LIMIT $3\n        ",
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes,\n                   ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)\n              \n            ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC\n            LIMIT $3\n          ) top\n          ORDER BY score DESC\n        ",
       params: ["t1", "phones", 10, "en"],
     },
     {
@@ -656,13 +656,13 @@ const NO_FILTER_SNAPSHOT: Record<string, Array<{ sql: string; params: unknown[] 
       params: ["t1", "[0.1,0.2]", 0.8, 10],
     },
     {
-      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 word_similarity($2, content_normalized) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND $2 <% content_normalized\n            \n          ORDER BY word_similarity($2, content_normalized) DESC\n          LIMIT $3\n        ",
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes,\n                   word_similarity($2, content_normalized) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND $2 <% content_normalized\n              \n            ORDER BY word_similarity($2, content_normalized) DESC\n            LIMIT $3\n          ) top\n          ORDER BY score DESC\n        ",
       params: ["t1", "phones", 10],
     },
   ],
   cjk: [
     {
-      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)\n            \n          ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC\n          LIMIT $3\n        ",
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes,\n                   ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)\n              \n            ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC\n            LIMIT $3\n          ) top\n          ORDER BY score DESC\n        ",
       params: ["t1", "phones", 10, "ja"],
     },
     {
@@ -670,7 +670,7 @@ const NO_FILTER_SNAPSHOT: Record<string, Array<{ sql: string; params: unknown[] 
       params: ["t1", "[0.1,0.2]", 0.8, 10],
     },
     {
-      sql: "\n          WITH q AS (\n            SELECT ARRAY(SELECT b FROM unnest(show_bigm($2)) AS b WHERE b NOT LIKE '% %') AS qb\n          )\n          SELECT id, content, source_type, source_id, metadata, attributes, score FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                   cardinality(ARRAY(SELECT unnest(q.qb)\n                                     INTERSECT\n                                     SELECT unnest(show_bigm(content))))::float\n                     / NULLIF(cardinality(q.qb), 0) AS score\n            FROM rag_documents, q\n            WHERE tenant_id = $1\n              AND content =% $2\n              \n          ) c\n          WHERE score >= $4\n          ORDER BY score DESC\n          LIMIT $3\n        ",
+      sql: "\n          WITH q AS (\n            SELECT ARRAY(SELECT b FROM unnest(show_bigm($2)) AS b WHERE b NOT LIKE '% %') AS qb\n          )\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes, score FROM (\n              SELECT id, content, source_type, source_id, metadata, attributes,\n                     cardinality(ARRAY(SELECT unnest(q.qb)\n                                       INTERSECT\n                                       SELECT unnest(show_bigm(content))))::float\n                       / NULLIF(cardinality(q.qb), 0) AS score\n              FROM rag_documents, q\n              WHERE tenant_id = $1\n                AND content =% $2\n                \n            ) c\n            WHERE score >= $4\n            ORDER BY score DESC\n            LIMIT $3\n          ) top\n          ORDER BY score DESC\n        ",
       params: ["t1", "phones", 10, 0.35],
     },
   ],
@@ -684,7 +684,7 @@ const NO_FILTER_SNAPSHOT: Record<string, Array<{ sql: string; params: unknown[] 
       params: ["t1", "[0.1,0.2]", 0.8, 10],
     },
     {
-      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,\n                 word_similarity($2, content_normalized) as score\n          FROM rag_documents\n          WHERE tenant_id = $1\n            AND $2 <% content_normalized\n            \n          ORDER BY word_similarity($2, content_normalized) DESC\n          LIMIT $3\n        ",
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes,\n                   word_similarity($2, content_normalized) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND $2 <% content_normalized\n              \n            ORDER BY word_similarity($2, content_normalized) DESC\n            LIMIT $3\n          ) top\n          ORDER BY score DESC\n        ",
       params: ["t1", "phones", 10],
     },
   ],
@@ -768,7 +768,11 @@ describe("PostgresRagDatabase IVFFlat iterative scans", () => {
   const gucNames = (calls: Array<{ sql: string; params: unknown[] }>) =>
     calls
       .filter((c) => c.sql.includes("set_config('ivfflat."))
-      .map((c) => `${/set_config\('([^']+)'/.exec(c.sql)?.[1]}=${c.params[0]}`);
+      .flatMap((c) =>
+        [...c.sql.matchAll(/set_config\('([^']+)', \$(\d+), true\)/g)].map(
+          (m) => `${m[1]}=${c.params[Number(m[2]) - 1]}`,
+        ),
+      );
 
   it("relaxed_order wraps the vector leg in a MATERIALIZED CTE and sets the GUCs", async () => {
     const { txProvider, calls } = recordingTx();
@@ -783,6 +787,39 @@ describe("PostgresRagDatabase IVFFlat iterative scans", () => {
     expect(gucNames(calls)).toContain("ivfflat.iterative_scan=relaxed_order");
     expect(gucNames(calls)).toContain("ivfflat.max_probes=100");
     expect(gucNames(calls)).toContain("ivfflat.probes=10");
+  });
+
+  it("relaxed_order defaults ivfflat.max_probes to 4 x ivfflatProbes", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider, {
+      ivfflatIterativeScan: "relaxed_order",
+    }).hybridSearch(params);
+    expect(gucNames(calls)).toContain("ivfflat.max_probes=40");
+    const { txProvider: tx2, calls: calls2 } = recordingTx();
+    await new PostgresRagDatabase(tx2, {
+      ivfflatIterativeScan: "relaxed_order",
+      ivfflatProbes: 7,
+    }).hybridSearch(params);
+    expect(gucNames(calls2)).toContain("ivfflat.max_probes=28");
+  });
+
+  it("off mode sends no ivfflat.max_probes", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider).hybridSearch(params);
+    expect(gucNames(calls).some((g) => g.startsWith("ivfflat.max_probes"))).toBe(false);
+  });
+
+  it("applies all GUCs of a leg in a single set_config statement", async () => {
+    const { txProvider, calls } = recordingTx();
+    await new PostgresRagDatabase(txProvider, {
+      ivfflatIterativeScan: "relaxed_order",
+    }).hybridSearch(params);
+    const gucCalls = calls.filter((c) => c.sql.includes("set_config('ivfflat."));
+    expect(gucCalls).toHaveLength(1);
+    expect(gucCalls[0]?.sql).toBe(
+      "SELECT set_config('ivfflat.probes', $1, true), set_config('ivfflat.iterative_scan', $2, true), set_config('ivfflat.max_probes', $3, true)",
+    );
+    expect(gucCalls[0]?.params).toEqual(["10", "relaxed_order", "40"]);
   });
 
   it("rejects strict_order (HNSW-only in pgvector)", () => {

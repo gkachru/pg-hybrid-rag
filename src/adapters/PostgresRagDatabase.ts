@@ -54,7 +54,9 @@ export interface PostgresRagDatabaseOptions {
   ivfflatIterativeScan?: IvfflatIterativeScan;
   /**
    * Upper bound on lists probed during an iterative scan (`ivfflat.max_probes`). Only applied when
-   * `ivfflatIterativeScan` isn't "off". Must be a positive integer.
+   * `ivfflatIterativeScan` isn't "off". Must be a positive integer. Default when iterative scan is
+   * on: `4 * ivfflatProbes` (40 with the default probes), so a filter matching nothing doesn't scan
+   * the whole index; very selective filters may then return fewer than `candidateLimit` rows.
    */
   ivfflatMaxProbes?: number;
   /**
@@ -92,15 +94,21 @@ interface KeywordLegSql {
 function buildTrigramKeywordSql(params: HybridSearchParams): KeywordLegSql {
   const baseParams: unknown[] = [params.tenantId, params.query, params.candidateLimit];
   const f = buildFilters(params, 4);
+  // attributes is cast to text only in the outer query, above the LIMIT, so the cast runs on at
+  // most candidateLimit rows instead of every matched row below the Sort.
   const sql = `
-          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,
-                 word_similarity($2, content_normalized) as score
-          FROM rag_documents
-          WHERE tenant_id = $1
-            AND $2 <% content_normalized
-            ${f.clause}
-          ORDER BY word_similarity($2, content_normalized) DESC
-          LIMIT $3
+          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score
+          FROM (
+            SELECT id, content, source_type, source_id, metadata, attributes,
+                   word_similarity($2, content_normalized) as score
+            FROM rag_documents
+            WHERE tenant_id = $1
+              AND $2 <% content_normalized
+              ${f.clause}
+            ORDER BY word_similarity($2, content_normalized) DESC
+            LIMIT $3
+          ) top
+          ORDER BY score DESC
         `;
   return {
     sql,
@@ -137,20 +145,24 @@ function buildBigmCoverageKeywordSql(params: HybridSearchParams): KeywordLegSql 
           WITH q AS (
             SELECT ARRAY(SELECT b FROM unnest(show_bigm($2)) AS b WHERE b NOT LIKE '% %') AS qb
           )
-          SELECT id, content, source_type, source_id, metadata, attributes, score FROM (
-            SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,
-                   cardinality(ARRAY(SELECT unnest(q.qb)
-                                     INTERSECT
-                                     SELECT unnest(show_bigm(content))))::float
-                     / NULLIF(cardinality(q.qb), 0) AS score
-            FROM rag_documents, q
-            WHERE tenant_id = $1
-              AND content =% $2
-              ${f.clause}
-          ) c
-          WHERE score >= $4
+          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score
+          FROM (
+            SELECT id, content, source_type, source_id, metadata, attributes, score FROM (
+              SELECT id, content, source_type, source_id, metadata, attributes,
+                     cardinality(ARRAY(SELECT unnest(q.qb)
+                                       INTERSECT
+                                       SELECT unnest(show_bigm(content))))::float
+                       / NULLIF(cardinality(q.qb), 0) AS score
+              FROM rag_documents, q
+              WHERE tenant_id = $1
+                AND content =% $2
+                ${f.clause}
+            ) c
+            WHERE score >= $4
+            ORDER BY score DESC
+            LIMIT $3
+          ) top
           ORDER BY score DESC
-          LIMIT $3
         `;
   return {
     sql,
@@ -272,9 +284,10 @@ export class PostgresRagDatabase implements RagDatabase {
         const gucs = [{ name: "ivfflat.probes", value: String(this.ivfflatProbes) }];
         if (iterative) {
           gucs.push({ name: "ivfflat.iterative_scan", value: this.ivfflatIterativeScan });
-          if (this.ivfflatMaxProbes !== undefined) {
-            gucs.push({ name: "ivfflat.max_probes", value: String(this.ivfflatMaxProbes) });
-          }
+          // Without a cap, a filter matching (almost) nothing makes the iterative scan walk the
+          // whole index. Default to 4x the base probes; an explicit ivfflatMaxProbes wins.
+          const maxProbes = this.ivfflatMaxProbes ?? 4 * this.ivfflatProbes;
+          gucs.push({ name: "ivfflat.max_probes", value: String(maxProbes) });
         }
         // Probe more than the IVFFlat default of 1 cell for usable recall. SET LOCAL can't take
         // a bind param, so use set_config(..., is_local => true) — same transaction-local scope.
@@ -345,6 +358,19 @@ export class PostgresRagDatabase implements RagDatabase {
    * that ambient transaction. On error we rethrow WITHOUT a ROLLBACK — issuing one would abort the
    * consumer's whole interactive transaction (its SET LOCAL + any prior work); rollback is theirs.
    */
+  /** Apply all GUCs in ONE round trip (names are trusted constants; values are bound in order). */
+  private async applyGucs(
+    client: SqlClient,
+    gucs: Array<{ name: string; value: string }>,
+  ): Promise<void> {
+    if (gucs.length === 0) return;
+    const calls = gucs.map((g, i) => `set_config('${g.name}', $${i + 1}, true)`).join(", ");
+    await client.query(
+      `SELECT ${calls}`,
+      gucs.map((g) => g.value),
+    );
+  }
+
   private async runTuned(
     client: SqlClient,
     gucs: Array<{ name: string; value: string }>,
@@ -354,17 +380,13 @@ export class PostgresRagDatabase implements RagDatabase {
     if (!this.manageTransaction) {
       // Ambient-transaction mode: apply the GUCs (still is_local=true, scoped to the consumer's
       // transaction) and run the SELECT directly, with no transaction control of our own.
-      for (const guc of gucs) {
-        await client.query(`SELECT set_config('${guc.name}', $1, true)`, [guc.value]);
-      }
+      await this.applyGucs(client, gucs);
       return client.query<Record<string, unknown>>(sql, params);
     }
 
     await client.query("BEGIN", []);
     try {
-      for (const guc of gucs) {
-        await client.query(`SELECT set_config('${guc.name}', $1, true)`, [guc.value]);
-      }
+      await this.applyGucs(client, gucs);
       const rows = await client.query<Record<string, unknown>>(sql, params);
       await client.query("COMMIT", []);
       return rows;
