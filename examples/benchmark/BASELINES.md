@@ -97,6 +97,10 @@ harness change (see below). Server: Postgres 17.11, pgvector 0.8.7, vchord 1.1.1
 pg_textsearch 1.3.0, pg_bigm 1.2, pg_trgm 1.6. Models: bge-m3 + bge-reranker-v2-m3 with
 `VECTOR_MIN_SCORE=0`. Full metrics are in `baselines.json`.
 
+The image moved to pg_textsearch 1.5.1 on 2026-11-05. Two full runs on 1.5.1 reproduced these
+numbers (only `+bm25` configs moved, by one query, as on 1.3.0), so the metrics were kept and only
+the recorded server version was updated.
+
 **Run-to-run determinism.** Two back-to-back runs of all 11 suites on 2026-11-05 matched
 exactly, except one query in `ar-matrix-withq` `+bm25` (|Δ| 0.004, within tolerance). Two
 changes got it there:

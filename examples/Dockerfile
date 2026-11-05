@@ -30,7 +30,7 @@
 # pre-built .debs below.
 ARG PGVECTOR_TAG=0.8.7-pg17-bookworm
 ARG VCHORD_VERSION=1.1.1
-ARG PG_TEXTSEARCH_VERSION=1.3.0
+ARG PG_TEXTSEARCH_VERSION=1.5.1
 ARG PG_BIGM_VERSION=1.2-20240606
 
 # ── Stage 1: download the pre-built .debs for vchord and pg_textsearch ──────
