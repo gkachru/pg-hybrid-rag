@@ -341,6 +341,19 @@ export class PostgresRagDatabase implements RagDatabase {
     return { vectorRows, keywordRows, ftsRows };
   }
 
+  /** Apply all GUCs in ONE round trip (names are trusted constants; values are bound in order). */
+  private async applyGucs(
+    client: SqlClient,
+    gucs: Array<{ name: string; value: string }>,
+  ): Promise<void> {
+    if (gucs.length === 0) return;
+    const calls = gucs.map((g, i) => `set_config('${g.name}', $${i + 1}, true)`).join(", ");
+    await client.query(
+      `SELECT ${calls}`,
+      gucs.map((g) => g.value),
+    );
+  }
+
   /**
    * Run a SELECT with planner GUCs applied transaction-locally. `SET LOCAL` is a utility
    * statement that cannot take a bind parameter, so values are applied via set_config(name,
@@ -358,19 +371,6 @@ export class PostgresRagDatabase implements RagDatabase {
    * that ambient transaction. On error we rethrow WITHOUT a ROLLBACK — issuing one would abort the
    * consumer's whole interactive transaction (its SET LOCAL + any prior work); rollback is theirs.
    */
-  /** Apply all GUCs in ONE round trip (names are trusted constants; values are bound in order). */
-  private async applyGucs(
-    client: SqlClient,
-    gucs: Array<{ name: string; value: string }>,
-  ): Promise<void> {
-    if (gucs.length === 0) return;
-    const calls = gucs.map((g, i) => `set_config('${g.name}', $${i + 1}, true)`).join(", ");
-    await client.query(
-      `SELECT ${calls}`,
-      gucs.map((g) => g.value),
-    );
-  }
-
   private async runTuned(
     client: SqlClient,
     gucs: Array<{ name: string; value: string }>,
