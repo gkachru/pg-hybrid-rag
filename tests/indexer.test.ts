@@ -271,3 +271,28 @@ describe("RagIndexer attributes", () => {
     expect(mockEmbedder.embedDocuments).not.toHaveBeenCalled();
   });
 });
+
+describe("RagIndexer.deleteSource", () => {
+  it("deletes by source for the indexer's tenant only", async () => {
+    const deleteBySource = mock(async () => {});
+    const db: RagDatabase = { ...mockDb, deleteBySource };
+    const indexer = new RagIndexer({ tenantId: "t-9", db, embedder: mockEmbedder });
+
+    await indexer.deleteSource("faq", "faq-42");
+
+    expect(deleteBySource).toHaveBeenCalledTimes(1);
+    expect(deleteBySource).toHaveBeenCalledWith("t-9", "faq", "faq-42");
+  });
+
+  it("propagates database errors", async () => {
+    const db: RagDatabase = {
+      ...mockDb,
+      deleteBySource: mock(async () => {
+        throw new Error("connection lost");
+      }),
+    };
+    const indexer = new RagIndexer({ tenantId: "t-9", db, embedder: mockEmbedder });
+
+    await expect(indexer.deleteSource("faq", "faq-42")).rejects.toThrow("connection lost");
+  });
+});

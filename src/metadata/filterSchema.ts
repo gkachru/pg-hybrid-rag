@@ -149,7 +149,12 @@ function isScalar(x: unknown): x is FilterScalar {
   );
 }
 
-function compareDecimal(a: string, b: string): number {
+/** Negative zero ("-0", "-0.00") is zero; drop its sign so it compares equal to "0". */
+const NEGATIVE_ZERO_RE = /^-(?=0(\.0+)?$)/;
+
+function compareDecimal(rawA: string, rawB: string): number {
+  const a = rawA.replace(NEGATIVE_ZERO_RE, "");
+  const b = rawB.replace(NEGATIVE_ZERO_RE, "");
   const negA = a.startsWith("-");
   const negB = b.startsWith("-");
   if (negA !== negB) return negA ? -1 : 1;

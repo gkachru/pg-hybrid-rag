@@ -99,6 +99,29 @@ describe("validateFilter", () => {
     expect(validateFilter(nest(5)).ok).toBe(true);
   });
 
+  test("between with decimal-string bounds compares exactly", () => {
+    const between = (lo: string, hi: string) =>
+      validateFilter({ key: "price", op: "between", value: [lo, hi], type: "number" }).ok;
+    // in order (including equal values written differently)
+    expect(between("9.99", "10")).toBe(true);
+    expect(between("10.5", "10.50")).toBe(true);
+    expect(between("-2.5", "-1")).toBe(true);
+    expect(between("-1", "0.5")).toBe(true);
+    // reversed
+    expect(between("10", "9.99")).toBe(false);
+    expect(between("-1", "-2.5")).toBe(false);
+    expect(between("0.5", "-1")).toBe(false);
+    // beyond float precision: Number() would see these as equal
+    expect(between("12345678901234567890.123", "12345678901234567890.124")).toBe(true);
+    expect(between("12345678901234567890.124", "12345678901234567890.123")).toBe(false);
+    // negative zero equals zero in either order
+    expect(between("0", "-0")).toBe(true);
+    expect(between("-0", "0")).toBe(true);
+    expect(between("0", "-0.00")).toBe(true);
+    expect(between("-0.0", "-0")).toBe(true);
+    expect(between("0", "-0.01")).toBe(false);
+  });
+
   test("limits are overridable", () => {
     expect(validateFilter(nest(2), { limits: { maxDepth: 1 } }).ok).toBe(false);
   });

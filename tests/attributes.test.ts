@@ -132,6 +132,33 @@ describe("normalizeAttributes", () => {
   });
 });
 
+describe("url format", () => {
+  const url = (value: string): AttributeInput[] => [
+    { key: "link", type: "string", format: "url", value },
+  ];
+
+  it("accepts absolute URLs and keeps format f:url", () => {
+    const [e] = normalizeAttributes(url("https://example.com/docs?id=1"));
+    expect(e).toMatchObject({
+      k: "link",
+      t: "string",
+      f: "url",
+      v: "https://example.com/docs?id=1",
+    });
+  });
+
+  it("rejects relative or non-URL strings", () => {
+    for (const value of ["/docs/page", "example.com", "not a url", ""]) {
+      expect(() => normalizeAttributes(url(value))).toThrow(AttributeValidationError);
+    }
+    try {
+      normalizeAttributes(url("not a url"));
+    } catch (err) {
+      expect((err as AttributeValidationError).issues.join()).toContain("invalid url");
+    }
+  });
+});
+
 describe("foldCase", () => {
   it("uses toLowerCase only", () => {
     expect(foldCase("İstanbul")).toBe("İstanbul".toLowerCase());
