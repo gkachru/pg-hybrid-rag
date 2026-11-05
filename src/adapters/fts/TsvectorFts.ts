@@ -1,7 +1,7 @@
 import type { FtsContext, FtsStrategy, SqlClient } from "../../interfaces.js";
 import { buildFtsQuery } from "../../synonymExpander.js";
 import type { RankedCandidate } from "../../types.js";
-import { buildFilters, toRankedCandidate } from "../sqlHelpers.js";
+import { buildFilters, SCORE_TIE_BREAK, toRankedCandidate } from "../sqlHelpers.js";
 
 /**
  * Default FTS strategy: Postgres tsvector/tsquery with language-aware stemming
@@ -36,16 +36,16 @@ export class TsvectorFts implements FtsStrategy {
     const sql = `
           SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score
           FROM (
-            SELECT id, content, source_type, source_id, metadata, attributes,
+            SELECT id, content, source_type, source_id, chunk_index, metadata, attributes,
                    ts_rank_cd(content_tsvector, ${tsExpr}) as score
             FROM rag_documents
             WHERE tenant_id = $1
               AND content_tsvector @@ ${tsExpr}
               ${f.clause}
-            ORDER BY ts_rank_cd(content_tsvector, ${tsExpr}) DESC
+            ORDER BY ts_rank_cd(content_tsvector, ${tsExpr}) DESC, ${SCORE_TIE_BREAK}
             LIMIT $3
           ) top
-          ORDER BY score DESC
+          ORDER BY score DESC, ${SCORE_TIE_BREAK}
         `;
     const rows = await client.query<Record<string, unknown>>(sql, [...baseParams, ...f.params]);
     return rows.map(toRankedCandidate);

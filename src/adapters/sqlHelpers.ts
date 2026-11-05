@@ -86,3 +86,12 @@ export function toRankedCandidate(row: Record<string, unknown>): RankedCandidate
     ...(row.score != null ? { score: Number(row.score) } : {}),
   };
 }
+
+/**
+ * Secondary sort keys for the sort-based legs (pg_trgm, pg_bigm, tsvector). Without them Postgres
+ * returns equal-score rows in physical/sort order, so a schema or layout change can move tied rows
+ * across the LIMIT cut. The key is source-derived, not the random row id alone, so the order also
+ * survives re-indexing a source. Not applied to the vector or BM25 legs: an extra sort key there
+ * would stop the index from returning rows in order.
+ */
+export const SCORE_TIE_BREAK = "source_type, source_id, chunk_index, id";

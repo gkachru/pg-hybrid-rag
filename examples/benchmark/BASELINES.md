@@ -92,9 +92,24 @@ change that caused it, and say in the commit message why the numbers moved.
 
 ## Current baselines (nDCG@10)
 
-Recorded on 2026-11-04 on the GPU. Server: Postgres 17.11, pgvector 0.8.7, vchord 1.1.1,
+Recorded on 2026-11-05 on the GPU, after the keyword-leg tie-break and the one-request-at-a-time
+harness change (see below). Server: Postgres 17.11, pgvector 0.8.7, vchord 1.1.1,
 pg_textsearch 1.3.0, pg_bigm 1.2, pg_trgm 1.6. Models: bge-m3 + bge-reranker-v2-m3 with
 `VECTOR_MIN_SCORE=0`. Full metrics are in `baselines.json`.
+
+**Run-to-run determinism.** Two back-to-back runs of all 11 suites on 2026-11-05 matched
+exactly, except one query in `ar-matrix-withq` `+bm25` (|Δ| 0.004, within tolerance). Two
+changes got it there:
+
+- The pg_trgm, pg_bigm and tsvector legs break score ties by `source_type, source_id,
+  chunk_index, id`. Before that, tied rows came back in physical order, so a schema change (the
+  `attributes` column) moved one Thai query out of the top 10 with identical scores.
+- The harness sends embedding and rerank requests one at a time (`serialized` in
+  `embeddingCache.ts`). Infinity merges concurrent requests into one GPU batch, and an embedding
+  shifts slightly with its batch (bge-m3: max |Δ| 0.0019, cosine 0.99994).
+
+The BM25 leg keeps its bare `ORDER BY ... LIMIT` (pg_textsearch's Block-Max WAND top-K path), so
+it has no tie-break; that's the likely source of the remaining one-query wobble.
 
 The corpora are bespoke, so only relative positions are meaningful (see the caveat in
 BENCHMARKING_LOG). `+vectorchord` equals `baseline` throughout because flat vchordrq is exact at
@@ -104,9 +119,9 @@ this corpus size.
 
 | Config | ar-matrix | ar-matrix-withq |
 |---|---|---|
-| baseline | .666 | .929 |
-| +bm25 | .626 | .957 |
-| +vectorchord | .666 | .929 |
+| baseline | .668 | .925 |
+| +bm25 | .628 | .955 |
+| +vectorchord | .668 | .925 |
 | +rerank | .766 | .951 |
 | all | .743 | .968 |
 
@@ -122,10 +137,10 @@ this corpus size.
 
 | Segmenter | baseline | +rerank | baseline (low-overlap) | +rerank (low-overlap) |
 |---|---|---|---|---|
-| none | .749 | .805 | .671 | .726 |
-| intl | .728 | .802 | .646 | .722 |
-| attacut | .728 | .802 | .633 | .721 |
-| bigram | .749 | .805 | .671 | .726 |
+| none | .747 | .800 | .671 | .726 |
+| intl | .723 | .802 | .641 | .722 |
+| attacut | .724 | .802 | .633 | .721 |
+| bigram | .747 | .800 | .671 | .726 |
 
-**Thai `--matrix`** (`th-matrix`, attacut): baseline .728 · +bm25 .680 · +vectorchord .728 ·
+**Thai `--matrix`** (`th-matrix`, attacut): baseline .724 · +bm25 .685 · +vectorchord .724 ·
 +rerank .802 · all .788

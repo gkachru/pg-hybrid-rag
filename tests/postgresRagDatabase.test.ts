@@ -144,6 +144,32 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     expect(calls.some((c) => c.sql === "COMMIT")).toBe(true);
   });
 
+  it("keyword and tsvector legs break score ties by a stable source key, inner and outer", async () => {
+    // Without a tie-break, Postgres returns equal-score rows in physical/sort order, so a schema
+    // or layout change can move rows across the LIMIT cut. The key is source-derived (not the
+    // random row id) so the order also survives re-indexing.
+    const tie = "DESC, source_type, source_id, chunk_index, id";
+    for (const opts of [{}, { cjk: true }]) {
+      const { txProvider, calls } = recordingTx();
+      await new PostgresRagDatabase(txProvider, opts).hybridSearch({
+        ...params,
+        language: "cjk" in opts ? "ja" : "en",
+      });
+      const legs = calls.filter(
+        (c) =>
+          c.sql.includes("word_similarity($2, content_normalized) as score") ||
+          c.sql.includes("show_bigm(content)") ||
+          c.sql.includes("ts_rank_cd(content_tsvector"),
+      );
+      expect(legs).toHaveLength(2); // keyword (trgm or bigm) + tsvector FTS
+      for (const leg of legs) {
+        const orderBys = leg.sql.match(/ORDER BY [^\n]*/g) ?? [];
+        expect(orderBys).toHaveLength(2); // inner (before LIMIT) + outer
+        for (const ob of orderBys) expect(ob.trim().endsWith(tie)).toBe(true);
+      }
+    }
+  });
+
   it("CJK keyword leg keeps the =% index probe and sets the pg_bigm floor (not keywordMinScore)", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider, { cjk: true }).hybridSearch({
@@ -642,13 +668,13 @@ describe("PostgresRagDatabase tuned-leg error handling", () => {
 
 /**
  * Literal snapshot of each leg's SQL + params with NO attribute filter, captured from the code
- * BEFORE attribute filters were wired in. Asserting equality proves the no-filter path is
- * byte-identical.
+ * BEFORE attribute filters were wired in (since updated only for the attributes-cast move and the
+ * score tie-break). Asserting equality proves the no-filter path is byte-identical.
  */
 const NO_FILTER_SNAPSHOT: Record<string, Array<{ sql: string; params: unknown[] }>> = {
   default: [
     {
-      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes,\n                   ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)\n              \n            ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC\n            LIMIT $3\n          ) top\n          ORDER BY score DESC\n        ",
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, chunk_index, metadata, attributes,\n                   ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)\n              \n            ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC, source_type, source_id, chunk_index, id\n            LIMIT $3\n          ) top\n          ORDER BY score DESC, source_type, source_id, chunk_index, id\n        ",
       params: ["t1", "phones", 10, "en"],
     },
     {
@@ -656,13 +682,13 @@ const NO_FILTER_SNAPSHOT: Record<string, Array<{ sql: string; params: unknown[] 
       params: ["t1", "[0.1,0.2]", 0.8, 10],
     },
     {
-      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes,\n                   word_similarity($2, content_normalized) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND $2 <% content_normalized\n              \n            ORDER BY word_similarity($2, content_normalized) DESC\n            LIMIT $3\n          ) top\n          ORDER BY score DESC\n        ",
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, chunk_index, metadata, attributes,\n                   word_similarity($2, content_normalized) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND $2 <% content_normalized\n              \n            ORDER BY word_similarity($2, content_normalized) DESC, source_type, source_id, chunk_index, id\n            LIMIT $3\n          ) top\n          ORDER BY score DESC, source_type, source_id, chunk_index, id\n        ",
       params: ["t1", "phones", 10],
     },
   ],
   cjk: [
     {
-      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes,\n                   ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)\n              \n            ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC\n            LIMIT $3\n          ) top\n          ORDER BY score DESC\n        ",
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, chunk_index, metadata, attributes,\n                   ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND content_tsvector @@ plainto_tsquery(rag_fts_config($4), $2)\n              \n            ORDER BY ts_rank_cd(content_tsvector, plainto_tsquery(rag_fts_config($4), $2)) DESC, source_type, source_id, chunk_index, id\n            LIMIT $3\n          ) top\n          ORDER BY score DESC, source_type, source_id, chunk_index, id\n        ",
       params: ["t1", "phones", 10, "ja"],
     },
     {
@@ -670,7 +696,7 @@ const NO_FILTER_SNAPSHOT: Record<string, Array<{ sql: string; params: unknown[] 
       params: ["t1", "[0.1,0.2]", 0.8, 10],
     },
     {
-      sql: "\n          WITH q AS (\n            SELECT ARRAY(SELECT b FROM unnest(show_bigm($2)) AS b WHERE b NOT LIKE '% %') AS qb\n          )\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes, score FROM (\n              SELECT id, content, source_type, source_id, metadata, attributes,\n                     cardinality(ARRAY(SELECT unnest(q.qb)\n                                       INTERSECT\n                                       SELECT unnest(show_bigm(content))))::float\n                       / NULLIF(cardinality(q.qb), 0) AS score\n              FROM rag_documents, q\n              WHERE tenant_id = $1\n                AND content =% $2\n                \n            ) c\n            WHERE score >= $4\n            ORDER BY score DESC\n            LIMIT $3\n          ) top\n          ORDER BY score DESC\n        ",
+      sql: "\n          WITH q AS (\n            SELECT ARRAY(SELECT b FROM unnest(show_bigm($2)) AS b WHERE b NOT LIKE '% %') AS qb\n          )\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, chunk_index, metadata, attributes, score FROM (\n              SELECT id, content, source_type, source_id, chunk_index, metadata, attributes,\n                     cardinality(ARRAY(SELECT unnest(q.qb)\n                                       INTERSECT\n                                       SELECT unnest(show_bigm(content))))::float\n                       / NULLIF(cardinality(q.qb), 0) AS score\n              FROM rag_documents, q\n              WHERE tenant_id = $1\n                AND content =% $2\n                \n            ) c\n            WHERE score >= $4\n            ORDER BY score DESC, source_type, source_id, chunk_index, id\n            LIMIT $3\n          ) top\n          ORDER BY score DESC, source_type, source_id, chunk_index, id\n        ",
       params: ["t1", "phones", 10, 0.35],
     },
   ],
@@ -684,7 +710,7 @@ const NO_FILTER_SNAPSHOT: Record<string, Array<{ sql: string; params: unknown[] 
       params: ["t1", "[0.1,0.2]", 0.8, 10],
     },
     {
-      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, metadata, attributes,\n                   word_similarity($2, content_normalized) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND $2 <% content_normalized\n              \n            ORDER BY word_similarity($2, content_normalized) DESC\n            LIMIT $3\n          ) top\n          ORDER BY score DESC\n        ",
+      sql: "\n          SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score\n          FROM (\n            SELECT id, content, source_type, source_id, chunk_index, metadata, attributes,\n                   word_similarity($2, content_normalized) as score\n            FROM rag_documents\n            WHERE tenant_id = $1\n              AND $2 <% content_normalized\n              \n            ORDER BY word_similarity($2, content_normalized) DESC, source_type, source_id, chunk_index, id\n            LIMIT $3\n          ) top\n          ORDER BY score DESC, source_type, source_id, chunk_index, id\n        ",
       params: ["t1", "phones", 10],
     },
   ],

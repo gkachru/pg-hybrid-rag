@@ -30,7 +30,12 @@
 
 - Performance: the tsvector FTS, pg_trgm keyword and pg_bigm keyword legs now cast `attributes` to
   text above the `LIMIT` (outer query), so the cast runs on at most `candidateLimit` rows instead of
-  every matched row. Equal-score ties may be returned in a different order than before.
+  every matched row.
+- The pg_trgm, pg_bigm and tsvector legs break equal-score ties by
+  `source_type, source_id, chunk_index, id`, both before and after the `LIMIT`. Tied rows used to
+  come back in physical order, which a schema or data-layout change could reshuffle. Ties now order
+  the same way on every run, which can differ from the old order. The vector and BM25 legs are
+  unchanged (an extra sort key would stop their index from returning rows in order).
 - Performance: with `ivfflatIterativeScan: "relaxed_order"` and no `ivfflatMaxProbes`,
   `ivfflat.max_probes` now defaults to `4 * ivfflatProbes` (40 by default) instead of unbounded. Very
   selective filters may return fewer rows; set `ivfflatMaxProbes` explicitly to raise the cap.

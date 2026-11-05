@@ -20,6 +20,7 @@ import {
   type TransactionProvider,
 } from "../../src/index.js";
 import { HttpThaiSegmenter } from "../nestjs-thai-segmenter.js";
+import { serialized } from "./embeddingCache.js";
 
 // ── Config helpers ──────────────────────────────────────────────────────────
 
@@ -202,8 +203,9 @@ export function createReranker(): RerankerProvider | undefined {
 
   if (!baseUrl) return undefined;
 
-  // Returns scores aligned to the input `texts` order.
-  async function scoreBatch(query: string, texts: string[]): Promise<number[]> {
+  // Returns scores aligned to the input `texts` order. One request at a time (see serialized)
+  // so Infinity never merges concurrent rerank requests into a different GPU batch.
+  const scoreBatch = serialized(async (query: string, texts: string[]): Promise<number[]> => {
     const res = await fetch(`${baseUrl}/rerank`, {
       method: "POST",
       headers: {
@@ -232,7 +234,7 @@ export function createReranker(): RerankerProvider | undefined {
       }
     }
     return scores;
-  }
+  });
 
   return {
     async rerank(query, results, topN) {

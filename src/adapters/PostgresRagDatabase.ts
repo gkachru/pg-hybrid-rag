@@ -8,7 +8,7 @@ import type {
 } from "../interfaces.js";
 import type { HybridSearchParams, RankedCandidate } from "../types.js";
 import { TsvectorFts } from "./fts/TsvectorFts.js";
-import { buildFilters, toRankedCandidate } from "./sqlHelpers.js";
+import { buildFilters, SCORE_TIE_BREAK, toRankedCandidate } from "./sqlHelpers.js";
 
 const CJK_LANGUAGES = new Set(["zh", "zh-CN", "ja", "ja-JP", "ko", "ko-KR"]);
 
@@ -99,16 +99,16 @@ function buildTrigramKeywordSql(params: HybridSearchParams): KeywordLegSql {
   const sql = `
           SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score
           FROM (
-            SELECT id, content, source_type, source_id, metadata, attributes,
+            SELECT id, content, source_type, source_id, chunk_index, metadata, attributes,
                    word_similarity($2, content_normalized) as score
             FROM rag_documents
             WHERE tenant_id = $1
               AND $2 <% content_normalized
               ${f.clause}
-            ORDER BY word_similarity($2, content_normalized) DESC
+            ORDER BY word_similarity($2, content_normalized) DESC, ${SCORE_TIE_BREAK}
             LIMIT $3
           ) top
-          ORDER BY score DESC
+          ORDER BY score DESC, ${SCORE_TIE_BREAK}
         `;
   return {
     sql,
@@ -147,8 +147,8 @@ function buildBigmCoverageKeywordSql(params: HybridSearchParams): KeywordLegSql 
           )
           SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes, score
           FROM (
-            SELECT id, content, source_type, source_id, metadata, attributes, score FROM (
-              SELECT id, content, source_type, source_id, metadata, attributes,
+            SELECT id, content, source_type, source_id, chunk_index, metadata, attributes, score FROM (
+              SELECT id, content, source_type, source_id, chunk_index, metadata, attributes,
                      cardinality(ARRAY(SELECT unnest(q.qb)
                                        INTERSECT
                                        SELECT unnest(show_bigm(content))))::float
@@ -159,10 +159,10 @@ function buildBigmCoverageKeywordSql(params: HybridSearchParams): KeywordLegSql 
                 ${f.clause}
             ) c
             WHERE score >= $4
-            ORDER BY score DESC
+            ORDER BY score DESC, ${SCORE_TIE_BREAK}
             LIMIT $3
           ) top
-          ORDER BY score DESC
+          ORDER BY score DESC, ${SCORE_TIE_BREAK}
         `;
   return {
     sql,
