@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   AttributeValidationError,
+  DEFAULT_ATTRIBUTE_LIMITS,
   foldCase,
   normalizeAttributes,
   parseAttributes,
@@ -156,6 +157,52 @@ describe("url format", () => {
     } catch (err) {
       expect((err as AttributeValidationError).issues.join()).toContain("invalid url");
     }
+  });
+});
+
+describe("default limits", () => {
+  const issuesOf = (input: AttributeInput[]): string => {
+    try {
+      normalizeAttributes(input);
+    } catch (err) {
+      return (err as AttributeValidationError).issues.join("; ");
+    }
+    return "";
+  };
+  const attrs = (n: number): AttributeInput[] =>
+    Array.from({ length: n }, (_, i) => ({ key: `k${i}`, type: "string", value: "x" }));
+  const list = (n: number): AttributeInput[] => [
+    { key: "tags", type: "string", value: Array.from({ length: n }, (_, i) => `t${i}`) },
+  ];
+  const str = (n: number): AttributeInput[] => [{ key: "s", type: "string", value: "a".repeat(n) }];
+
+  it("are 50 attributes, 20 values per attribute, 256-char strings", () => {
+    expect(DEFAULT_ATTRIBUTE_LIMITS).toEqual({
+      maxAttributes: 50,
+      maxValuesPerAttribute: 20,
+      maxStringLength: 256,
+    });
+  });
+
+  it("accepts 50 attributes and rejects 51", () => {
+    expect(normalizeAttributes(attrs(50))).toHaveLength(50);
+    expect(issuesOf(attrs(51))).toContain("too many attributes (51 > 50)");
+  });
+
+  it("accepts 20 list values and rejects 21", () => {
+    expect(normalizeAttributes(list(20))).toHaveLength(20);
+    expect(issuesOf(list(21))).toContain("too many values (21 > 20)");
+  });
+
+  it("accepts a 256-char string and rejects 257", () => {
+    expect(normalizeAttributes(str(256))[0]?.v).toHaveLength(256);
+    expect(issuesOf(str(257))).toContain("string longer than 256 chars");
+  });
+
+  it("can be raised per indexer through overrides", () => {
+    expect(normalizeAttributes([...attrs(60)], { maxAttributes: 60 })).toHaveLength(60);
+    expect(normalizeAttributes(list(30), { maxValuesPerAttribute: 30 })).toHaveLength(30);
+    expect(normalizeAttributes(str(1024), { maxStringLength: 1024 })[0]?.v).toHaveLength(1024);
   });
 });
 

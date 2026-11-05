@@ -365,7 +365,7 @@ await indexer.index("faq", "article-42", chunks, "en", {
 });
 ```
 
-Attributes are stamped on every chunk row of the article and returned as `RagResult.attributes` (`[]` when none). Limits are configurable through `RagIndexerConfig.attributeLimits` (`maxAttributes`, `maxValuesPerAttribute`, `maxStringLength`). Invalid input throws `AttributeValidationError` before any embedding call.
+Attributes are stamped on every chunk row of the article and returned as `RagResult.attributes` (`[]` when none). Default limits per article are 50 attributes (`maxAttributes`), 20 values per list attribute (`maxValuesPerAttribute`) and 256 characters per string value (`maxStringLength`, the same cap filter values have); raise them through `RagIndexerConfig.attributeLimits`. Invalid input throws `AttributeValidationError` before any embedding call.
 
 **Filters.** A filter is a tree of `and` / `or` / `not` nodes with leaf conditions `{ ns?, key, op, value, type?, caseSensitive? }`:
 

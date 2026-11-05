@@ -5,7 +5,9 @@
 ### Added
 
 - Typed, namespaced article attributes: `RagIndexer.index(..., { attributes })`, stored in
-  `rag_documents.attributes` and returned as `RagResult.attributes` (`[]` when none).
+  `rag_documents.attributes` and returned as `RagResult.attributes` (`[]` when none). Default
+  limits per article: 50 attributes, 20 values per list attribute, 256 characters per string value
+  (`DEFAULT_ATTRIBUTE_LIMITS`; override with `RagIndexerConfig.attributeLimits`).
 - Explicit metadata filters: `RagSearchOptions.filter` (`and` / `or` / `not` trees of
   `{ ns, key, op, value, type, caseSensitive }` conditions), validated before any embedding or SQL
   work and applied in all three search legs.

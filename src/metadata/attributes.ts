@@ -9,10 +9,16 @@ import type {
 
 export const GLOBAL_NS = "global";
 
+/**
+ * Per-article defaults. Attributes are copied onto every chunk row, so these bound the per-row
+ * JSONB size (worst case 50 x 20 x 256 chars). maxStringLength matches the filter value cap
+ * (DEFAULT_FILTER_LIMITS.maxStringLength) so every stored string can be matched exactly.
+ * Raise per indexer with RagIndexerConfig.attributeLimits.
+ */
 export const DEFAULT_ATTRIBUTE_LIMITS: AttributeLimits = {
-  maxAttributes: 200,
-  maxValuesPerAttribute: 100,
-  maxStringLength: 1024,
+  maxAttributes: 50,
+  maxValuesPerAttribute: 20,
+  maxStringLength: 256,
 };
 
 const MAX_NAME_LENGTH = 128;
