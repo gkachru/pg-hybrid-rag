@@ -220,6 +220,59 @@ function suite(
       );
     });
 
+    test("catalog: per-article collapse keeps exact counts (multi-chunk, multi-valued, differing chunks)", async () => {
+      const T2 = uuid(2);
+      const db2 = new PostgresRagDatabase(testDb.provider);
+      const region = (value: string[]) =>
+        kx({ key: "region", type: "string", format: "enum", multi: true, value });
+      const tier = (value: string) => kx({ key: "tier", type: "string", value });
+      const size = kx({ key: "size", type: "number", format: "float", value: 5 });
+      const P = uuid(201); // 3 identical chunks, multi-valued region
+      const Q = uuid(202); // 2 identical chunks
+      const R = uuid(203); // chunks differ
+      const S = uuid(204); // untagged
+      const chunk = (id: string, i: number, attrs: AttributeInput[], n: number) => ({
+        ...toChunk(id, attrs, n),
+        chunkIndex: String(i),
+      });
+      await db2.insertChunks(T2, [
+        chunk(P, 0, [region(["EU", "UK"]), tier("gold"), size], 1),
+        chunk(P, 1, [region(["EU", "UK"]), tier("gold"), size], 2),
+        chunk(P, 2, [region(["EU", "UK"]), tier("gold"), size], 3),
+        chunk(Q, 0, [region(["EU"]), tier("gold")], 4),
+        chunk(Q, 1, [region(["EU"]), tier("gold")], 5),
+        chunk(R, 0, [region(["US"])], 6),
+        chunk(R, 1, [region(["EU"]), tier("silver")], 7),
+        chunk(S, 0, [], 8),
+      ]);
+      try {
+        const cat = await new CachingMetadataCatalog({ txProvider: testDb.provider }).describe(T2);
+        const get = (key: string) => cat.keys.find((k) => k.ns === "kx" && k.key === key);
+        expect(cat.keys.map((k) => k.key)).toEqual(["region", "size", "tier"]);
+        // Distinct articles per key: region P,Q,R = 3; tier P,Q,R = 3; size P = 1.
+        expect(get("region")?.observed).toEqual([
+          { type: "string", format: "enum", articleCount: 3 },
+        ]);
+        expect(get("tier")?.observed).toEqual([{ type: "string", articleCount: 3 }]);
+        expect(get("size")?.observed).toEqual([
+          { type: "number", format: "float", articleCount: 1 },
+        ]);
+        // Ordered by count DESC then value: EU (P,Q,R)=3, UK (P)=1, US (R)=1.
+        expect(get("region")?.topValues).toEqual([
+          { value: "EU", articleCount: 3 },
+          { value: "UK", articleCount: 1 },
+          { value: "US", articleCount: 1 },
+        ]);
+        expect(get("tier")?.topValues).toEqual([
+          { value: "gold", articleCount: 2 },
+          { value: "silver", articleCount: 1 },
+        ]);
+        expect(get("size")?.topValues).toBeUndefined(); // non-string keys have no top values
+      } finally {
+        await testDb.sql.unsafe("DELETE FROM rag_documents WHERE tenant_id = $1", [T2]);
+      }
+    });
+
     test("baseline: no filter returns every article, including untagged", async () => {
       expect(await ids(pipeline)).toEqual(ALL);
     });

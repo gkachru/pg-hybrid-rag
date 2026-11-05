@@ -45,10 +45,16 @@ interface RegistryRow {
 }
 
 // Articles are (source_type, source_id); an article has many chunk rows, so count distinct pairs.
+// Attributes are duplicated on every chunk, so first collapse to distinct (article, attributes)
+// rows (untagged '[]' rows skipped) and only then expand. Exact: chunks of one article carrying
+// different attributes stay as separate rows, and the outer count(DISTINCT article) is unchanged.
+const ARTICLE_ATTRS_SQL = `(SELECT DISTINCT source_type, source_id, attributes
+  FROM rag_documents
+  WHERE tenant_id = $1 AND attributes <> '[]'::jsonb) d`;
+
 const OBSERVED_SQL = `SELECT e->>'ns' AS ns, e->>'k' AS k, e->>'t' AS t, e->>'f' AS f,
        count(DISTINCT (d.source_type, d.source_id)) AS article_count
-FROM rag_documents d, jsonb_array_elements(d.attributes) e
-WHERE d.tenant_id = $1
+FROM ${ARTICLE_ATTRS_SQL}, jsonb_array_elements(d.attributes) e
 GROUP BY e->>'ns', e->>'k', e->>'t', e->>'f'`;
 
 const TOP_VALUES_SQL = `SELECT ns, k, v, article_count FROM (
@@ -58,8 +64,8 @@ const TOP_VALUES_SQL = `SELECT ns, k, v, article_count FROM (
            PARTITION BY e->>'ns', e->>'k'
            ORDER BY count(DISTINCT (d.source_type, d.source_id)) DESC, e->>'v'
          ) AS rn
-  FROM rag_documents d, jsonb_array_elements(d.attributes) e
-  WHERE d.tenant_id = $1 AND e->>'t' = 'string'
+  FROM ${ARTICLE_ATTRS_SQL}, jsonb_array_elements(d.attributes) e
+  WHERE e->>'t' = 'string'
   GROUP BY e->>'ns', e->>'k', e->>'v'
 ) ranked
 WHERE rn <= $2
@@ -156,6 +162,13 @@ function validateRegistration(keys: RegisteredKeyInput[]): Array<Record<string, 
 /**
  * Per-tenant metadata catalog: keys observed in indexed attributes merged with the
  * integrator's registry (descriptions, allowed values). TTL-cached with in-flight dedup.
+ *
+ * Stale-while-revalidate: the first describe() for a tenant awaits the load. Once an entry is
+ * older than `ttlMs`, describe() returns the stale catalog immediately and starts ONE background
+ * refresh (concurrent callers share it). A failed background refresh is swallowed (no logger, no
+ * unhandled rejection): the stale entry is kept and a later call retries. `invalidate()` (also
+ * called by register/unregister) drops the entry, so the next describe() blocks on a fresh load,
+ * and a refresh that started before the invalidate cannot repopulate the cache.
  */
 export class CachingMetadataCatalog implements MetadataCatalogProvider {
   private cache = new Map<string, { data: MetadataCatalog; loadedAt: number }>();
@@ -174,11 +187,20 @@ export class CachingMetadataCatalog implements MetadataCatalogProvider {
 
   async describe(tenantId: string): Promise<MetadataCatalog> {
     const cached = this.cache.get(tenantId);
-    if (cached && Date.now() - cached.loadedAt < this.ttlMs) return cached.data;
+    const fresh = cached !== undefined && Date.now() - cached.loadedAt < this.ttlMs;
+    if (cached && fresh) return cached.data;
 
-    const existing = this.inflight.get(tenantId);
-    if (existing) return existing;
+    let promise = this.inflight.get(tenantId);
+    if (!promise) promise = this.startLoad(tenantId);
+    if (cached) {
+      // Stale: serve it now; the refresh runs in the background and must never reject unhandled.
+      promise.catch(() => {});
+      return cached.data;
+    }
+    return promise;
+  }
 
+  private startLoad(tenantId: string): Promise<MetadataCatalog> {
     const gen = this.generation.get(tenantId) ?? 0;
     const promise = this.txProvider.withConnection(async (client) => {
       const data = await this.load(client, tenantId);
@@ -189,11 +211,11 @@ export class CachingMetadataCatalog implements MetadataCatalogProvider {
     });
 
     this.inflight.set(tenantId, promise);
-    try {
-      return await promise;
-    } finally {
+    const clear = () => {
       if (this.inflight.get(tenantId) === promise) this.inflight.delete(tenantId);
-    }
+    };
+    promise.then(clear, clear);
+    return promise;
   }
 
   invalidate(tenantId: string): void {

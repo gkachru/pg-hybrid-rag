@@ -28,6 +28,13 @@
   `ivfflat.max_probes` now defaults to `4 * ivfflatProbes` (40 by default) instead of unbounded. Very
   selective filters may return fewer rows; set `ivfflatMaxProbes` explicitly to raise the cap.
 - Performance: the per-leg planner GUCs are applied in a single `set_config` statement (one round trip).
+- Performance: the catalog's observed-keys and top-values queries now collapse to distinct
+  `(source_type, source_id, attributes)` rows before expanding attributes, instead of expanding every
+  chunk row. Results are unchanged; about 25-45% faster on a 100k-row, 5-chunks-per-article corpus.
+- `CachingMetadataCatalog.describe` is now stale-while-revalidate: past `ttlMs` it returns the cached
+  catalog immediately and refreshes in the background (one refresh at a time; a failed refresh keeps
+  the stale entry and is retried by a later call). The first load per tenant, and the first load
+  after `register` / `unregister` / `invalidate`, still waits.
 - `RagResult` gains a required `attributes: AttributeOutput[]` field. Code that constructs
   `RagResult` values (for example test doubles) must add it.
 - `RagDatabase` and `FtsStrategy` gain an optional `supportsAttributeFilters` flag. Custom

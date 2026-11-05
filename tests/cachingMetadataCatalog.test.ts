@@ -131,7 +131,19 @@ describe("CachingMetadataCatalog.describe", () => {
     await catalog.describe("t1");
     await new Promise((r) => setTimeout(r, 15));
     await catalog.describe("t1");
+    await new Promise((r) => setTimeout(r, 0)); // background refresh
     expect(selects(calls)).toHaveLength(6);
+  });
+
+  it("collapses to one row per article before expanding attributes", async () => {
+    const { calls, txProvider } = setup();
+    await new CachingMetadataCatalog({ txProvider }).describe("t1");
+    const observed = selects(calls).find((c) =>
+      c.sql.includes("GROUP BY e->>'ns', e->>'k', e->>'t', e->>'f'"),
+    );
+    expect(observed?.sql).toContain("SELECT DISTINCT source_type, source_id, attributes");
+    expect(observed?.sql).toContain("attributes <> '[]'::jsonb");
+    expect(observed?.sql).not.toContain("DISTINCT ON");
   });
 
   it("dedups concurrent describes into one query round", async () => {
@@ -231,5 +243,116 @@ describe("CachingMetadataCatalog.register / unregister", () => {
     const before = selects(calls).length;
     await catalog.describe("t1");
     expect(selects(calls).length).toBe(before + 3);
+  });
+});
+
+describe("CachingMetadataCatalog stale-while-revalidate", () => {
+  /** txProvider whose every load blocks until released; loads counts withConnection calls. */
+  function gated(opts: { failNext?: () => boolean } = {}) {
+    let loads = 0;
+    const gates: Array<() => void> = [];
+    const client: SqlClient = { query: (async () => []) as SqlClient["query"] };
+    const txProvider: TransactionProvider = {
+      withConnection: async (fn) => {
+        loads++;
+        await new Promise<void>((r) => gates.push(r));
+        if (opts.failNext?.()) throw new Error("db down");
+        return fn(client);
+      },
+    };
+    const release = async () => {
+      while (gates.length) gates.shift()?.();
+      await new Promise((r) => setTimeout(r, 0));
+    };
+    return { txProvider, release, loads: () => loads };
+  }
+  const expire = () => new Promise((r) => setTimeout(r, 10));
+
+  it("serves stale data without waiting for the refresh", async () => {
+    const g = gated();
+    const catalog = new CachingMetadataCatalog({ txProvider: g.txProvider, ttlMs: 5 });
+    const first = catalog.describe("t1");
+    await g.release();
+    const c1 = await first;
+    await expire();
+    const stale = await catalog.describe("t1"); // would hang if it awaited the gated refresh
+    expect(stale).toBe(c1);
+    expect(g.loads()).toBe(2);
+    await g.release();
+    const refreshed = await catalog.describe("t1");
+    expect(refreshed).not.toBe(c1);
+  });
+
+  it("starts only one refresh for concurrent callers", async () => {
+    const g = gated();
+    const catalog = new CachingMetadataCatalog({ txProvider: g.txProvider, ttlMs: 5 });
+    const first = catalog.describe("t1");
+    await g.release();
+    await first;
+    await expire();
+    await Promise.all([catalog.describe("t1"), catalog.describe("t1"), catalog.describe("t1")]);
+    expect(g.loads()).toBe(2);
+    await g.release();
+  });
+
+  it("keeps stale data when the refresh fails, with no unhandled rejection, and retries later", async () => {
+    let fail = false;
+    const g = gated({ failNext: () => fail });
+    const catalog = new CachingMetadataCatalog({ txProvider: g.txProvider, ttlMs: 5 });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const first = catalog.describe("t1");
+      await g.release();
+      const c1 = await first;
+      await expire();
+      fail = true;
+      expect(await catalog.describe("t1")).toBe(c1);
+      await g.release();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(unhandled).toHaveLength(0);
+      expect(await catalog.describe("t1")).toBe(c1); // still stale; starts another refresh
+      expect(g.loads()).toBe(3);
+      await g.release();
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("invalidate forces the next describe to block on a fresh load", async () => {
+    const g = gated();
+    const catalog = new CachingMetadataCatalog({ txProvider: g.txProvider, ttlMs: 5 });
+    const first = catalog.describe("t1");
+    await g.release();
+    const c1 = await first;
+    await expire();
+    catalog.invalidate("t1");
+    let settled = false;
+    const next = catalog.describe("t1").then((c) => {
+      settled = true;
+      return c;
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(settled).toBe(false); // blocked, did not return stale c1
+    await g.release();
+    expect(await next).not.toBe(c1);
+  });
+
+  it("a background refresh started before invalidate cannot repopulate the cache", async () => {
+    const g = gated();
+    const catalog = new CachingMetadataCatalog({ txProvider: g.txProvider, ttlMs: 5 });
+    const first = catalog.describe("t1");
+    await g.release();
+    await first;
+    await expire();
+    await catalog.describe("t1"); // stale + background refresh #2 (gated)
+    catalog.invalidate("t1");
+    await g.release(); // refresh #2 completes but must not cache
+    const after = catalog.describe("t1"); // no entry: must load (#3)
+    await new Promise((r) => setTimeout(r, 0));
+    expect(g.loads()).toBe(3);
+    await g.release();
+    await after;
   });
 });

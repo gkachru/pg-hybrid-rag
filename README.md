@@ -423,6 +423,8 @@ await catalog.unregister(tenantId, [{ ns: "cms", key: "region" }]);
 
 `register` and `unregister` invalidate that tenant's cache; changes made by other processes appear after the TTL (or after `invalidate(tenantId)`).
 
+Once an entry is older than `ttlMs`, `describe` returns the stale catalog immediately and refreshes it in the background (one refresh at a time; a failed refresh keeps the stale entry and a later call retries), so an `autoFilter` search never waits on a refresh. The first load for a tenant, and the first load after `register` / `unregister` / `invalidate`, still waits.
+
 **Auto-filter.** With a `filterModel` and `metadataCatalog` on the pipeline, `autoFilter: true` asks the model to derive a filter from the query:
 
 ```typescript
