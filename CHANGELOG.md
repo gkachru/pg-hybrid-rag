@@ -14,6 +14,11 @@
   `metadataCatalog`, `OpenAiCompatibleFilterModel`, `RagPipeline.searchWithDiagnostics` and
   `SearchDiagnostics`. Retry without the generated filter when all legs are empty
   (`autoFilterRetryOnEmpty`, default true).
+- `RagPipelineConfig.filterTimeoutMs` (default 3000, `0` disables): total deadline for generated-filter
+  derivation (catalog `describe()` + model call). On timeout the generated filter is dropped with
+  status `"error"` and the search proceeds. `FilterModelContext.signal` is aborted on timeout;
+  `OpenAiCompatibleFilterModel` cancels its in-flight request and does not retry after it.
+- `OpenAiCompatibleFilterModel` option `maxTokens` (sent as `max_tokens`; omitted when unset).
 - `PostgresRagDatabase` options `ivfflatIterativeScan` (`"off"` | `"relaxed_order"`) and
   `ivfflatMaxProbes`.
 - Migrations: `017` (`attributes` column + GIN index), `018` (`rag_metadata_registry`), `019`

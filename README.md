@@ -449,6 +449,8 @@ const { results, diagnostics } = await pipeline.searchWithDiagnostics("EU polici
 
 - `autoFilter` throws if `filterModel` or `metadataCatalog` is missing, and throws `AttributeFiltersUnsupportedError` up front if the database does not support attribute filters.
 - Generated filters are validated against the catalog: unknown keys and values outside registered `allowedValues` are rejected. An invalid filter, or a model error, drops the generated filter with a warning; the search continues with the explicit filter only.
+- `filterTimeoutMs` (pipeline config, default `3000`, `0` disables) is a total deadline for catalog `describe()` plus the model call. On expiry the generated filter is dropped (`generatedFilterStatus: "error"`, with a "timed out" message), the search continues without it, and `FilterModelContext.signal` is aborted. `OpenAiCompatibleFilterModel` links that signal into its request, cancelling the in-flight fetch, and does not retry after it aborts. Custom `FilterModelProvider`s should honor `ctx.signal`.
+- `OpenAiCompatibleFilterModel` accepts an optional `maxTokens` (positive integer), sent as `max_tokens`. It is omitted by default, because some models reject `max_tokens` in favor of `max_completion_tokens`.
 - Explicit and generated filters are ANDed.
 - `autoFilterRetryOnEmpty` (default `true`): if an applied generated filter leaves all three legs empty, the search re-runs once without it.
 - `searchWithDiagnostics` returns `{ results, diagnostics }`. `diagnostics.generatedFilterStatus` is `not_requested | none | applied | invalid | error`. After a retry the status stays `"applied"` and `retriedWithoutGeneratedFilter` is `true`.

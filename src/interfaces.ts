@@ -215,6 +215,8 @@ export interface MetadataCatalogProvider {
 export interface FilterModelContext {
   tenantId: string;
   language: string;
+  /** Aborted when the pipeline's `filterTimeoutMs` deadline expires; cancel in-flight work on it. */
+  signal?: AbortSignal;
 }
 
 /**

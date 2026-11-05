@@ -22,7 +22,7 @@ import {
 import { stripTrailingPunctuation } from "./punctuation.js";
 import { applyRRF } from "./rrf.js";
 import { removeStopWords } from "./stopWords.js";
-import type { RagResult, RagSearchOptions, SearchDiagnostics } from "./types.js";
+import type { MetadataCatalog, RagResult, RagSearchOptions, SearchDiagnostics } from "./types.js";
 
 const DEFAULTS = {
   topK: 5,
@@ -83,6 +83,13 @@ export interface RagPipelineConfig {
   filterModel?: FilterModelProvider;
   /** Tenant catalog; required with `filterModel` for `autoFilter`. */
   metadataCatalog?: MetadataCatalogProvider;
+  /**
+   * Total deadline in ms for deriving a generated filter (catalog `describe()` plus the model
+   * call, together). On expiry the model's `ctx.signal` is aborted, the generated filter is
+   * dropped (`generatedFilterStatus: "error"`) and the search continues without it.
+   * Default 3000; `0` disables the deadline.
+   */
+  filterTimeoutMs?: number;
 }
 
 export class RagPipeline {
@@ -98,6 +105,7 @@ export class RagPipeline {
   private tracer: RagTracer;
   private filterModel?: FilterModelProvider;
   private metadataCatalog?: MetadataCatalogProvider;
+  private filterTimeoutMs: number;
 
   constructor(config: RagPipelineConfig) {
     this.tenantId = config.tenantId;
@@ -112,6 +120,7 @@ export class RagPipeline {
     this.tracer = config.tracer ?? noopTracer;
     this.filterModel = config.filterModel;
     this.metadataCatalog = config.metadataCatalog;
+    this.filterTimeoutMs = config.filterTimeoutMs ?? 3000;
   }
 
   async search(query: string, options: RagSearchOptions = {}): Promise<RagResult[]> {
@@ -129,14 +138,34 @@ export class RagPipeline {
     errors?: string[];
   }> {
     let raw: unknown = null;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const catalog = await (this.metadataCatalog as MetadataCatalogProvider).describe(
-        this.tenantId,
-      );
-      raw = await (this.filterModel as FilterModelProvider).generateFilter(query, catalog, {
-        tenantId: this.tenantId,
-        language,
-      });
+      const work = (async () => {
+        const catalog = await (this.metadataCatalog as MetadataCatalogProvider).describe(
+          this.tenantId,
+        );
+        raw = await (this.filterModel as FilterModelProvider).generateFilter(query, catalog, {
+          tenantId: this.tenantId,
+          language,
+          signal: controller.signal,
+        });
+        return catalog;
+      })();
+      let catalog: MetadataCatalog;
+      if (this.filterTimeoutMs > 0) {
+        work.catch(() => {}); // a late rejection after the deadline must not be unhandled
+        const deadline = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            const err = new Error(`Filter generation timed out after ${this.filterTimeoutMs}ms`);
+            controller.abort(err);
+            reject(err);
+          }, this.filterTimeoutMs);
+        });
+        catalog = await Promise.race([work, deadline]);
+      } else {
+        catalog = await work;
+      }
       if (raw === null || raw === undefined) return { raw: null, filter: null, status: "none" };
       const v = validateFilter(raw, {
         catalog,
@@ -158,6 +187,8 @@ export class RagPipeline {
         "Filter model failed; searching without a generated filter",
       );
       return { raw, filter: null, status: "error", errors: [message] };
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
 

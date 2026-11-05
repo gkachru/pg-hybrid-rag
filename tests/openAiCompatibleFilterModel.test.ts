@@ -128,4 +128,60 @@ describe("OpenAiCompatibleFilterModel", () => {
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(f).toHaveBeenCalledTimes(2);
   });
+
+  it("cancels the in-flight fetch and does not retry after the caller aborts", async () => {
+    let fetchSignal: AbortSignal | undefined;
+    const f = mock((_u: string, init: { signal: AbortSignal }) => {
+      fetchSignal = init.signal;
+      return new Promise((_, reject) => {
+        init.signal.addEventListener("abort", () => {
+          const e = new Error("aborted");
+          e.name = "AbortError";
+          reject(e);
+        });
+      });
+    });
+    globalThis.fetch = f as unknown as typeof fetch;
+    const ac = new AbortController();
+    const pending = mk({ timeoutMs: 0, maxRetries: 3 }).generateFilter("q", catalog, {
+      ...ctx,
+      signal: ac.signal,
+    });
+    await Promise.resolve();
+    ac.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchSignal?.aborted).toBe(true);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes no retry when the caller signal is already aborted", async () => {
+    const f = mock((_u: string, init: { signal: AbortSignal }) =>
+      init.signal.aborted
+        ? Promise.reject(Object.assign(new Error("aborted"), { name: "AbortError" }))
+        : Promise.resolve(chat('{"filter":null}')),
+    );
+    globalThis.fetch = f as unknown as typeof fetch;
+    const ac = new AbortController();
+    ac.abort();
+    await expect(
+      mk({ maxRetries: 3 }).generateFilter("q", catalog, { ...ctx, signal: ac.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends max_tokens only when configured", async () => {
+    const f = mock(async (_u: string, _i: { body: string }) => chat('{"filter":null}'));
+    globalThis.fetch = f as unknown as typeof fetch;
+    await mk().generateFilter("q", catalog, ctx);
+    await mk({ maxTokens: 256 }).generateFilter("q", catalog, ctx);
+    const bodies = f.mock.calls.map((c) => JSON.parse((c as [string, { body: string }])[1].body));
+    expect("max_tokens" in bodies[0]).toBe(false);
+    expect(bodies[1].max_tokens).toBe(256);
+  });
+
+  it("rejects a non-positive-integer maxTokens", () => {
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      expect(() => mk({ maxTokens: bad })).toThrow(/maxTokens/);
+    }
+  });
 });

@@ -13,6 +13,8 @@ export interface OpenAiCompatibleFilterModelConfig {
   maxRetries?: number;
   /** Base delay in ms for exponential backoff between retries (default: 250). */
   retryBaseDelayMs?: number;
+  /** Optional `max_tokens` for the completion. Omitted from the request when unset. */
+  maxTokens?: number;
   /** Limits on how much of the catalog is rendered into the prompt. */
   briefing?: { maxKeys?: number; maxValuesPerKey?: number };
   /** Replaces the default system prompt (the catalog briefing is still appended). */
@@ -67,17 +69,24 @@ export class OpenAiCompatibleFilterModel implements FilterModelProvider {
     this.timeoutMs = config.timeoutMs ?? 10_000;
     this.maxRetries = config.maxRetries ?? 1;
     this.retryBaseDelayMs = config.retryBaseDelayMs ?? 250;
+    if (
+      config.maxTokens !== undefined &&
+      (!Number.isInteger(config.maxTokens) || config.maxTokens <= 0)
+    ) {
+      throw new Error("OpenAiCompatibleFilterModel: maxTokens must be a positive integer");
+    }
   }
 
   async generateFilter(
     query: string,
     catalog: MetadataCatalog,
-    _ctx: FilterModelContext,
+    ctx: FilterModelContext,
   ): Promise<unknown> {
     const system = `${this.config.systemPrompt ?? DEFAULT_FILTER_SYSTEM_PROMPT}\n\nAvailable keys:\n${renderCatalogBriefing(catalog, this.config.briefing)}`;
     const body = JSON.stringify({
       model: this.config.model,
       temperature: 0,
+      ...(this.config.maxTokens !== undefined ? { max_tokens: this.config.maxTokens } : {}),
       response_format: {
         type: "json_schema",
         json_schema: { name: "rag_filter", strict: true, schema: FILTER_GENERATION_SCHEMA },
@@ -89,16 +98,20 @@ export class OpenAiCompatibleFilterModel implements FilterModelProvider {
     });
     for (let attempt = 0; ; attempt++) {
       try {
-        return await this.request(body);
+        return await this.request(body, ctx.signal);
       } catch (err) {
+        if (ctx.signal?.aborted) throw err;
         if (attempt >= this.maxRetries || !isRetryableError(err)) throw err;
         await delay(this.retryBaseDelayMs * 2 ** attempt);
       }
     }
   }
 
-  private async request(body: string): Promise<unknown> {
+  private async request(body: string, callerSignal?: AbortSignal): Promise<unknown> {
     const controller = new AbortController();
+    const onCallerAbort = () => controller.abort();
+    if (callerSignal?.aborted) controller.abort();
+    else callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
     const timer =
       this.timeoutMs > 0 ? setTimeout(() => controller.abort(), this.timeoutMs) : undefined;
     try {
@@ -116,6 +129,7 @@ export class OpenAiCompatibleFilterModel implements FilterModelProvider {
       return this.parse(await res.json());
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      callerSignal?.removeEventListener("abort", onCallerAbort);
     }
   }
 

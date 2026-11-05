@@ -775,8 +775,13 @@ describe("RagPipeline auto-filter", () => {
   const warn = mock(() => {});
   const describeCatalog = mock(async () => catalog);
   const mkModel = (impl: () => Promise<unknown>) => ({ generateFilter: mock(impl) });
-  const mk = (model?: ReturnType<typeof mkModel>, db: RagDatabase = supportingDb()) =>
+  const mk = (
+    model?: ReturnType<typeof mkModel>,
+    db: RagDatabase = supportingDb(),
+    extra: { filterTimeoutMs?: number } = {},
+  ) =>
     new RagPipeline({
+      ...extra,
       tenantId: "tenant-1",
       db,
       embedder: mockEmbedder,
@@ -948,6 +953,89 @@ describe("RagPipeline auto-filter", () => {
     releaseModel(null);
     releaseEmbed([0.5]);
     await pending;
+  });
+
+  describe("filterTimeoutMs deadline", () => {
+    type Ctx = { signal?: AbortSignal };
+    const asModel = (m: unknown) => m as ReturnType<typeof mkModel>;
+
+    it("times out a slow model: status error, signal aborted, results still returned", async () => {
+      const signals: AbortSignal[] = [];
+      const model = {
+        generateFilter: mock(
+          (_q: string, _c: MetadataCatalog, ctx: Ctx) =>
+            new Promise<unknown>(() => {
+              if (ctx.signal) signals.push(ctx.signal);
+            }),
+        ),
+      };
+      const p = mk(asModel(model), supportingDb(), { filterTimeoutMs: 20 });
+      const t0 = Date.now();
+      const { diagnostics, results } = await p.searchWithDiagnostics("q", {
+        language: "en",
+        autoFilter: true,
+      });
+      expect(Date.now() - t0).toBeLessThan(1000);
+      expect(diagnostics.generatedFilterStatus).toBe("error");
+      expect(diagnostics.generatedFilterErrors?.[0]).toMatch(/timed out after 20ms/);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(signals).toHaveLength(1);
+      expect(signals[0].aborted).toBe(true);
+      expect(lastSearchParams.attributeFilter).toBeUndefined();
+      expect(results.length).toBeGreaterThan(0);
+    });
+
+    it("also bounds a slow catalog describe()", async () => {
+      const model = mkModel(async () => generatedGood);
+      const p = new RagPipeline({
+        tenantId: "tenant-1",
+        db: supportingDb(),
+        embedder: mockEmbedder,
+        filterModel: model,
+        metadataCatalog: {
+          describe: () => new Promise<MetadataCatalog>(() => {}),
+          invalidate: () => {},
+        },
+        logger: { info: () => {}, warn },
+        filterTimeoutMs: 20,
+      });
+      const { diagnostics, results } = await p.searchWithDiagnostics("q", {
+        language: "en",
+        autoFilter: true,
+      });
+      expect(diagnostics.generatedFilterStatus).toBe("error");
+      expect(model.generateFilter).not.toHaveBeenCalled();
+      expect(results.length).toBeGreaterThan(0);
+    });
+
+    it("a fast model is unaffected and its signal is not aborted", async () => {
+      let seen: AbortSignal | undefined;
+      const model = {
+        generateFilter: mock(async (_q: string, _c: MetadataCatalog, ctx: Ctx) => {
+          seen = ctx.signal;
+          return generatedGood;
+        }),
+      };
+      const p = mk(asModel(model), supportingDb(), { filterTimeoutMs: 50 });
+      const { diagnostics } = await p.searchWithDiagnostics("q", {
+        language: "en",
+        autoFilter: true,
+      });
+      expect(diagnostics.generatedFilterStatus).toBe("applied");
+      await new Promise((r) => setTimeout(r, 80)); // timer was cleared: nothing fires later
+      expect(seen?.aborted).toBe(false);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("0 disables the deadline", async () => {
+      const slow = mkModel(() => new Promise((r) => setTimeout(() => r(generatedGood), 60)));
+      const p = mk(slow, supportingDb(), { filterTimeoutMs: 0 });
+      const { diagnostics } = await p.searchWithDiagnostics("q", {
+        language: "en",
+        autoFilter: true,
+      });
+      expect(diagnostics.generatedFilterStatus).toBe("applied");
+    });
   });
 
   it("search() returns the same results as searchWithDiagnostics().results", async () => {
