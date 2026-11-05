@@ -61,6 +61,11 @@ function withDatabase(url: string, dbName: string): string {
   return u.toString();
 }
 
+/** Connection URL for a database on the integration server (the admin default DB when omitted). */
+export function databaseUrl(dbName?: string): string {
+  return dbName ? withDatabase(adminUrl(), dbName) : adminUrl();
+}
+
 /** One SQL statement the adapter issued, recorded by the capturing provider. */
 export interface CapturedQuery {
   text: string;
