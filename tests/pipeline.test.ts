@@ -959,6 +959,15 @@ describe("RagPipeline auto-filter", () => {
     type Ctx = { signal?: AbortSignal };
     const asModel = (m: unknown) => m as ReturnType<typeof mkModel>;
 
+    it("rejects a negative or non-finite filterTimeoutMs", () => {
+      for (const filterTimeoutMs of [-1, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648]) {
+        expect(() => mk(undefined, supportingDb(), { filterTimeoutMs })).toThrow(
+          "filterTimeoutMs must be a non-negative number",
+        );
+      }
+      expect(() => mk(undefined, supportingDb(), { filterTimeoutMs: 0 })).not.toThrow();
+    });
+
     it("times out a slow model: status error, signal aborted, results still returned", async () => {
       const signals: AbortSignal[] = [];
       const model = {

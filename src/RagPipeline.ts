@@ -121,6 +121,16 @@ export class RagPipeline {
     this.filterModel = config.filterModel;
     this.metadataCatalog = config.metadataCatalog;
     this.filterTimeoutMs = config.filterTimeoutMs ?? 3000;
+    // setTimeout fires immediately for delays above 2^31-1 ms, so cap there.
+    if (
+      !Number.isFinite(this.filterTimeoutMs) ||
+      this.filterTimeoutMs < 0 ||
+      this.filterTimeoutMs > 2_147_483_647
+    ) {
+      throw new Error(
+        `filterTimeoutMs must be a non-negative number up to 2147483647 (0 disables); got ${this.filterTimeoutMs}`,
+      );
+    }
   }
 
   async search(query: string, options: RagSearchOptions = {}): Promise<RagResult[]> {

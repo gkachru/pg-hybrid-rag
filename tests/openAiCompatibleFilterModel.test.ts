@@ -154,6 +154,22 @@ describe("OpenAiCompatibleFilterModel", () => {
     expect(f).toHaveBeenCalledTimes(1);
   });
 
+  it("makes no retry when the caller aborts during the backoff delay", async () => {
+    const ac = new AbortController();
+    const f = mock(async () => {
+      setTimeout(() => ac.abort(), 5); // abort lands inside the 50ms backoff
+      return new Response("busy", { status: 503 });
+    });
+    globalThis.fetch = f as unknown as typeof fetch;
+    await expect(
+      mk({ maxRetries: 3, retryBaseDelayMs: 50 }).generateFilter("q", catalog, {
+        ...ctx,
+        signal: ac.signal,
+      }),
+    ).rejects.toThrow("503");
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
   it("makes no retry when the caller signal is already aborted", async () => {
     const f = mock((_u: string, init: { signal: AbortSignal }) =>
       init.signal.aborted

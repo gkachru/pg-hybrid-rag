@@ -103,6 +103,8 @@ export class OpenAiCompatibleFilterModel implements FilterModelProvider {
         if (ctx.signal?.aborted) throw err;
         if (attempt >= this.maxRetries || !isRetryableError(err)) throw err;
         await delay(this.retryBaseDelayMs * 2 ** attempt);
+        // The caller may abort during the backoff; don't start another request after that.
+        if (ctx.signal?.aborted) throw err;
       }
     }
   }
