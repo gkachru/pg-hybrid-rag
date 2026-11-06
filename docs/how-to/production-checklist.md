@@ -13,7 +13,7 @@ Use this list before you put pg-hybrid-rag in front of users. Each item links to
 ## Connections and tenancy
 
 - **Connection pinning.** `withConnection` runs every query in its callback on one connection. If your provider already wraps the callback in a transaction, the adapter uses `manageTransaction: false`. See [Connect your database driver](/how-to/connect-database-driver).
-- **Row-level security.** With `rls: true`, each transaction sets `app.current_tenant_id`. The application connects as a role that is not the table owner, not a superuser, and lacks `BYPASSRLS`: the migrations do not use `FORCE ROW LEVEL SECURITY`, so those roles bypass the policies. See [Use multi-tenancy and row-level security](/how-to/multi-tenancy-rls).
+- **Row-level security.** With `rls: true`, each transaction sets `app.current_tenant_id`. The application connects as a role that is not a superuser and lacks `BYPASSRLS`, since those roles bypass the policies; a separate non-owner role is preferred. Migration 021 forces the policies on the table owner too, so any process that connects as the owner (scripts, seeding, backfills) must also set the tenant or it sees no rows. See [Use multi-tenancy and row-level security](/how-to/multi-tenancy-rls).
 - **ID formats.** Tenant IDs and source IDs are UUIDs; the columns are typed `uuid`.
 
 ## Relevance
@@ -21,7 +21,7 @@ Use this list before you put pg-hybrid-rag in front of users. Each item links to
 - **Query language.** Every search passes `language` (or a single-entry `languages`). See [Search across languages](/how-to/multilingual-search).
 - **`vectorMinScore`.** Calibrated for your embedding model. The `0.8` default suits e5-family models and can silently drop the vector leg for others. See [Tune relevance](/how-to/tune-relevance#calibrate-vectorminscore-for-your-embedder).
 - **Evaluation set.** A labeled query set exists, and you have a baseline to compare against after changes. See [Tune relevance](/how-to/tune-relevance#measure-recall-k-and-mrr).
-- **Reranking.** If you rerank, the provider has a timeout, and callers tolerate the fallback returning up to `max(topK, rerankCandidates)` results. See [Rerank results](/how-to/rerank#handle-reranker-failures).
+- **Reranking.** If you rerank, the provider has a timeout, so a slow service falls back to the fused results instead of holding the search open. See [Rerank results](/how-to/rerank#handle-reranker-failures).
 
 ## Metadata
 

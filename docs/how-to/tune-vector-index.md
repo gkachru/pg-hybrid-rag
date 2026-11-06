@@ -38,6 +38,8 @@ import { PostgresRagDatabase } from "pg-hybrid-rag";
 const db = new PostgresRagDatabase(txProvider, { ivfflatProbes: 32 }); // e.g. lists = 1000
 ```
 
+The value must be a positive integer. The constructor throws `ivfflatProbes must be a positive integer (got X)` for `0`, a negative number, a fraction or `NaN`.
+
 ## Turn on iterative scans for selective filters
 
 The vector leg filters by tenant, and by `sourceTypes`, `sourceIds`, `languages` and attribute filters when you pass them. An approximate scan applies those filters after it has picked candidates, so a selective filter can leave the leg with fewer rows than it asked for. An iterative scan keeps probing more lists until enough rows pass.
@@ -82,7 +84,7 @@ VectorChord's `vchordrq` index replaces IVFFlat. Queries do not change: the vect
    await ragMigrate(migrationProvider, { sqlDir, vectorchord: true });
    ```
 
-   In 0.6.0, `ragMigrate` cannot find its SQL directory on its own when installed as a package, so always pass `sqlDir`. See [Run migrations](/how-to/run-migrations).
+   Passing `sqlDir` works in every version; 0.6.0 and earlier require it when the library is installed as a package. See [Run migrations](/how-to/run-migrations).
 
 3. Keep your adapter code. The `ivfflatProbes`, `ivfflatIterativeScan` and `ivfflatMaxProbes` options have no effect on a `vchordrq` index.
 

@@ -6,7 +6,7 @@ Every table the library manages has a `tenant_id` column, and every query it iss
 
 - Tenant IDs are UUIDs. `tenant_id` is a `UUID` column, so the `tenantId` you pass to `RagPipeline`, `RagIndexer` and the loaders must be a valid UUID string. With one database per tenant, use a fixed UUID constant.
 - A provider that pins one connection per call. See [Connect your database driver](/how-to/connect-database-driver).
-- Two database roles: an owner role that runs migrations, and an application role that is not the owner, not a superuser, and doesn't have `BYPASSRLS`.
+- Two database roles: an owner role that runs migrations, and an application role that is not the owner, not a superuser, and doesn't have `BYPASSRLS`. A separate application role is recommended; the owner can alter or drop the policies.
 
 ## Steps
 
@@ -21,18 +21,19 @@ declare const sqlDir: string; // the package's sql/ directory; see "Run migratio
 await ragMigrate(ownerProvider, { sqlDir, rls: true, embeddingDimensions: 1024 });
 ```
 
-`rls: true` enables RLS and creates one policy per table:
+`rls: true` enables RLS, creates one policy per table, and then forces the policies on the table owner:
 
 | Table | Migration |
 | --- | --- |
 | `rag_documents`, `rag_stop_words`, `rag_synonyms` | 007 |
 | `rag_metadata_registry` | 019 |
+| All four tables: `FORCE ROW LEVEL SECURITY` | 021 |
 
 Each policy is `USING (tenant_id = current_setting('app.current_tenant_id', true)::uuid)`. It has no separate `WITH CHECK`, so the same condition also applies to inserted and updated rows.
 
 ### 2. Create the application role
 
-The policies are not `FORCE`d, so the table owner, superusers and roles with `BYPASSRLS` ignore them. The application must connect as a different role:
+Superusers and roles with `BYPASSRLS` ignore the policies. After migration 021 the table owner is bound by them like any other role, but it can still alter or drop them, so connect the application as a separate role:
 
 ```sql
 CREATE ROLE rag_app LOGIN PASSWORD 'change-me' NOSUPERUSER NOBYPASSRLS;
@@ -158,13 +159,25 @@ SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'rag_app';  -- both 
 | `app.current_tenant_id` was never set in the session | Reads return zero rows. Inserts fail with a row-level security error. |
 | The setting was set earlier on this pooled session and isn't set now (a finished transaction used `set_config(..., true)`, or the value was `RESET`), and this transaction skips setting it | It reads as an empty string, and the `::uuid` cast raises `invalid input syntax for type uuid`. The query fails instead of returning rows. |
 | The session tenant differs from the `tenantId` argument | Reads return zero rows. Inserts and tenant changes fail with a row-level security error. |
-| The application connects as the owner, a superuser, or a `BYPASSRLS` role | **Not fail-closed.** Policies are skipped; only the library's own `tenant_id` filters apply. |
+| The application connects as the table owner | Same as any other role once migration 021 is applied: without the setting, reads return zero rows. On a database without 021, the owner skips the policies. |
+| The application connects as a superuser or a `BYPASSRLS` role | **Not fail-closed.** Policies are skipped; only the library's own `tenant_id` filters apply. |
 
 ::: warning
 Avoid session-level `SET app.current_tenant_id` (or `set_config(..., false)`) on pooled connections. If a code path skips the `RESET`, the next request on that connection runs as the previous tenant. Transaction-local settings avoid this.
 :::
 
-## Upgrade note for older databases
+## Upgrade notes for older databases
+
+### Migration 021 binds the owner
+
+On a database already migrated with `rls: true`, the next `ragMigrate` run with `rls: true` applies migration 021. From then on, a non-superuser owner role sees only the rows of the tenant in `app.current_tenant_id`, and no rows when it is unset. Before you upgrade, check every process that connects as the owner:
+
+- An application that connects as the owner must set `app.current_tenant_id` in each transaction, as in step 3, or it reads no rows.
+- Scripts that work across tenants as the owner, such as bulk seeding or backfills, must set the tenant for each tenant they touch, or run as a superuser or `BYPASSRLS` role.
+
+The header of `sql/021_force_rls.sql` shows the pattern a data migration uses to lift `FORCE` for its own transaction.
+
+### Migration 007 policy form
 
 Migration 007 originally used the one-argument `current_setting('app.current_tenant_id')`, which raises `unrecognized configuration parameter` when the setting was never set, instead of returning zero rows. `ragMigrate` doesn't re-run an applied file, so a database that applied the older 007 keeps the older policies. To adopt the current form, recreate each policy as the owner:
 

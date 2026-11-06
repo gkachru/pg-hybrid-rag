@@ -141,9 +141,9 @@ await sql.end();
 ```
 
 ::: info Why pass `sqlDir`?
-In version 0.6.0, `ragMigrate` can't find its SQL files on its own when it's installed as a
-package, so you pass the folder explicitly. The two lines above work in Bun, Node.js ESM and
-CommonJS.
+In version 0.6.0 and earlier, `ragMigrate` can't find its SQL files on its own when it's installed
+as a package, so you pass the folder explicitly. Passing `sqlDir` works in every
+version. The two lines above work in Bun, Node.js ESM and CommonJS.
 :::
 
 Run it:

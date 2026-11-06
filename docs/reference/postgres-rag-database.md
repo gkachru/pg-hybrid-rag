@@ -31,7 +31,7 @@ new PostgresRagDatabase(txProvider: TransactionProvider, options?: PostgresRagDa
 |---|---|---|---|
 | `cjk` | `boolean` | `false` | Use pg_bigm for the keyword leg when the query language is `zh`, `zh-CN`, `ja`, `ja-JP`, `ko` or `ko-KR` (exact match). Requires the `cjk: true` migration. |
 | `fts` | `FtsStrategy` | `new TsvectorFts()` | Strategy for the full-text leg. See [FTS strategies](/reference/fts-strategies). |
-| `ivfflatProbes` | `number` | `10` | IVFFlat lists probed per vector search (`ivfflat.probes`). Postgres's own default is 1. Higher values trade latency for recall. Ignored by a VectorChord `vchordrq` index. Should be a positive integer; the constructor does not validate it. |
+| `ivfflatProbes` | `number` | `10` | IVFFlat lists probed per vector search (`ivfflat.probes`). Postgres's own default is 1. Higher values trade latency for recall. Ignored by a VectorChord `vchordrq` index. Must be a positive integer. |
 | `ivfflatIterativeScan` | `"off" \| "relaxed_order"` | `"off"` | pgvector iterative index scan (`ivfflat.iterative_scan`). With `"relaxed_order"`, a filtered vector search keeps probing lists until it has enough rows. Ignored by `vchordrq`. |
 | `ivfflatMaxProbes` | `number` | `4 * ivfflatProbes` | Upper bound on lists probed during an iterative scan (`ivfflat.max_probes`). Only sent when `ivfflatIterativeScan` is not `"off"`. |
 | `manageTransaction` | `boolean` | `true` | When `true`, the vector leg, the keyword leg and `replaceSource()` wrap their statements in `BEGIN`/`COMMIT` and issue `ROLLBACK` on error. Set `false` when `withConnection` already runs the callback inside a transaction (for example one that sets `app.current_tenant_id` for RLS); the statements then run in that transaction and rollback is the caller's job. |
@@ -41,6 +41,7 @@ new PostgresRagDatabase(txProvider: TransactionProvider, options?: PostgresRagDa
 
 | Condition | Error |
 |---|---|
+| `ivfflatProbes` is not a positive integer (`0`, a negative number, a fraction or `NaN`) | `Error`: `ivfflatProbes must be a positive integer (got <value>)` |
 | `ivfflatIterativeScan` is not `"off"` or `"relaxed_order"` (for example `"strict_order"`, which pgvector supports only for HNSW) | `Error`: `ivfflatIterativeScan must be "off" or "relaxed_order" (got <value>)` |
 | `ivfflatMaxProbes` is set and is not a positive integer | `Error`: `ivfflatMaxProbes must be a positive integer (got <value>)` |
 
@@ -70,7 +71,7 @@ hybridSearch(params: HybridSearchParams): Promise<{
 }>
 ```
 
-Runs the three legs concurrently, each in its own `withConnection` call. `RagPipeline` builds `params`; see [Types](/reference/types) for `HybridSearchParams` and `RankedCandidate`. Each leg returns at most `candidateLimit` rows, best first.
+Runs the three legs concurrently, each in its own `withConnection` call. A leg listed in `params.skipLegs` returns `[]` without taking a connection or running SQL, so a missing extension behind a skipped leg does not fail the search. `RagPipeline` sets `skipLegs` for legs whose weight is `0`, and builds the rest of `params`; see [Types](/reference/types) for `HybridSearchParams` and `RankedCandidate`. Each leg returns at most `candidateLimit` rows, best first.
 
 Every leg applies the same optional filters after `tenant_id = $1`:
 

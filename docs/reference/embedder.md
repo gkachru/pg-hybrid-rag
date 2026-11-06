@@ -30,15 +30,15 @@ new OpenAiCompatibleEmbedder(config: OpenAiCompatibleEmbedderConfig)
 | `baseUrl` | `string` | required | API base URL. Requests go to `${baseUrl}/embeddings` (string concatenation), so this usually ends in `/v1` without a trailing slash. |
 | `apiKey` | `string` | required | Sent as `Authorization: Bearer <apiKey>` on every request. |
 | `model` | `string` | required | Sent as `model` in the request body. |
-| `queryPrefix` | `string` | `"query"` | Prefix for `embedQuery()`. The text sent is `` `${queryPrefix}: ${text}` ``. |
-| `documentPrefix` | `string` | `"passage"` | Prefix for `embedDocuments()`. The text sent is `` `${documentPrefix}: ${text}` ``. |
+| `queryPrefix` | `string` | `"query"` | Prefix for `embedQuery()`. The text sent is `` `${queryPrefix}: ${text}` ``, or `text` unchanged when the prefix is `""`. |
+| `documentPrefix` | `string` | `"passage"` | Prefix for `embedDocuments()`. The text sent is `` `${documentPrefix}: ${text}` ``, or `text` unchanged when the prefix is `""`. |
 | `batchSize` | `number` | `32` | Maximum texts per request in `embedDocuments()`. |
 | `concurrency` | `number` | `1` | Maximum requests in flight at once in `embedDocuments()`. |
 | `timeoutMs` | `number` | `30000` | Per-request timeout. The request is aborted when it runs longer. `0` disables the timeout. |
 | `maxRetries` | `number` | `2` | Retries after the first attempt, for retryable failures only. `0` disables retries. |
 | `retryBaseDelayMs` | `number` | `250` | Base delay for exponential backoff. The wait before retry `n` (1-based) is `retryBaseDelayMs * 2^(n-1)`. |
 
-The prefixes are always applied with a colon and a space. An empty prefix still sends `": <text>"`. The defaults match e5-family models; for a model that expects raw text, implement `EmbeddingProvider` yourself. See [Configure embeddings](/how-to/configure-embeddings).
+A non-empty prefix is applied with a colon and a space. An empty prefix (`""`) sends the text unchanged. The defaults match e5-family models; for a model trained without prefixes, set both prefixes to `""`. See [Configure embeddings](/how-to/configure-embeddings).
 
 `timeoutMs`, `maxRetries` and `retryBaseDelayMs` are not validated.
 
@@ -58,7 +58,7 @@ The prefixes are always applied with a colon and a space. An empty prefix still 
 embedQuery(text: string): Promise<number[]>
 ```
 
-Sends one request with `input: ["<queryPrefix>: <text>"]` and returns the single embedding.
+Sends one request with `input: ["<queryPrefix>: <text>"]` (or `input: ["<text>"]` when `queryPrefix` is `""`) and returns the single embedding.
 
 ### embedDocuments()
 
@@ -67,7 +67,7 @@ Sends one request with `input: ["<queryPrefix>: <text>"]` and returns the single
 embedDocuments(texts: string[]): Promise<number[][]>
 ```
 
-Prefixes every text with `documentPrefix`, splits them into batches of `batchSize`, and sends the batches in groups of `concurrency`: all requests in a group run in parallel, and the next group starts when the whole group has finished. Returns one embedding per input, in input order. If any request fails after its retries, the call rejects.
+Prefixes every text with `documentPrefix` (unless it is `""`), splits them into batches of `batchSize`, and sends the batches in groups of `concurrency`: all requests in a group run in parallel, and the next group starts when the whole group has finished. Returns one embedding per input, in input order. If any request fails after its retries, the call rejects.
 
 ## Request and response
 

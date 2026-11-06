@@ -141,7 +141,8 @@ Overlap repeats the end of one chunk at the start of the next.
 - `chunk()` takes the last `overlap` characters of the emitted chunk and drops everything up to and including the first space, so the overlap starts on a word boundary. If that tail has no space, the whole tail is used. A leading orphaned low surrogate or combining mark is removed first.
 - No overlap is produced when the emitted chunk is not longer than `overlap`.
 - At the paragraph and sentence levels the overlap is joined to the following text with a space. Between fixed-size slices it is concatenated directly.
-- When the paragraph after a flush is itself too long and is split into sentences, the overlap from the flushed buffer is not carried into it.
+- When the paragraph after a flush is itself too long and is split into sentences, the overlap from the flushed buffer is prepended to the first sentence if both fit within the limit. Otherwise the overlap is dropped; the sentence is never cut mid-word to make room for it.
+- A buffer that holds only carried overlap is never emitted as a chunk of its own, so the overlap never produces a duplicate trailing chunk.
 - `chunkSegmented()` uses whole segmenter words as overlap inside a long paragraph, and no overlap across paragraph boundaries.
 
 ## prefixFn

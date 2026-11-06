@@ -67,6 +67,11 @@ Passed by `RagPipeline` to `RagDatabase.hybridSearch`.
 | `sourceIds` | `string[]` (optional) | Restrict to these source IDs. |
 | `languages` | `string[]` (optional) | Restrict to rows in these languages. |
 | `attributeFilter` | `ValidatedFilter` (optional) | Validated attribute filter to apply in every leg. |
+| `skipLegs` | `readonly SearchLeg[]` (optional) | Legs disabled because their weight is `0`. Set only when at least one leg is disabled. An adapter should return `[]` for these legs without querying; the pipeline also discards their rows. |
+
+### SearchLeg
+
+`"vector" | "keyword" | "fts"`. One of the three hybrid search legs. Used by `HybridSearchParams.skipLegs`.
 
 ### RankedCandidate
 

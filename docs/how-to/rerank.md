@@ -18,7 +18,7 @@ The pipeline calls `rerank(query, results, topN)`:
 | `results` | The fused candidates, best first: up to `max(topK, rerankCandidates)` of them. |
 | `topN` | `topK` |
 
-Return at most `topN` results, best first, with `score` set to the reranker's score. Keep the other fields (`content`, `sourceId`, `metadata`, `attributes`) by spreading the input result.
+Return the results with `score` set to the reranker's score. Keep the other fields (`content`, `sourceId`, `metadata`, `attributes`) by spreading the input result. The pipeline sorts what you return by `score`, applies the cutoffs below and keeps the first `topK`, so a provider that ignores `topN` or returns results out of order still yields at most `topK` results.
 
 This provider calls a Cohere-style endpoint that takes `{ model, query, documents }` and returns `{ results: [{ index, relevance_score }] }`. Infinity and several hosted APIs use this shape; check your service's documentation for its exact path and fields.
 
@@ -100,7 +100,7 @@ Both are required. `rerank: true` on a pipeline without a `reranker` silently sk
 
 ## Rerank a deeper candidate set
 
-By default the reranker scores only the fused top `topK`. Set `rerankCandidates` to let it score more fused candidates; it still returns `topK`. This lets the reranker promote a relevant chunk that fusion ranked just below the cut.
+By default the reranker scores only the fused top `topK`. Set `rerankCandidates` to let it score more fused candidates; the search still returns at most `topK`. This lets the reranker promote a relevant chunk that fusion ranked just below the cut.
 
 Each leg returns at most `topK × candidateMultiplier` rows (default multiplier `2`), so the union can be smaller than `rerankCandidates`. Raise `candidateMultiplier` with it:
 
@@ -140,22 +140,7 @@ await pipeline.search("how do I change my billing address", {
 
 ## Handle reranker failures
 
-If `rerank()` throws, the pipeline logs a `warn` ("Reranker failed, falling back to RRF results"), sets `error: true` on the `rag.rerank` span, and returns the fused candidates instead.
-
-::: warning The fallback can return more than topK results
-On failure, the pipeline returns the fused list it would have reranked: up to `max(topK, rerankCandidates)` results, not `topK`. If callers expect at most `topK`, slice the results yourself:
-
-```ts
-const topK = 5;
-const results = await pipeline.search(query, {
-  language: "en",
-  topK,
-  rerank: true,
-  rerankCandidates: 20,
-});
-const top = results.slice(0, topK);
-```
-:::
+If `rerank()` throws, the pipeline logs a `warn` ("Reranker failed, falling back to RRF results"), sets `error: true` on the `rag.rerank` span, and returns the fused candidates instead, capped at `topK`.
 
 The pipeline sets no timeout on the reranker. Set one in your provider, as the samples above do with `AbortSignal.timeout`, so a slow service falls back instead of holding the search open.
 

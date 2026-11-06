@@ -24,8 +24,10 @@ The second argument, `true`, makes `current_setting` return NULL instead of rais
 
 Two Postgres rules decide whether the policies apply at all:
 
-- **RLS does not apply to the table owner** unless the table is set to `FORCE ROW LEVEL SECURITY`, which the migration does not do. Superusers and roles with `BYPASSRLS` also bypass it. Run migrations as the owner, and run the application as a separate role that does not own the tables.
+- **By default, Postgres exempts a table's owner from its own RLS policies.** Many applications connect as the same role that ran the migrations, and that role owns the tables. Without further action, such an application would see every tenant's rows, and RLS would protect nothing. With `rls: true`, migration 021 therefore sets `FORCE ROW LEVEL SECURITY` on the four tenant tables, which binds the owner to the policies like any other role. Superusers and roles with `BYPASSRLS` are still exempt; Postgres offers no way to bind them. Run the application as a role that is neither.
 - **The policies have no separate `WITH CHECK` clause**, so Postgres applies the `USING` condition to inserted and updated rows too. With RLS on, the indexer can only write rows for the tenant in `app.current_tenant_id`.
+
+Forcing RLS on the owner has two consequences. An application that connects as the owner without setting `app.current_tenant_id` now sees no rows, which is the same fail-closed behavior as any other role. And a data migration on these tables, run by a non-superuser owner, sees only the rows of the tenant in `app.current_tenant_id`. The header of `sql/021_force_rls.sql` shows the pattern such a migration uses: lift `FORCE` for its own transaction and restore it afterwards.
 
 RLS needs the application to set `app.current_tenant_id` on the connection that runs each query, which leads to connection pinning.
 
@@ -77,7 +79,7 @@ User and caller input never becomes SQL text. Specifically:
 
 ### Bounded filters
 
-Filters can come from a user interface or from a language model, so their size is bounded. Validation rejects filters deeper than 5 levels, with more than 32 conditions, lists longer than 50 values, or strings longer than 256 characters. These limits keep any single filter's SQL small, whoever wrote it. `search` validates with these defaults. `validateFilter` accepts a `limits` option if you pre-validate filters yourself with different bounds.
+Filters can come from a user interface or from a language model, so their size is bounded. Validation rejects filters deeper than 5 levels, with more than 32 conditions, lists longer than 50 values, or strings longer than 256 characters. These limits keep any single filter's SQL small, whoever wrote it. `search` validates with these defaults unless you set `filterLimits` on the `RagPipeline`, which overrides them for both your explicit filter and a generated filter. `validateFilter` accepts a `limits` option if you pre-validate filters yourself.
 
 ## Failure behavior
 
