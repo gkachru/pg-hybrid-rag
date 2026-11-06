@@ -135,6 +135,12 @@ export class RagPipeline {
     this.metadataCatalog = config.metadataCatalog;
     this.filterTimeoutMs = config.filterTimeoutMs ?? 3000;
     this.filterLimits = config.filterLimits;
+    // An unset/NaN limit would make every comparison false and silently disable that limit.
+    for (const [name, value] of Object.entries(config.filterLimits ?? {})) {
+      if (!(Number.isInteger(value) && (value as number) > 0)) {
+        throw new Error(`filterLimits.${name} must be a positive integer (got ${String(value)})`);
+      }
+    }
     // setTimeout fires immediately for delays above 2^31-1 ms, so cap there.
     if (
       !Number.isFinite(this.filterTimeoutMs) ||

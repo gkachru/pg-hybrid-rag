@@ -95,9 +95,11 @@ export class CachingStopWordsLoader implements StopWordsProvider {
     // load() handles freshness + coalescing; rebuilding the Set is cheap, and the
     // mergedCache below memoizes it per load entry (keyed by that entry's loadedAt).
     const map = await this.load(tenantId);
-    const sourceLoadedAt = this.cache.get(tenantId)?.loadedAt;
-    // No cache entry: an invalidate() ran during the load, so don't memoize the stale result.
-    if (sourceLoadedAt === undefined) return mergeLanguages(map);
+    const entry = this.cache.get(tenantId);
+    // Memoize only when the cache entry is the map this call received. Otherwise an invalidate()
+    // ran during the load (no entry, or a newer load's entry), and `map` may be stale.
+    if (entry?.data !== map) return mergeLanguages(map);
+    const sourceLoadedAt = entry.loadedAt;
 
     const cached = this.mergedCache.get(tenantId);
     if (cached && cached.sourceLoadedAt === sourceLoadedAt) {

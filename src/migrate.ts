@@ -144,10 +144,12 @@ function splitStatements(text: string): string[] {
 
 /**
  * The package's `sql/` directory: one level above this module, which lives in `src/` (source) or
- * `dist/` (build). `import.meta.url` is native in ESM; the CJS build gets it from tsup's shims.
+ * `dist/` (build). CJS has a real `__dirname`; ESM derives it from `import.meta.url`. (tsup's CJS
+ * `import.meta.url` shim doesn't escape `#` or `%` in the path, so CJS must not rely on it.)
  */
 function defaultSqlDir(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), "..", "sql");
+  const here = typeof __dirname === "string" ? __dirname : dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "sql");
 }
 
 function isTransactionProvider(x: SqlClient | TransactionProvider): x is TransactionProvider {

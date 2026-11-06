@@ -841,6 +841,20 @@ describe("RagPipeline explicit attribute filter", () => {
     expect(mockDb.hybridSearch).not.toHaveBeenCalled();
   });
 
+  it("rejects filterLimits values that are not positive integers", () => {
+    for (const bad of [Number.NaN, 0, -1, 1.5, undefined]) {
+      expect(
+        () =>
+          new RagPipeline({
+            tenantId: "tenant-1",
+            db: supportingDb(),
+            embedder: mockEmbedder,
+            filterLimits: { maxConditions: bad as number },
+          }),
+      ).toThrow(/filterLimits.maxConditions must be a positive integer/);
+    }
+  });
+
   it("applies filterLimits from the pipeline config to the explicit filter", async () => {
     const many = {
       key: "region",
