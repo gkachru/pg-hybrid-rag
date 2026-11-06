@@ -77,6 +77,20 @@ describe("ragMigrate", () => {
     ).toBe(true);
   });
 
+  it("locates the package's sql/ directory when sqlDir is omitted", async () => {
+    const { client, appliedMigrations } = createMockClient();
+    await ragMigrate(client);
+    expect(appliedMigrations).toContain("001_extensions.sql");
+    expect(appliedMigrations).toContain("002_rag_documents.sql");
+  });
+
+  it("throws a clear error when sqlDir does not exist", async () => {
+    const { client } = createMockClient();
+    await expect(ragMigrate(client, { sqlDir: join(sqlDir, "does-not-exist") })).rejects.toThrow(
+      /SQL directory not found/,
+    );
+  });
+
   it("applies pending migrations", async () => {
     const { client, appliedMigrations } = createMockClient();
     await ragMigrate(client, { sqlDir });
