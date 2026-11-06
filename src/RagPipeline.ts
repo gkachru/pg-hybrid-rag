@@ -323,13 +323,16 @@ export class RagPipeline {
           span.setAttribute("segmenterApplied", true);
         }
 
+        // True only when stop-word removal actually dropped a word from the lexical query.
+        let stopWordsApplied = false;
         if (allStopWords.size > 0) {
           const preStop = lexicalQuery;
           lexicalQuery = removeStopWords(lexicalQuery, allStopWords);
           // Fall back to the normalized (pre-stop-word) form, not the raw query.
           if (!lexicalQuery.trim()) lexicalQuery = preStop;
+          stopWordsApplied = lexicalQuery !== preStop;
         }
-        span.setAttribute("stopWordsApplied", lexicalQuery !== query);
+        span.setAttribute("stopWordsApplied", stopWordsApplied);
 
         const candidateLimit = opts.topK * opts.candidateMultiplier;
 
@@ -519,7 +522,7 @@ export class RagPipeline {
             ftsCandidates: results.ftsRows.length,
             rerankerApplied: shouldRerank,
             rerankInputCount,
-            stopWordsApplied: allStopWords.size > 0,
+            stopWordsApplied,
             synonymsApplied: synonymLookup.size > 0,
           },
           "Search completed",

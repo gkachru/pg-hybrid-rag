@@ -740,6 +740,42 @@ describe("RagPipeline", () => {
     });
   });
 
+  it("sets stopWordsApplied only when a stop word was removed", async () => {
+    const attrs: Record<string, unknown> = {};
+    const tracer = {
+      startActiveSpan: async <T>(
+        name: string,
+        fn: (span: {
+          setAttribute: (k: string, v: unknown) => void;
+          end: () => void;
+        }) => Promise<T>,
+      ) =>
+        fn({
+          setAttribute: (k, v) => {
+            if (name === "rag-pipeline.search") attrs[k] = v;
+          },
+          end: () => {},
+        }),
+    };
+    const stopWords = {
+      load: async () => new Map(),
+      loadMerged: async () => new Set(["the"]),
+      invalidate: () => {},
+    };
+    const p = new RagPipeline({
+      tenantId: "tenant-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      stopWords,
+      tracer,
+    });
+    // Lowercasing and punctuation stripping change the query, but no stop word is removed.
+    await p.search("Best Phone!", { language: "en" });
+    expect(attrs.stopWordsApplied).toBe(false);
+    await p.search("the best phone", { language: "en" });
+    expect(attrs.stopWordsApplied).toBe(true);
+  });
+
   it("uses loadMerged when available on stop words provider", async () => {
     const loadMergedMock = mock(async () => new Set(["the", "in", "a"]));
     const stopWords = {
