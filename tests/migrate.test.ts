@@ -182,6 +182,16 @@ describe("ragMigrate", () => {
     expect(rls.appliedMigrations).toContain("019_metadata_registry_rls.sql");
   });
 
+  it("applies the stop-words uniqueness migration (020) by default, FORCE RLS (021) only with rls: true", async () => {
+    const plain = createMockClient();
+    await ragMigrate(plain.client, { sqlDir });
+    expect(plain.appliedMigrations).toContain("020_stop_words_unique.sql");
+    expect(plain.appliedMigrations).not.toContain("021_force_rls.sql");
+    const rls = createMockClient();
+    await ragMigrate(rls.client, { sqlDir, rls: true });
+    expect(rls.appliedMigrations).toContain("021_force_rls.sql");
+  });
+
   it("applies the Arabic FTS migration (014) by default", async () => {
     const { client, appliedMigrations } = createMockClient();
     await ragMigrate(client, { sqlDir });
