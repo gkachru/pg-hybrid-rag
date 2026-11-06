@@ -5,6 +5,9 @@ hero:
   name: pg-hybrid-rag
   text: Hybrid retrieval for RAG, inside PostgreSQL
   tagline: Vector, keyword and full-text search over your content, fused into one ranked list. No search cluster to run, and no runtime dependencies.
+  image:
+    src: /logo.svg
+    alt: pg-hybrid-rag logo
   actions:
     - theme: brand
       text: Build your first search
@@ -17,17 +20,41 @@ hero:
       link: https://github.com/gkachru/pg-hybrid-rag
 
 features:
-  - title: Three searches, one ranking
+  - icon:
+      src: /features/fusion.svg
+      width: 120
+      height: 72
+    title: Three searches, one ranking
     details: Every query runs pgvector similarity, pg_trgm keyword matching and PostgreSQL full-text search in parallel, then merges them with Reciprocal Rank Fusion or score-based fusion.
-  - title: Many languages
+  - icon:
+      src: /features/languages.svg
+      width: 120
+      height: 72
+    title: Many languages
     details: Per-language stemming in PostgreSQL, stop words, synonyms and text normalization. Optional pg_bigm keyword search for Chinese, Japanese and Korean.
-  - title: Typed metadata filters
+  - icon:
+      src: /features/filters.svg
+      width: 120
+      height: 72
+    title: Typed metadata filters
     details: Attach typed, namespaced attributes to content and filter with and/or/not expressions that run inside every search, or let a language model derive the filter from the query.
-  - title: Multi-tenant
+  - icon:
+      src: /features/tenants.svg
+      width: 120
+      height: 72
+    title: Multi-tenant
     details: Every row belongs to a tenant. Optional row-level security policies enforce isolation in the database.
-  - title: Bring your own stack
+  - icon:
+      src: /features/stack.svg
+      width: 120
+      height: 72
+    title: Bring your own stack
     details: Works with postgres.js, node-postgres, Prisma or any driver; any embedding API; any reranker. You inject each one through a small interface.
-  - title: Optional extensions
+  - icon:
+      src: /features/extensions.svg
+      width: 120
+      height: 72
+    title: Optional extensions
     details: Switch the full-text search to BM25 ranking with pg_textsearch (one constructor option), or the vector index to VectorChord (no code change).
 ---
 

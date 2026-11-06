@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 72" role="img" aria-label="Overlapping cards with Latin, Chinese and Arabic letters">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f5d87"/>
+      <stop offset="1" stop-color="#2a8c96"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="72" rx="12" fill="url(#tile)"/>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans', 'Noto Sans CJK SC', 'Noto Sans Arabic', sans-serif" font-weight="700" text-anchor="middle">
+    <rect x="14" y="13" width="34" height="30" rx="6" fill="#ffffff"/>
+    <text x="31" y="34" font-size="15" fill="#2f5d87">Aa</text>
+    <rect x="72" y="13" width="34" height="30" rx="6" fill="#8be0c8"/>
+    <text x="89" y="35" font-size="18" fill="#134e44">ع</text>
+    <rect x="43" y="28" width="34" height="30" rx="6" fill="#f5c451" stroke="#2c7590" stroke-width="2"/>
+    <text x="60" y="49" font-size="15" fill="#5a4300">文</text>
+  </g>
+</svg>

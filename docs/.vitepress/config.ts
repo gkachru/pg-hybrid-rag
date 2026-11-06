@@ -106,11 +106,15 @@ export default defineConfig({
   lastUpdated: true,
   // Internal design specs and plans live under docs/superpowers and are not part of the site.
   srcExclude: ["superpowers/**", "**/README.md"],
-  head: [["meta", { name: "theme-color", content: "#336791" }]],
+  head: [
+    ["meta", { name: "theme-color", content: "#336791" }],
+    ["link", { rel: "icon", type: "image/svg+xml", href: "/pg-hybrid-rag/logo.svg" }],
+  ],
   markdown: {
     lineNumbers: false,
   },
   themeConfig: {
+    logo: { src: "/logo.svg", alt: "" },
     nav: [
       { text: "Tutorials", link: "/tutorials/", activeMatch: "/tutorials/" },
       { text: "How-to guides", link: "/how-to/", activeMatch: "/how-to/" },
