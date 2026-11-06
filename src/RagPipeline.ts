@@ -22,7 +22,13 @@ import {
 import { stripTrailingPunctuation } from "./punctuation.js";
 import { applyRRF } from "./rrf.js";
 import { removeStopWords } from "./stopWords.js";
-import type { MetadataCatalog, RagResult, RagSearchOptions, SearchDiagnostics } from "./types.js";
+import type {
+  FilterLimits,
+  MetadataCatalog,
+  RagResult,
+  RagSearchOptions,
+  SearchDiagnostics,
+} from "./types.js";
 
 const DEFAULTS = {
   topK: 5,
@@ -90,6 +96,11 @@ export interface RagPipelineConfig {
    * Default 3000; `0` disables the deadline.
    */
   filterTimeoutMs?: number;
+  /**
+   * Overrides for the filter validation limits (defaults: DEFAULT_FILTER_LIMITS), applied to both
+   * the explicit `filter` and a generated filter.
+   */
+  filterLimits?: Partial<FilterLimits>;
 }
 
 export class RagPipeline {
@@ -106,6 +117,7 @@ export class RagPipeline {
   private filterModel?: FilterModelProvider;
   private metadataCatalog?: MetadataCatalogProvider;
   private filterTimeoutMs: number;
+  private filterLimits?: Partial<FilterLimits>;
 
   constructor(config: RagPipelineConfig) {
     this.tenantId = config.tenantId;
@@ -121,6 +133,7 @@ export class RagPipeline {
     this.filterModel = config.filterModel;
     this.metadataCatalog = config.metadataCatalog;
     this.filterTimeoutMs = config.filterTimeoutMs ?? 3000;
+    this.filterLimits = config.filterLimits;
     // setTimeout fires immediately for delays above 2^31-1 ms, so cap there.
     if (
       !Number.isFinite(this.filterTimeoutMs) ||
@@ -178,6 +191,7 @@ export class RagPipeline {
       }
       if (raw === null || raw === undefined) return { raw: null, filter: null, status: "none" };
       const v = validateFilter(raw, {
+        limits: this.filterLimits,
         catalog,
         rejectUnknownKeys: true,
         enforceAllowedValues: true,
@@ -232,7 +246,9 @@ export class RagPipeline {
         // throws FilterValidationError, and a db that cannot apply it in every leg must not
         // silently return unfiltered results.
         const explicitFilter =
-          opts.filter !== undefined ? assertValidFilter(opts.filter) : undefined;
+          opts.filter !== undefined
+            ? assertValidFilter(opts.filter, { limits: this.filterLimits })
+            : undefined;
         if (explicitFilter && this.db.supportsAttributeFilters !== true) {
           throw new AttributeFiltersUnsupportedError();
         }

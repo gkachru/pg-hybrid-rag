@@ -785,6 +785,26 @@ describe("RagPipeline explicit attribute filter", () => {
     expect(mockDb.hybridSearch).not.toHaveBeenCalled();
   });
 
+  it("applies filterLimits from the pipeline config to the explicit filter", async () => {
+    const many = {
+      key: "region",
+      op: "equals",
+      value: Array.from({ length: 60 }, (_, i) => `r${i}`),
+    };
+    // Default maxListSize is 50.
+    await expect(
+      mk(supportingDb()).search("q", { language: "en", filter: many as never }),
+    ).rejects.toBeInstanceOf(FilterValidationError);
+    const raised = new RagPipeline({
+      tenantId: "tenant-1",
+      db: supportingDb(),
+      embedder: mockEmbedder,
+      filterLimits: { maxListSize: 100 },
+    });
+    await raised.search("q", { language: "en", filter: many as never });
+    expect(lastSearchParams.attributeFilter).toBeDefined();
+  });
+
   it("rejects with AttributeFiltersUnsupportedError when the db lacks the flag", async () => {
     const p = mk(mockDb);
     await expect(p.search("q", { language: "en", filter: goodFilter })).rejects.toBeInstanceOf(
@@ -839,7 +859,7 @@ describe("RagPipeline auto-filter", () => {
   const mk = (
     model?: ReturnType<typeof mkModel>,
     db: RagDatabase = supportingDb(),
-    extra: { filterTimeoutMs?: number } = {},
+    extra: { filterTimeoutMs?: number; filterLimits?: { maxStringLength: number } } = {},
   ) =>
     new RagPipeline({
       ...extra,
@@ -875,6 +895,23 @@ describe("RagPipeline auto-filter", () => {
     expect(lastSearchParams.attributeFilter).toEqual({
       and: [assertValidFilter(explicit), assertValidFilter(generatedGood)],
     });
+  });
+
+  it("applies filterLimits from the pipeline config to a generated filter", async () => {
+    // "region" (6 chars) exceeds maxStringLength 5, so the generated filter is invalid.
+    const p = mk(
+      mkModel(async () => generatedGood),
+      supportingDb(),
+      {
+        filterLimits: { maxStringLength: 5 },
+      },
+    );
+    const { diagnostics } = await p.searchWithDiagnostics("q", {
+      language: "en",
+      autoFilter: true,
+    });
+    expect(diagnostics.generatedFilterStatus).toBe("invalid");
+    expect(diagnostics.generatedFilterErrors?.join(" ")).toContain("longer than 5");
   });
 
   it("drops an invalid generated filter with one warning", async () => {
