@@ -6,11 +6,12 @@ import type {
   SqlClient,
   TransactionProvider,
 } from "../interfaces.js";
+import { CJK_LANGUAGES } from "../recommend.js";
 import type { HybridSearchParams, RankedCandidate } from "../types.js";
 import { TsvectorFts } from "./fts/TsvectorFts.js";
 import { buildFilters, SCORE_TIE_BREAK, toRankedCandidate } from "./sqlHelpers.js";
 
-const CJK_LANGUAGES = new Set(["zh", "zh-CN", "ja", "ja-JP", "ko", "ko-KR"]);
+const CJK_LANGUAGE_SET = new Set(CJK_LANGUAGES);
 
 /** Default number of IVFFlat lists to probe per vector search (postgres default is 1). */
 const DEFAULT_IVFFLAT_PROBES = 10;
@@ -233,7 +234,7 @@ export class PostgresRagDatabase implements RagDatabase {
 
     const useBigm =
       this.cjk &&
-      CJK_LANGUAGES.has(params.language) &&
+      CJK_LANGUAGE_SET.has(params.language) &&
       !this.segmenter?.segmentsLanguage(params.language);
 
     // Run all 3 legs in parallel with separate connections for true concurrency.

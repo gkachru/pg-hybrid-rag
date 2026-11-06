@@ -59,12 +59,22 @@ describe("recommendForLanguage", () => {
     expect(recommendForLanguage("ko")).toMatchObject({ stemming: "none", isCjk: true });
   });
 
-  it("ignores the region subtag (ar-SA → ar, en-US → en, en-GB → en)", () => {
+  it("reports stemming and isCjk for the exact code, as the database routes it", () => {
     expect(recommendForLanguage("ar-SA").stemming).toBe("arabic");
-    expect(recommendForLanguage("ar-SA").needsNormalization).toBe(true);
     expect(recommendForLanguage("en-US").stemming).toBe("english");
-    // base-code fallback stems an unlisted region (en-GB) as english too
-    expect(recommendForLanguage("en-GB").stemming).toBe("english");
+    // rag_fts_config() matches exact codes: unlisted regions are stemmed with 'simple'.
+    expect(recommendForLanguage("en-GB").stemming).toBe("none");
+    expect(recommendForLanguage("pt-BR").stemming).toBe("none");
+    expect(recommendForLanguage("ar-MA").stemming).toBe("none");
+    // The adapter routes only the listed CJK codes to pg_bigm.
+    expect(recommendForLanguage("zh-CN").isCjk).toBe(true);
+    expect(recommendForLanguage("zh-TW").isCjk).toBe(false);
+  });
+
+  it("uses the base code for needsNormalization, like normalizeForLanguage", () => {
+    expect(recommendForLanguage("ar-SA").needsNormalization).toBe(true);
+    expect(recommendForLanguage("ar-MA").needsNormalization).toBe(true);
+    expect(normalizeForLanguage("أحمد", "ar-MA")).not.toBe("أحمد");
   });
 
   it("returns the lenient multilingual default for unknown/empty codes (no throw)", () => {

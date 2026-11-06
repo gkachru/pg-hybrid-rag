@@ -36,8 +36,11 @@ export const FTS_STEMMING_GROUPS: FtsStemmingGroup[] = [
   { config: "arabic", languages: ["ar", "ar-SA", "ar-EG"] },
 ];
 
-/** CJK languages routed to the pg_bigm keyword path. Matches detectLanguage's CJK outputs. */
-export const CJK_LANGUAGES: string[] = ["zh", "ja", "ko"];
+/**
+ * Language codes PostgresRagDatabase routes to the pg_bigm keyword path (with `cjk: true`).
+ * SINGLE SOURCE OF TRUTH: the adapter imports this list. Includes detectLanguage's CJK outputs.
+ */
+export const CJK_LANGUAGES: readonly string[] = ["zh", "zh-CN", "ja", "ja-JP", "ko", "ko-KR"];
 
 /** Languages for which normalizeForLanguage applies more than NFC (orthographic folds / digit folding). */
 export const NORMALIZED_LANGUAGES: string[] = ["ar", "th"];
@@ -68,22 +71,24 @@ function baseCode(language: string): string {
   return (language ?? "").split("-")[0].toLowerCase();
 }
 
-/** Postgres FTS regconfig for `language`, or "none". Matches by exact code or base code. */
+/**
+ * Postgres FTS regconfig for `language`, or "none". Exact code match, like rag_fts_config(): an
+ * unlisted regional code ("en-GB", "pt-BR") is stemmed with 'simple', so it reports "none".
+ */
 function stemmingForLanguage(language: string): string {
-  const base = baseCode(language);
   for (const group of FTS_STEMMING_GROUPS) {
-    if (group.languages.includes(language) || group.languages.includes(base)) {
-      return group.config;
-    }
+    if (group.languages.includes(language)) return group.config;
   }
   return "none";
 }
 
 /**
  * Recommend a full setup for working in `language`. Pure/advisory — the consumer maps each field
- * to the right place (search options, ragMigrate options, provider construction). Accepts
- * BCP-47-style codes; the region subtag is ignored ("ar-SA" → "ar"). Unknown/empty codes return
- * the multilingual default with whitespace/simple structural assumptions. Never throws.
+ * to the right place (search options, ragMigrate options, provider construction). `stemming` and
+ * `isCjk` match the exact code, the way the database and adapter route it ("pt-BR" is not
+ * stemmed; "zh-TW" is not routed to pg_bigm). `needsNormalization` uses the base code, as
+ * normalizeForLanguage does ("ar-MA" → "ar"). Unknown/empty codes return the multilingual default
+ * with whitespace/simple structural assumptions. Never throws.
  */
 export function recommendForLanguage(language: string): LanguageRecommendation {
   const base = baseCode(language);
@@ -94,6 +99,6 @@ export function recommendForLanguage(language: string): LanguageRecommendation {
     vectorMinScore: RECOMMENDED_VECTOR_MIN_SCORE,
     stemming: stemmingForLanguage(language),
     needsNormalization: NORMALIZED_LANGUAGES.includes(base),
-    isCjk: CJK_LANGUAGES.includes(base),
+    isCjk: CJK_LANGUAGES.includes(language),
   };
 }
