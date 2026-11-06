@@ -76,6 +76,10 @@ export interface RagTracer {
 }
 
 /** Cross-encoder reranker (optional — improves relevance post-RRF). */
+/**
+ * Cross-encoder reranker. Return results with `score` set to the reranker's relevance score; the
+ * pipeline sorts by that score, applies the reranker score floors and keeps the first `topN`.
+ */
 export interface RerankerProvider {
   rerank(query: string, results: RagResult[], topN: number): Promise<RagResult[]>;
 }

@@ -496,6 +496,57 @@ describe("RagPipeline", () => {
       expect(union).toHaveLength(2);
     });
 
+    it("trims a reranker that returns more than topK results to topK, best first", async () => {
+      vectorRows = Array.from({ length: 6 }, (_, i) => ({
+        content: `doc-${i}`,
+        sourceType: "faq",
+        sourceId: `faq-${i}`,
+        metadata: "{}",
+      }));
+      keywordRows = [];
+      ftsRows = [];
+      // Ignores topN and returns every input, in reverse order, with descending scores.
+      const reranker: RerankerProvider = {
+        rerank: async (_q, results) =>
+          [...results].reverse().map((r, i) => ({ ...r, score: 1 - i * 0.1 })),
+      };
+      const p = new RagPipeline({ tenantId: "tenant-1", db: mockDb, embedder: mockEmbedder, reranker });
+      const results = await p.search("test", {
+        rerank: true,
+        language: "en",
+        topK: 2,
+        rerankCandidates: 5,
+        candidateMultiplier: 5,
+      });
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.score)).toEqual([1, 0.9]);
+    });
+
+    it("returns at most topK fused results when the reranker throws", async () => {
+      vectorRows = Array.from({ length: 6 }, (_, i) => ({
+        content: `doc-${i}`,
+        sourceType: "faq",
+        sourceId: `faq-${i}`,
+        metadata: "{}",
+      }));
+      keywordRows = [];
+      ftsRows = [];
+      const reranker: RerankerProvider = {
+        rerank: async () => {
+          throw new Error("Reranker API down");
+        },
+      };
+      const p = new RagPipeline({ tenantId: "tenant-1", db: mockDb, embedder: mockEmbedder, reranker });
+      const results = await p.search("test", {
+        rerank: true,
+        language: "en",
+        topK: 2,
+        rerankCandidates: 5,
+        candidateMultiplier: 5,
+      });
+      expect(results.map((r) => r.content)).toEqual(["doc-0", "doc-1"]);
+    });
+
     it("does not rerank when rerank=false (default)", async () => {
       const reranker = {
         rerank: mock(async (_q: string, results: unknown[]) => results),

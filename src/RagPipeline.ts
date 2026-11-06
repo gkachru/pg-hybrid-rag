@@ -388,7 +388,7 @@ export class RagPipeline {
         // Rerank the BOUNDED UNION, not just the RRF top-K: when reranking, fuse up to
         // max(topK, rerankCandidates) candidates so the cross-encoder can recover a true
         // positive a leg surfaced but RRF ranked below topK (instead of cutting it pre-rerank).
-        // The reranker still returns topK. When not reranking, fuse exactly topK (unchanged).
+        // The pipeline caps the reranked output at topK. When not reranking, fuse exactly topK.
         const shouldRerank = opts.rerank === true && this.reranker != null;
         const fusedLimit = shouldRerank
           ? Math.max(opts.topK, opts.rerankCandidates ?? opts.topK)
@@ -445,19 +445,23 @@ export class RagPipeline {
                 opts.rerankerMinAbsoluteScore > 0
                   ? opts.rerankerMinAbsoluteScore
                   : Number.NEGATIVE_INFINITY;
-              const result = reranked.filter(
-                (r) => r.score >= relThreshold && r.score >= absThreshold,
-              );
+              // Order by reranker score and cap at topK: a reranker may ignore topN, and the
+              // input here can hold up to max(topK, rerankCandidates) results.
+              const result = reranked
+                .filter((r) => r.score >= relThreshold && r.score >= absThreshold)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, opts.topK);
               rerankSpan.setAttribute("outputCount", result.length);
               return result;
             } catch (err) {
-              // Graceful degradation: return RRF results if reranker fails
+              // Graceful degradation: return the fused top-K if the reranker fails. `filtered`
+              // holds up to max(topK, rerankCandidates) candidates, so cap it at topK.
               rerankSpan.setAttribute("error", true);
               this.logger.warn(
                 { tenantId: this.tenantId, error: String(err) },
                 "Reranker failed, falling back to RRF results",
               );
-              return filtered;
+              return filtered.slice(0, opts.topK);
             } finally {
               rerankSpan.end();
             }
