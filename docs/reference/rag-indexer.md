@@ -67,7 +67,7 @@ Returns the number of chunks written (`chunks.length`).
 
 Steps, in order:
 
-1. If `chunks` is empty, return `0`. Nothing is embedded, written or deleted; existing chunks for the source stay in place. Use `deleteSource()` to remove them.
+1. If `chunks` is empty, the source now has no content: call `db.deleteBySource()` to delete its existing chunks, log `info` (`Documents indexed`, with `chunks: 0`) and return `0`. Nothing is embedded, and `options.attributes` is not validated.
 2. Validate and normalize `options.attributes` against `attributeLimits`, before any embedding.
 3. Embed all chunk contents with one `embedder.embedDocuments()` call (the embedder does its own batching).
 4. Check that the embedder returned exactly one vector per chunk.

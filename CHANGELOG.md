@@ -1,5 +1,58 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `ragMigrate` locates the package's `sql/` directory when `sqlDir` is omitted (ESM and CJS, Node
+  and Bun). 0.6.0 threw "Could not auto-detect SQL directory" whenever it was installed as a
+  package. A missing directory now throws an error naming the path.
+- Reranking returns at most `topK` results: reranked output is sorted by score and capped, and the
+  fallback after a reranker error is the fused top-`topK` (it could return up to
+  `max(topK, rerankCandidates)`).
+- `RagIndexer.index()` with an empty chunk list deletes the source's existing chunks (it returned 0
+  and left them searchable).
+- A leg weight of `0` disables the leg: the adapter skips its query and none of its candidates are
+  fused. Previously the leg still ran and its candidates could fill the tail of the results.
+- `recommendForLanguage` reports `stemming` and `isCjk` for the exact language code, matching
+  `rag_fts_config()`, the BM25 groups and the adapter's CJK routing (`pt-BR` → `"none"`,
+  `zh-TW` → `isCjk: false`). `needsNormalization` still uses the base code.
+- `OpenAiCompatibleEmbedder` sends the text unchanged when `queryPrefix` or `documentPrefix` is
+  `""` (it sent `": text"`).
+- `PostgresRagDatabase` validates `ivfflatProbes` (positive integer) in the constructor.
+- `CachingStopWordsLoader` / `CachingSynonymLoader`: a load in flight during `invalidate()` no
+  longer writes its stale result into the cache.
+- The `stopWordsApplied` span attribute and log field are true only when a stop word was removed.
+- Thai: `normalizeForLanguage` / `LanguageNormalizer` drop mai yamok (ๆ), with any whitespace
+  before it, from the indexed `content_normalized` and the lexical query, so attached, spaced
+  and omitted forms match in the keyword leg. Paiyannoi (ฯ) is no longer stripped from query
+  words, so `กรุงเทพฯ` and `ฯลฯ` match documents as written. Re-index Thai sources to normalize
+  their stored text.
+- `Chunker.chunk()`: overlap is carried into a following paragraph that is split by sentences, and
+  a buffer holding only carried overlap is no longer emitted as a duplicate chunk.
+
+### Added
+
+- `RagPipelineConfig.filterLimits` overrides the filter validation limits for explicit and
+  generated filters.
+- `HybridSearchParams.skipLegs` and the `SearchLeg` type (set by the pipeline for zero-weight legs).
+- Migration `020_stop_words_unique.sql` (default): removes duplicate stop words and adds a unique
+  index on `(tenant_id, language, word)`.
+- Migration `022_rls_empty_tenant.sql` (with `rls: true`): recreates the four tenant policies with
+  `NULLIF(current_setting('app.current_tenant_id', true), '')`. After a transaction-local
+  `set_config` ends, the setting reads as `''`, which made the `::uuid` cast fail on a pooled
+  connection; it now matches no rows, the same as a never-set session.
+- Migration `021_force_rls.sql` (with `rls: true`): `FORCE ROW LEVEL SECURITY` on the four tenant
+  tables.
+
+### Breaking
+
+- With `rls: true`, migration 021 makes the tenant policies apply to the table owner. An
+  application that connects as the (non-superuser) owner must set `app.current_tenant_id`, or it
+  sees no rows. Superusers and `BYPASSRLS` roles are still exempt.
+- Re-indexing text whose last paragraph is split by sentences no longer produces the trailing
+  overlap-only chunk, so chunk counts and indexes can differ from 0.6.0 for such sources.
+
 ## 0.6.0
 
 ### Added

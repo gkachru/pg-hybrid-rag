@@ -31,10 +31,6 @@ features:
     details: Switch the full-text search to BM25 ranking with pg_textsearch (one constructor option), or the vector index to VectorChord (no code change).
 ---
 
-::: warning Draft
-This documentation is a draft under review.
-:::
-
 ## Install
 
 ```bash

@@ -43,7 +43,7 @@ await pipeline.search("cómo cambiar la contraseña", { languages: ["es"] });
 Codes are matched exactly. A document indexed as `es-MX` is not returned by `languages: ["es"]`; list every code you index, for example `languages: ["es", "es-MX"]`, and then set `language` too (see below).
 
 ::: warning Use codes from the mapped list
-The full-text config (`rag_fts_config`), `Bm25Fts` index routing and CJK pg_bigm routing also compare the code exactly, against fixed lists (see [Languages](/reference/languages#language-codes)). A code with an unlisted region or a different case, such as `en-GB`, `pt-BR`, `zh-TW` or `EN`, gets the unstemmed `simple` config, the `simple` BM25 index and the pg_trgm keyword path. `recommendForLanguage()`, `LanguageNormalizer`, `IntlSegmenterAdapter` and the chunker's token-limit sizing use the base code instead (`pt-BR` → `pt`), so `recommendForLanguage("pt-BR").stemming` reports `"portuguese"` even though Postgres does not stem `pt-BR` rows. Index and search with mapped codes such as `en` or `pt`.
+The full-text config (`rag_fts_config`), `Bm25Fts` index routing and CJK pg_bigm routing also compare the code exactly, against fixed lists (see [Languages](/reference/languages#language-codes)). A code with an unlisted region or a different case, such as `en-GB`, `pt-BR`, `zh-TW` or `EN`, gets the unstemmed `simple` config, the `simple` BM25 index and the pg_trgm keyword path. `LanguageNormalizer`, `IntlSegmenterAdapter`, the chunker's token-limit sizing and `recommendForLanguage().needsNormalization` use the base code instead (`pt-BR` → `pt`). `recommendForLanguage()` reports `stemming` and `isCjk` for the exact code, the way the database routes it, so `recommendForLanguage("pt-BR").stemming` is `"none"`. Index and search with mapped codes such as `en` or `pt`.
 :::
 
 ## Search several languages
@@ -98,7 +98,7 @@ Prefer a language you already know, such as the user's locale or the language of
 
 ## Normalize text for lexical matching
 
-`LanguageNormalizer` folds spelling variants so the keyword and full-text legs match them. It applies Arabic folds (diacritics, tatweel, alef variants, alef maqsura to yeh, taa marbuta to heh, Arabic-Indic digits to ASCII), folds Thai digits, and applies Unicode NFC to every other language.
+`LanguageNormalizer` folds spelling variants so the keyword and full-text legs match them. It applies Arabic folds (diacritics, tatweel, alef variants, alef maqsura to yeh, taa marbuta to heh, Arabic-Indic digits to ASCII), folds Thai digits and drops the Thai repetition mark ๆ (mai yamok), and applies Unicode NFC to every other language. Because ๆ is dropped from both the indexed text and the query, `อื่นๆ`, `อื่น ๆ` and `อื่น` match each other in the keyword leg. Re-index Thai sources after upgrading so their stored text is normalized the same way.
 
 Pass the same normalizer to the indexer and the pipeline. The indexer applies it to `content_normalized`; the pipeline applies it to the lexical query. Neither the stored `content`, the embedding, nor the reranker input is changed.
 

@@ -15,8 +15,11 @@ This page explains which index serves each search leg, why the SQL is written th
 | Attribute filters | `idx_rag_attributes` | Migration 017 | GIN, `jsonb_path_ops` |
 | Tenant filter | `idx_rag_tenant` | Migration 002 | B-tree on `tenant_id` |
 | Re-index and delete | `idx_rag_source` | Migration 016 | B-tree on `(tenant_id, source_type, source_id)` |
+| Stop-word uniqueness | `idx_rag_stop_words_tenant_lang_word` | Migration 020 | Unique B-tree on `rag_stop_words (tenant_id, language, word)` |
 
-Two kinds of index appear here, and they behave differently:
+All of these indexes are on `rag_documents` except the last, which keeps `rag_stop_words` free of duplicate rows rather than serving a search leg.
+
+Two kinds of index serve the search legs, and they behave differently:
 
 - **Ordered indexes** return rows already in score order: the vector indexes (nearest first) and BM25 (best first). The leg can stop after `candidateLimit` rows.
 - **Matching indexes** return the set of rows that match, in no particular order: the GIN indexes for trigrams, bigrams and `tsvector`. The leg then scores every matching row and sorts. Its cost grows with the number of matches, so a broad query, or a low `keywordMinScore`, costs more in these legs.
@@ -119,6 +122,7 @@ Fusion itself is deterministic for a given set of leg results: equal fused score
 ## Other cost controls
 
 - **`candidateMultiplier`** sets each leg's `LIMIT` (`topK * candidateMultiplier`). It bounds the rows each leg ranks and returns, and the size of the union available to the reranker.
+- **A weight of 0** (`vectorWeight`, `keywordWeight` or `ftsWeight`) skips that leg's query and connection entirely.
 - **Attribute JSON is cast to text above the `LIMIT`** in the sort-based legs, so the cast runs on at most `candidateLimit` rows, not on every matching row.
 - **The source index** makes re-indexing and deleting a source an index range scan over that source's chunks, instead of a scan over all of the tenant's rows.
 - **Large index builds.** Migrations 013 and 016 build indexes inside the migration transaction. On a large existing table, build them with `CREATE INDEX CONCURRENTLY` before running the migration; the migration's `IF NOT EXISTS` then skips them. See [Run migrations](/how-to/run-migrations).

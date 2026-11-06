@@ -36,7 +36,7 @@ That is why `Normalizer` and `Segmenter` are injected into both `RagIndexer` (ap
 Some scripts write the same word in several ways. `LanguageNormalizer` (built on `normalizeForLanguage`) applies per-language folding:
 
 - **Arabic:** removes diacritics (tashkeel) and tatweel, folds alef variants to bare alef, and by default folds alef maqsura to yeh and taa marbuta to heh. It also converts Arabic-Indic digits to ASCII digits.
-- **Thai:** converts Thai digits to ASCII digits.
+- **Thai:** converts Thai digits to ASCII digits and drops the repetition mark ๆ (mai yamok). Writers attach it (`อื่นๆ`) or put a space before it (`อื่น ๆ`), and pg_trgm treats it as a letter, so keeping it made keyword matching depend on writing style. Dropping it on both sides removes that dependence. In a keyword-leg test with short phrases taken from a Thai FAQ corpus and written in each form, the source chunk ranked first for 0.93 of queries instead of 0.81.
 - **All languages:** Unicode NFC normalization.
 
 Folding is deliberately lossy. Folding taa marbuta to heh, for example, merges some distinct words. That is acceptable for the lexical legs, where recall on variant spellings matters more, and it never touches the text that the embedding model or your users see.
@@ -53,7 +53,8 @@ Why stem in Postgres:
 
 Two consequences to keep in mind:
 
-- The map matches exact codes. `en-US` maps to `english`, but a code that is not listed, such as `en-GB`, falls back to `simple`. See [Language support](/reference/languages) for the exact list.
+- The map matches exact codes. `en-US` maps to `english`, but a code that is not listed, such as `en-GB` or `pt-BR`, falls back to `simple`. See [Language support](/reference/languages) for the exact list.
+- The library applies the same exact-code rule everywhere it routes by language: the stemming map, the BM25 language groups, and the choice of the pg_bigm keyword path (`zh`, `zh-CN`, `ja`, `ja-JP`, `ko` and `ko-KR` only, so `zh-TW` uses pg_trgm). `recommendForLanguage` reports `stemming` and `isCjk` by the same rule, so its advice matches what the database actually does for that code. Normalization is the one exception: `normalizeForLanguage` folds by the base code, so `ar-MA` is folded as Arabic even though it is stemmed with `simple`.
 - Postgres language configurations also drop their own built-in stop words. A query made entirely of those words produces an empty `tsquery`, and the FTS leg returns nothing for it. The other legs still run.
 
 ## Why the FTS leg works in one language per query
@@ -74,6 +75,7 @@ Design details:
 - **Per tenant, merged across languages.** `CachingStopWordsLoader` loads the tenant's rows from `rag_stop_words` and the pipeline removes words from all languages at once. A word listed for one language is removed from queries in every language, so avoid listing words that are meaningful in another language your tenant uses.
 - **Applied after normalization and segmentation.** Stop words are compared against the folded, segmented query, so they must be stored in that form. The loader's `normalizeWord` option (for example, `normalizeForLanguage`) folds them on load.
 - **Never empties the query.** If every word is a stop word, the pipeline searches with the form before stop-word removal.
+- **One row per word.** A unique index on `(tenant_id, language, word)` (migration 020) prevents duplicate rows, so seeding scripts can insert with `ON CONFLICT DO NOTHING`. The comparison is exact: `The` and `the` are separate rows, and the loader lowercases both when it loads them.
 
 ## Synonyms
 

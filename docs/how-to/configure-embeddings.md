@@ -23,7 +23,7 @@ const rec = recommendForLanguage("de");
 // rec.vectorMinScore  0.4
 ```
 
-It returns the same model for every language, with the language-specific flags (`stemming`, `needsNormalization`, `isCjk`) set per language. Treat the values as a starting point and validate them on your own queries.
+It returns the same model for every language, with the language-specific flags (`stemming`, `needsNormalization`, `isCjk`) set per language. `stemming` and `isCjk` match the exact code, as the database routes it (`en-GB` reports `stemming: "none"`); `needsNormalization` uses the base code. Treat the values as a starting point and validate them on your own queries.
 
 Keep these constraints in mind:
 
@@ -73,19 +73,19 @@ The embedder sends `POST ${baseUrl}/embeddings` with the body `{ input, model }`
 
 ### 4. Set the prefixes for your model
 
-The embedder always sends `${queryPrefix}: ${text}` for queries and `${documentPrefix}: ${text}` for documents. The defaults match the e5 model family.
+The embedder sends `${queryPrefix}: ${text}` for queries and `${documentPrefix}: ${text}` for documents. An empty prefix sends the text unchanged. The defaults match the e5 model family.
 
 | Model family | `queryPrefix` | `documentPrefix` |
 | --- | --- | --- |
 | e5 (`intfloat/multilingual-e5-*`) | `"query"` (default) | `"passage"` (default) |
 | nomic-embed-text | `"search_query"` | `"search_document"` |
-| Models that expect raw text | Not supported; see step 5 | |
+| Models that expect raw text | `""` | `""` |
 
-Setting a prefix to `""` doesn't remove it: the embedder then sends `": text"`. To send unprefixed text, implement `EmbeddingProvider` yourself.
+In 0.6.0 and earlier, an empty prefix is still sent with its separator (`": text"`); on those versions, implement `EmbeddingProvider` yourself to send unprefixed text.
 
 ### 5. (Optional) Write your own `EmbeddingProvider`
 
-Implement the two-method interface when you need raw text, a request field the built-in embedder doesn't send (such as `dimensions`), a different API shape, or an in-process model.
+Implement the two-method interface when you need a request field the built-in embedder doesn't send (such as `dimensions`), a different API shape, or an in-process model.
 
 ```ts
 import type { EmbeddingProvider } from "pg-hybrid-rag";

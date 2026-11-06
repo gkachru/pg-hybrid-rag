@@ -51,7 +51,7 @@ When a feature depends on an implementation doing something extra, the implement
 
 ## No runtime dependencies
 
-The published package has an empty `dependencies` list. Everything it needs comes from the JavaScript runtime (`fetch`, `AbortController`, `Intl.Segmenter`, `node:fs` for reading migration files) or from Postgres.
+The published package has an empty `dependencies` list. Everything it needs comes from the JavaScript runtime (`fetch`, `AbortController`, `Intl.Segmenter`, and the `node:fs`, `node:path` and `node:url` built-ins for locating and reading migration files) or from Postgres.
 
 This shapes several decisions you can see elsewhere in the library:
 
@@ -80,7 +80,7 @@ Where a silent default could produce wrong results without an error, the library
 - **The migration's embedding dimension is explicit.** `ragMigrate` defaults to 384 dimensions, so if your model produces another size, you pass `embeddingDimensions`. A mismatch fails at insert time rather than producing meaningless results.
 - **Optional extensions are opt-in.** VectorChord, `pg_textsearch`, pg_bigm and RLS each need a flag on `ragMigrate`, because each needs something from your database first (an installed extension, a `shared_preload_libraries` entry, or roles and settings for RLS).
 
-`recommendForLanguage` follows the same idea from the other direction. It is a pure lookup that returns suggested settings for a language (embedding model, dimensions, `vectorMinScore`, and whether stemming, normalization or the CJK path apply). It changes nothing by itself. You decide which suggestions to apply, and the numbers are starting points to validate on your corpus.
+`recommendForLanguage` follows the same idea from the other direction. It is a pure lookup that returns suggested settings for a language (embedding model, dimensions, `vectorMinScore`, and whether stemming, normalization or the CJK path apply). It changes nothing by itself. Its structural answers (stemming, CJK path) use the same exact language codes as the database and adapter, so they describe what will actually happen for that code. You decide which suggestions to apply, and the numbers are starting points to validate on your corpus.
 
 ## What the library leaves to you
 

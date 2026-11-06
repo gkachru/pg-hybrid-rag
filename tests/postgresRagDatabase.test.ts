@@ -213,6 +213,19 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     expect(setCall?.params).toContain("10");
   });
 
+  it("skips the legs named in skipLegs without querying them", async () => {
+    const { txProvider, calls } = recordingTx();
+    const rows = await new PostgresRagDatabase(txProvider).hybridSearch({
+      ...params,
+      skipLegs: ["vector", "fts"],
+    });
+    expect(rows).toEqual({ vectorRows: [], keywordRows: [], ftsRows: [] });
+    const sqls = calls.map((c) => c.sql);
+    expect(sqls.some((q) => q.includes("<=>"))).toBe(false); // no vector query
+    expect(sqls.some((q) => q.includes("content_tsvector"))).toBe(false); // no FTS query
+    expect(sqls.some((q) => q.includes("word_similarity"))).toBe(true); // keyword leg ran
+  });
+
   it("vector leg honors a custom ivfflatProbes option", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider, { ivfflatProbes: 25 }).hybridSearch(params);
@@ -864,6 +877,16 @@ describe("PostgresRagDatabase IVFFlat iterative scans", () => {
     const leg = calls.find((c) => c.sql.includes("embedding <=> $2::vector"));
     expect({ sql: leg?.sql, params: leg?.params }).toEqual(NO_FILTER_SNAPSHOT.default?.[1]);
     expect(gucNames(calls)).toEqual(["ivfflat.probes=10"]);
+  });
+
+  it("ivfflatProbes must be a positive integer", () => {
+    const { txProvider } = recordingTx();
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      expect(() => new PostgresRagDatabase(txProvider, { ivfflatProbes: bad })).toThrow(
+        /ivfflatProbes must be a positive integer/,
+      );
+    }
+    expect(() => new PostgresRagDatabase(txProvider, { ivfflatProbes: 1 })).not.toThrow();
   });
 
   it("ivfflatMaxProbes must be a positive integer", () => {

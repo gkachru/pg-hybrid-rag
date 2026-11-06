@@ -75,7 +75,7 @@ Orthographic normalization, selected by the base language code (the part before 
 | Base code | Steps |
 |-----------|-------|
 | `ar` | NFC; remove tashkeel (U+064B-U+065F) and superscript alef (U+0670); remove tatweel (U+0640), ZWNJ (U+200C) and ZWJ (U+200D); fold alef variants `آ أ إ ٱ` to `ا`; fold `ى` to `ي` (unless `foldAlefMaqsura: false`); fold `ة` to `ه` (unless `foldTaaMarbuta: false`); convert Arabic-Indic digits `٠-٩` and extended Arabic-Indic digits `۰-۹` to `0-9`; NFC. |
-| `th` | NFC; convert Thai digits `๐-๙` to `0-9`. |
+| `th` | NFC; convert Thai digits `๐-๙` to `0-9`; drop mai yamok `ๆ` together with any whitespace before it (`อื่น ๆ` and `อื่นๆ` both become `อื่น`). Paiyannoi `ฯ` is kept. |
 | Any other | NFC only. |
 
 ```ts
@@ -119,7 +119,7 @@ The options affect Arabic only.
 function recommendForLanguage(language: string): LanguageRecommendation;
 ```
 
-Returns an advisory starting configuration for a language. It is a pure lookup and never throws; unknown or empty codes get the multilingual defaults with `stemming: "none"`. The region subtag is ignored for the structural flags (`"ar-SA"` is treated as `"ar"`). Validate the numeric values on your own corpus.
+Returns an advisory starting configuration for a language. It is a pure lookup and never throws; unknown or empty codes get the multilingual defaults with `stemming: "none"`. `stemming` and `isCjk` match the exact code, the same way `rag_fts_config()`, the BM25 language groups and `PostgresRagDatabase` route it; `needsNormalization` uses the base code, as `normalizeForLanguage` does (`"ar-MA"` is treated as `"ar"`). Validate the numeric values on your own corpus.
 
 `LanguageRecommendation` fields:
 
@@ -129,13 +129,11 @@ Returns an advisory starting configuration for a language. It is a pure lookup a
 | `dimensions` | `number` | `1024`. Use as `ragMigrate({ embeddingDimensions })`. |
 | `maxTokens` | `number` | `8192`. The embedder's input ceiling; longer input is truncated. It is not a target chunk size: keep `Chunker` `tokenLimit` well below it. |
 | `vectorMinScore` | `number` | `0.4`. A starting point for `RagSearchOptions.vectorMinScore` with this embedder. |
-| `stemming` | `string` | Postgres text search configuration (`"english"`, `"spanish"`, `"french"`, `"german"`, `"italian"`, `"portuguese"`, `"romanian"`, `"arabic"`), or `"none"` (the `simple` configuration). Matched on the exact code or its base code. |
+| `stemming` | `string` | Postgres text search configuration (`"english"`, `"spanish"`, `"french"`, `"german"`, `"italian"`, `"portuguese"`, `"romanian"`, `"arabic"`), or `"none"` (the `simple` configuration). Exact code match: an unlisted regional code such as `"pt-BR"`, `"en-GB"` or `"ar-MA"` reports `"none"`, because `rag_fts_config()` stems it with `simple`. |
 | `needsNormalization` | `boolean` | `true` for base codes `ar` and `th`, where `normalizeForLanguage` does more than NFC. |
-| `isCjk` | `boolean` | `true` for base codes `zh`, `ja`, `ko`. |
+| `isCjk` | `boolean` | `true` for the codes `PostgresRagDatabase` routes to pg_bigm: `zh`, `zh-CN`, `ja`, `ja-JP`, `ko`, `ko-KR` (exact match). `"zh-TW"` reports `false`. |
 
-::: warning
-`stemming` matches on the base code, but the database function `rag_fts_config` matches exact codes only. For example, `recommendForLanguage("pt-BR").stemming` is `"portuguese"`, while rows stored with language `pt-BR` are stemmed with `simple`. Likewise `isCjk` is `true` for `zh-TW`, but `PostgresRagDatabase` routes only `zh`, `zh-CN`, `ja`, `ja-JP`, `ko`, `ko-KR` to pg_bigm. Store and query with the exact codes listed in [Languages](/reference/languages).
-:::
+Regional codes not listed in [Languages](/reference/languages) fall back to the `simple` configuration and the pg_trgm keyword path. Store and query with the exact codes listed there.
 
 ```ts
 import { recommendForLanguage } from "pg-hybrid-rag";
@@ -159,10 +157,10 @@ Removes a trailing run of characters matched by `TRAILING_PUNCTUATION`. `RagPipe
 ### TRAILING_PUNCTUATION
 
 ```text
-/[?.!,;:।॥؟،؛。！？、；：ๆฯ)\]}"'…’”]+$/
+/[?.!,;:।॥؟،؛。！？、；：ๆ)\]}"'…’”]+$/
 ```
 
-Covers Latin `? . ! , ; :`, Devanagari `। ॥`, Arabic `؟ ، ؛`, CJK full-width `。 ！ ？ 、 ； ：`, Thai `ๆ ฯ`, closing brackets `) ] }`, straight and curly closing quotes, and the ellipsis `…`.
+Covers Latin `? . ! , ; :`, Devanagari `। ॥`, Arabic `؟ ، ؛`, CJK full-width `。 ！ ？ 、 ； ：`, Thai mai yamok `ๆ`, closing brackets `) ] }`, straight and curly closing quotes, and the ellipsis `…`.
 
 ```ts
 import { stripTrailingPunctuation } from "pg-hybrid-rag";
@@ -170,6 +168,8 @@ import { stripTrailingPunctuation } from "pg-hybrid-rag";
 stripTrailingPunctuation("refund?"); // "refund"
 stripTrailingPunctuation("返品。"); // "返品"
 ```
+
+Thai paiyannoi `ฯ` is not stripped: it is part of words such as `กรุงเทพฯ` and `ฯลฯ`, which documents keep, so the query keeps it too.
 
 ### removeStopWords
 
@@ -249,7 +249,7 @@ buildBm25Query("best phones market", lookup); // "best phones smartphones market
 
 ## Fusion
 
-Both functions take the legs in the order `RagPipeline` uses, `[vector, keyword, fts]`, deduplicate candidates by `RankedCandidate.id` (the first occurrence's content is kept), sort by fused score descending, keep `topK`, and convert to `RagResult` (metadata or attribute JSON that fails to parse becomes `{}` or `[]`). A missing entry in `weights` counts as `1`. A weight of `0` does not remove a leg: its candidates still enter the fused list, contributing `0` to their score, so they can fill remaining `topK` slots.
+Both functions take the legs in the order `RagPipeline` uses, `[vector, keyword, fts]`, deduplicate candidates by `RankedCandidate.id` (the first occurrence's content is kept), sort by fused score descending, keep `topK`, and convert to `RagResult` (metadata or attribute JSON that fails to parse becomes `{}` or `[]`). A missing entry in `weights` counts as `1`. A weight of `0` does not remove a leg in these functions: its candidates still enter the fused list, contributing `0` to their score, so they can fill remaining `topK` slots. (`RagPipeline` disables a weight-`0` leg before fusion, so this applies only when you call the functions directly.)
 
 ### applyRRF
 

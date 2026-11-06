@@ -22,7 +22,7 @@ Both loaders share these rules:
 - After 30 seconds, the next `load()` waits for a fresh query. There is no background refresh.
 - Concurrent `load()` calls for the same tenant while a query is running share that query.
 - A failed load is not cached; the error propagates to the caller and the next call queries again.
-- `invalidate(tenantId)` drops the tenant's cache entry and its in-flight record, so the next `load()` queries again. A query already running when `invalidate()` is called still stores its result when it finishes.
+- `invalidate(tenantId)` drops the tenant's cache entry and its in-flight record, so the next `load()` queries again. A query already running when `invalidate()` is called still resolves for the callers waiting on it, but its result is not cached, so a later `load()` reads the database again.
 - Each load runs its query inside one `txProvider.withConnection()` call.
 - Returned maps and sets are the cached objects. Treat them as read-only.
 

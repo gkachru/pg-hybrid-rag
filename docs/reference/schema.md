@@ -86,7 +86,7 @@ Per-tenant, per-language stop words, read by `CachingStopWordsLoader`.
 | `language` | `VARCHAR(10)` | No | |
 | `word` | `VARCHAR(100)` | No | |
 
-Indexes: primary key on `id`; `idx_rag_stop_words_tenant (tenant_id)`. There is no unique constraint; duplicate rows are allowed.
+Indexes: primary key on `id`; `idx_rag_stop_words_tenant (tenant_id)`; unique `idx_rag_stop_words_tenant_lang_word (tenant_id, language, word)` (migration 020). The match is exact and case-sensitive, so `The` and `the` are separate rows. The unique index lets seed scripts use `INSERT ... ON CONFLICT DO NOTHING`.
 
 ## rag_synonyms
 
@@ -171,7 +171,7 @@ The trigger function described under [Trigger](#trigger).
 
 ## Row-level security
 
-Created only with `rls: true` (migrations 007 and 019).
+Created only with `rls: true` (migrations 007, 019, 021 and 022).
 
 | Table | Policy |
 |-------|--------|
@@ -180,15 +180,15 @@ Created only with `rls: true` (migrations 007 and 019).
 | `rag_synonyms` | `rag_synonyms_tenant_isolation` |
 | `rag_metadata_registry` | `rag_metadata_registry_tenant_isolation` |
 
-Each table has `ENABLE ROW LEVEL SECURITY` and one policy for all commands:
+Each table has `ENABLE ROW LEVEL SECURITY`, `FORCE ROW LEVEL SECURITY` (migration 021), and one policy for all commands:
 
 ```sql
-USING (tenant_id = current_setting('app.current_tenant_id', true)::uuid)
+USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
 ```
 
 - With no `WITH CHECK` clause, the same expression also checks inserted and updated rows, so a row can only be written for the current tenant.
-- `current_setting(..., true)` returns `NULL` when `app.current_tenant_id` was never set in the session, so the policy matches no rows instead of raising an error. After a transaction-local `set_config(..., true)` has ended, the same session returns an empty string instead, and `''::uuid` raises `invalid input syntax for type uuid`. On a pooled connection that was set earlier, a query that skips the setting therefore fails rather than returning zero rows.
-- The tables use `ENABLE`, not `FORCE`, row-level security. Postgres does not apply the policies to the table owner, superusers, or roles with `BYPASSRLS`. Connect as a role that is subject to the policies.
+- `current_setting(..., true)` returns `NULL` when `app.current_tenant_id` was never set in the session, and an empty string after a transaction-local `set_config(..., true)` has ended. `NULLIF(..., '')` (migration 022) turns the empty string into `NULL`, so in both cases the policy matches no rows instead of raising an error. Before 022, the empty string reached the `::uuid` cast and failed with `invalid input syntax for type uuid`.
+- Because of `FORCE`, the policies also apply to the table owner, so a role that owns the tables must set `app.current_tenant_id` like any other role; without it, queries return no rows. Superusers and roles with `BYPASSRLS` are still exempt. Connect as a role that is subject to the policies.
 
 See [Multi-tenancy and row-level security](/how-to/multi-tenancy-rls).
 

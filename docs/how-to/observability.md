@@ -81,7 +81,7 @@ Spans the pipeline creates:
 Notes on the attributes:
 
 - `searchMode` is `hybrid-rrf-3way` or `hybrid-linear-3way`.
-- `stopWordsApplied` is `true` whenever the processed lexical query differs from the raw query, which includes lowercasing and punctuation stripping, not only stop-word removal.
+- `stopWordsApplied` is `true` only when stop-word removal dropped at least one word from the lexical query. The "Search completed" log field has the same meaning.
 - If a search throws early (for example, no query language), the attributes set after that point are missing.
 
 ### Time the other components
@@ -155,7 +155,7 @@ The status values are explained in [Generate filters from the query](/how-to/aut
 ## What to watch
 
 - **Reranker fallbacks and filter-model errors.** Count the `warn` messages. A steady rate means a service is failing or timing out.
-- **Leg candidate counts.** If `vectorCandidates` is often `0`, `vectorMinScore` is probably too high for your embedding model; see [Tune relevance](/how-to/tune-relevance#calibrate-vectorminscore-for-your-embedder).
+- **Leg candidate counts.** A leg disabled with a weight of `0` always reports `0`. Otherwise, if `vectorCandidates` is often `0`, `vectorMinScore` is probably too high for your embedding model; see [Tune relevance](/how-to/tune-relevance#calibrate-vectorminscore-for-your-embedder).
 - **Zero-result rate**, from the "Search returned 0 results" debug message or `resultCount` on the root span.
 - **Latency per span**, to see whether embedding, the database or reranking dominates.
 

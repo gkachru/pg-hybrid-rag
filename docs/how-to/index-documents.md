@@ -114,9 +114,7 @@ The `v5` function of the `uuid` npm package produces the same result. `RagResult
 
 Call `index()` again with the same `sourceType` and `sourceId`. The delete of the old chunks and the insert of the new ones run in one transaction, so a failed insert leaves the old chunks in place.
 
-::: warning
-`index()` with an empty `chunks` array returns `0` and leaves existing chunks untouched. When a document becomes empty or is removed, call `deleteSource`.
-:::
+If the document is now empty, `index()` with an empty `chunks` array deletes the source's existing chunks, logs "Documents indexed" with `chunks: 0`, and returns `0` without calling the embedder. In 0.6.0 and earlier it returned `0` and left the old chunks in place; on those versions call `deleteSource` instead.
 
 ## Delete a source
 

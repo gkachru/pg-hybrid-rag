@@ -24,6 +24,8 @@ export interface CachingSynonymLoaderConfig {
 export class CachingSynonymLoader implements SynonymProvider {
   private cache = new Map<string, CacheEntry>();
   private inflight = new Map<string, Promise<SynonymLookup>>();
+  /** Bumped on invalidate so a load already in flight cannot repopulate the cache with stale data. */
+  private generation = new Map<string, number>();
   private txProvider: TransactionProvider;
   private loadFn: (client: SqlClient, tenantId: string) => Promise<SynonymRow[]>;
 
@@ -49,6 +51,7 @@ export class CachingSynonymLoader implements SynonymProvider {
     const existing = this.inflight.get(tenantId);
     if (existing) return existing;
 
+    const gen = this.generation.get(tenantId) ?? 0;
     const promise = this.txProvider.withConnection(async (client) => {
       const rows = await this.loadFn(client, tenantId);
 
@@ -99,7 +102,10 @@ export class CachingSynonymLoader implements SynonymProvider {
         }
       }
 
-      this.cache.set(tenantId, { data: lookup, loadedAt: Date.now() });
+      // Cache only if no invalidate() ran while this load was in flight.
+      if ((this.generation.get(tenantId) ?? 0) === gen) {
+        this.cache.set(tenantId, { data: lookup, loadedAt: Date.now() });
+      }
       return lookup;
     });
 
@@ -107,11 +113,17 @@ export class CachingSynonymLoader implements SynonymProvider {
     try {
       return await promise;
     } finally {
-      this.inflight.delete(tenantId);
+      // An invalidate() + newer load may have replaced this entry; leave that one in place.
+      if (this.inflight.get(tenantId) === promise) this.inflight.delete(tenantId);
     }
   }
 
+  /**
+   * Drop the tenant's cached entry. A load that is already in flight still resolves for its
+   * callers, but its result is not cached, so the next load reads the database again.
+   */
   invalidate(tenantId: string): void {
+    this.generation.set(tenantId, (this.generation.get(tenantId) ?? 0) + 1);
     this.cache.delete(tenantId);
     this.inflight.delete(tenantId);
   }

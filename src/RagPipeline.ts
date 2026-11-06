@@ -22,7 +22,14 @@ import {
 import { stripTrailingPunctuation } from "./punctuation.js";
 import { applyRRF } from "./rrf.js";
 import { removeStopWords } from "./stopWords.js";
-import type { MetadataCatalog, RagResult, RagSearchOptions, SearchDiagnostics } from "./types.js";
+import type {
+  FilterLimits,
+  MetadataCatalog,
+  RagResult,
+  RagSearchOptions,
+  SearchDiagnostics,
+  SearchLeg,
+} from "./types.js";
 
 const DEFAULTS = {
   topK: 5,
@@ -90,6 +97,11 @@ export interface RagPipelineConfig {
    * Default 3000; `0` disables the deadline.
    */
   filterTimeoutMs?: number;
+  /**
+   * Overrides for the filter validation limits (defaults: DEFAULT_FILTER_LIMITS), applied to both
+   * the explicit `filter` and a generated filter.
+   */
+  filterLimits?: Partial<FilterLimits>;
 }
 
 export class RagPipeline {
@@ -106,6 +118,7 @@ export class RagPipeline {
   private filterModel?: FilterModelProvider;
   private metadataCatalog?: MetadataCatalogProvider;
   private filterTimeoutMs: number;
+  private filterLimits?: Partial<FilterLimits>;
 
   constructor(config: RagPipelineConfig) {
     this.tenantId = config.tenantId;
@@ -121,6 +134,13 @@ export class RagPipeline {
     this.filterModel = config.filterModel;
     this.metadataCatalog = config.metadataCatalog;
     this.filterTimeoutMs = config.filterTimeoutMs ?? 3000;
+    this.filterLimits = config.filterLimits;
+    // An unset/NaN limit would make every comparison false and silently disable that limit.
+    for (const [name, value] of Object.entries(config.filterLimits ?? {})) {
+      if (!(Number.isInteger(value) && (value as number) > 0)) {
+        throw new Error(`filterLimits.${name} must be a positive integer (got ${String(value)})`);
+      }
+    }
     // setTimeout fires immediately for delays above 2^31-1 ms, so cap there.
     if (
       !Number.isFinite(this.filterTimeoutMs) ||
@@ -178,6 +198,7 @@ export class RagPipeline {
       }
       if (raw === null || raw === undefined) return { raw: null, filter: null, status: "none" };
       const v = validateFilter(raw, {
+        limits: this.filterLimits,
         catalog,
         rejectUnknownKeys: true,
         enforceAllowedValues: true,
@@ -232,7 +253,9 @@ export class RagPipeline {
         // throws FilterValidationError, and a db that cannot apply it in every leg must not
         // silently return unfiltered results.
         const explicitFilter =
-          opts.filter !== undefined ? assertValidFilter(opts.filter) : undefined;
+          opts.filter !== undefined
+            ? assertValidFilter(opts.filter, { limits: this.filterLimits })
+            : undefined;
         if (explicitFilter && this.db.supportsAttributeFilters !== true) {
           throw new AttributeFiltersUnsupportedError();
         }
@@ -306,13 +329,16 @@ export class RagPipeline {
           span.setAttribute("segmenterApplied", true);
         }
 
+        // True only when stop-word removal actually dropped a word from the lexical query.
+        let stopWordsApplied = false;
         if (allStopWords.size > 0) {
           const preStop = lexicalQuery;
           lexicalQuery = removeStopWords(lexicalQuery, allStopWords);
           // Fall back to the normalized (pre-stop-word) form, not the raw query.
           if (!lexicalQuery.trim()) lexicalQuery = preStop;
+          stopWordsApplied = lexicalQuery !== preStop;
         }
-        span.setAttribute("stopWordsApplied", lexicalQuery !== query);
+        span.setAttribute("stopWordsApplied", stopWordsApplied);
 
         const candidateLimit = opts.topK * opts.candidateMultiplier;
 
@@ -346,11 +372,18 @@ export class RagPipeline {
         span.setAttribute("synonymsApplied", synonymLookup.size > 0);
         const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
+        // A leg with weight 0 is disabled: the adapter skips its query, and its rows (if an
+        // adapter returns any anyway) are discarded before fusion and the empty-result check.
+        const skipLegs: SearchLeg[] = [];
+        if (opts.vectorWeight === 0) skipLegs.push("vector");
+        if (opts.keywordWeight === 0) skipLegs.push("keyword");
+        if (opts.ftsWeight === 0) skipLegs.push("fts");
+
         // Run 3-way hybrid search
         const runSearch = (filter: ValidatedFilter | undefined) =>
           this.tracer.startActiveSpan("rag.dbSearch", async (dbSpan) => {
             try {
-              return await this.db.hybridSearch({
+              const rows = await this.db.hybridSearch({
                 tenantId: this.tenantId,
                 embeddingStr,
                 query: lexicalQuery,
@@ -363,7 +396,13 @@ export class RagPipeline {
                 sourceIds: opts.sourceIds,
                 languages: opts.languages,
                 attributeFilter: filter,
+                ...(skipLegs.length > 0 ? { skipLegs } : {}),
               });
+              return {
+                vectorRows: skipLegs.includes("vector") ? [] : rows.vectorRows,
+                keywordRows: skipLegs.includes("keyword") ? [] : rows.keywordRows,
+                ftsRows: skipLegs.includes("fts") ? [] : rows.ftsRows,
+              };
             } finally {
               dbSpan.end();
             }
@@ -388,7 +427,7 @@ export class RagPipeline {
         // Rerank the BOUNDED UNION, not just the RRF top-K: when reranking, fuse up to
         // max(topK, rerankCandidates) candidates so the cross-encoder can recover a true
         // positive a leg surfaced but RRF ranked below topK (instead of cutting it pre-rerank).
-        // The reranker still returns topK. When not reranking, fuse exactly topK (unchanged).
+        // The pipeline caps the reranked output at topK. When not reranking, fuse exactly topK.
         const shouldRerank = opts.rerank === true && this.reranker != null;
         const fusedLimit = shouldRerank
           ? Math.max(opts.topK, opts.rerankCandidates ?? opts.topK)
@@ -445,19 +484,23 @@ export class RagPipeline {
                 opts.rerankerMinAbsoluteScore > 0
                   ? opts.rerankerMinAbsoluteScore
                   : Number.NEGATIVE_INFINITY;
-              const result = reranked.filter(
-                (r) => r.score >= relThreshold && r.score >= absThreshold,
-              );
+              // Order by reranker score and cap at topK: a reranker may ignore topN, and the
+              // input here can hold up to max(topK, rerankCandidates) results.
+              const result = reranked
+                .filter((r) => r.score >= relThreshold && r.score >= absThreshold)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, opts.topK);
               rerankSpan.setAttribute("outputCount", result.length);
               return result;
             } catch (err) {
-              // Graceful degradation: return RRF results if reranker fails
+              // Graceful degradation: return the fused top-K if the reranker fails. `filtered`
+              // holds up to max(topK, rerankCandidates) candidates, so cap it at topK.
               rerankSpan.setAttribute("error", true);
               this.logger.warn(
                 { tenantId: this.tenantId, error: String(err) },
                 "Reranker failed, falling back to RRF results",
               );
-              return filtered;
+              return filtered.slice(0, opts.topK);
             } finally {
               rerankSpan.end();
             }
@@ -485,7 +528,7 @@ export class RagPipeline {
             ftsCandidates: results.ftsRows.length,
             rerankerApplied: shouldRerank,
             rerankInputCount,
-            stopWordsApplied: allStopWords.size > 0,
+            stopWordsApplied,
             synonymsApplied: synonymLookup.size > 0,
           },
           "Search completed",

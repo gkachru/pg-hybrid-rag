@@ -71,6 +71,27 @@ describe("RagIndexer", () => {
     expect(result).toBe(0);
   });
 
+  it("clears the source's existing chunks when given no chunks", async () => {
+    const deleteMock = mock(async () => {});
+    const replaceMock = mock(async () => {});
+    const embedMock = mock(async (texts: string[]) => texts.map(() => [0.1]));
+    const db: RagDatabase = {
+      ...mockDb,
+      deleteBySource: deleteMock,
+      replaceSource: replaceMock,
+    };
+    const indexer = new RagIndexer({
+      tenantId: "t-1",
+      db,
+      embedder: { embedQuery: async () => [0.1], embedDocuments: embedMock },
+    });
+    expect(await indexer.index("product", "p-1", [], "en")).toBe(0);
+    expect(deleteMock).toHaveBeenCalledTimes(1);
+    expect(deleteMock).toHaveBeenCalledWith("t-1", "product", "p-1");
+    expect(replaceMock).not.toHaveBeenCalled();
+    expect(embedMock).not.toHaveBeenCalled();
+  });
+
   it("replaces the source atomically (single replaceSource call, not separate delete+insert)", async () => {
     const replaceMock = mock(async () => {});
     const insertMock = mock(async () => {});

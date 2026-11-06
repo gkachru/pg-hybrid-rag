@@ -16,6 +16,14 @@ export interface CachingStopWordsLoaderConfig {
   normalizeWord?: (word: string, language: string) => string;
 }
 
+function mergeLanguages(map: Map<string, Set<string>>): Set<string> {
+  const merged = new Set<string>();
+  for (const words of map.values()) {
+    for (const w of words) merged.add(w);
+  }
+  return merged;
+}
+
 /**
  * Per-tenant stop words loader with 30-second TTL cache.
  * Uses a configurable load function or defaults to querying rag_stop_words.
@@ -26,6 +34,8 @@ export class CachingStopWordsLoader implements StopWordsProvider {
   // exactly (a separate TTL here could let it lag the per-language cache).
   private mergedCache = new Map<string, { data: Set<string>; sourceLoadedAt: number }>();
   private inflight = new Map<string, Promise<Map<string, Set<string>>>>();
+  /** Bumped on invalidate so a load already in flight cannot repopulate the cache with stale data. */
+  private generation = new Map<string, number>();
   private txProvider: TransactionProvider;
   private loadFn: (client: SqlClient, tenantId: string) => Promise<StopWordRow[]>;
   private normalizeWord?: (word: string, language: string) => string;
@@ -51,6 +61,7 @@ export class CachingStopWordsLoader implements StopWordsProvider {
     const existing = this.inflight.get(tenantId);
     if (existing) return existing;
 
+    const gen = this.generation.get(tenantId) ?? 0;
     const promise = this.txProvider.withConnection(async (client) => {
       const rows = await this.loadFn(client, tenantId);
 
@@ -62,7 +73,10 @@ export class CachingStopWordsLoader implements StopWordsProvider {
         map.get(row.language)?.add(word);
       }
 
-      this.cache.set(tenantId, { data: map, loadedAt: Date.now() });
+      // Cache only if no invalidate() ran while this load was in flight.
+      if ((this.generation.get(tenantId) ?? 0) === gen) {
+        this.cache.set(tenantId, { data: map, loadedAt: Date.now() });
+      }
       return map;
     });
 
@@ -70,7 +84,8 @@ export class CachingStopWordsLoader implements StopWordsProvider {
     try {
       return await promise;
     } finally {
-      this.inflight.delete(tenantId);
+      // An invalidate() + newer load may have replaced this entry; leave that one in place.
+      if (this.inflight.get(tenantId) === promise) this.inflight.delete(tenantId);
     }
   }
 
@@ -80,22 +95,28 @@ export class CachingStopWordsLoader implements StopWordsProvider {
     // load() handles freshness + coalescing; rebuilding the Set is cheap, and the
     // mergedCache below memoizes it per load entry (keyed by that entry's loadedAt).
     const map = await this.load(tenantId);
-    const sourceLoadedAt = this.cache.get(tenantId)?.loadedAt ?? 0;
+    const entry = this.cache.get(tenantId);
+    // Memoize only when the cache entry is the map this call received. Otherwise an invalidate()
+    // ran during the load (no entry, or a newer load's entry), and `map` may be stale.
+    if (entry?.data !== map) return mergeLanguages(map);
+    const sourceLoadedAt = entry.loadedAt;
 
     const cached = this.mergedCache.get(tenantId);
     if (cached && cached.sourceLoadedAt === sourceLoadedAt) {
       return cached.data;
     }
 
-    const merged = new Set<string>();
-    for (const words of map.values()) {
-      for (const w of words) merged.add(w);
-    }
+    const merged = mergeLanguages(map);
     this.mergedCache.set(tenantId, { data: merged, sourceLoadedAt });
     return merged;
   }
 
+  /**
+   * Drop the tenant's cached entry. A load that is already in flight still resolves for its
+   * callers, but its result is not cached, so the next load reads the database again.
+   */
   invalidate(tenantId: string): void {
+    this.generation.set(tenantId, (this.generation.get(tenantId) ?? 0) + 1);
     this.cache.delete(tenantId);
     this.mergedCache.delete(tenantId);
     this.inflight.delete(tenantId);

@@ -4,8 +4,8 @@ Stop words are removed from the query before the keyword and full-text legs run.
 
 ## Before you begin
 
-- Migrations have run (tables `rag_stop_words` and `rag_synonyms` come from migrations 005 and 006).
-- Under row-level security, insert rows in a transaction that sets `app.current_tenant_id`, or as the owner role. See [Isolate tenants with RLS](/how-to/multi-tenancy-rls).
+- Migrations have run (tables `rag_stop_words` and `rag_synonyms` come from migrations 005 and 006; migration 020 adds the unique index on stop words).
+- Under row-level security, insert rows in a transaction that sets `app.current_tenant_id`. Once migration 021 has run, this applies to the owner role too; only superusers and `BYPASSRLS` roles skip the policies. See [Isolate tenants with RLS](/how-to/multi-tenancy-rls).
 
 ## Steps
 
@@ -16,10 +16,11 @@ INSERT INTO rag_stop_words (tenant_id, language, word) VALUES
   ('11111111-1111-1111-1111-111111111111', 'en', 'the'),
   ('11111111-1111-1111-1111-111111111111', 'en', 'how'),
   ('11111111-1111-1111-1111-111111111111', 'es', 'el'),
-  ('11111111-1111-1111-1111-111111111111', 'es', 'cómo');
+  ('11111111-1111-1111-1111-111111111111', 'es', 'cómo')
+ON CONFLICT DO NOTHING;
 ```
 
-The table has no unique constraint; duplicate rows are harmless because the loader collects words into a set.
+Each `(tenant_id, language, word)` is unique (migration 020), so `ON CONFLICT DO NOTHING` lets you re-run a seed script; without it, inserting an existing row fails. The comparison is exact: `The` and `the` are separate rows, and the loader lowercases both to the same word.
 
 ### 2. Add synonyms
 
@@ -72,6 +73,8 @@ declare const synonyms: CachingSynonymLoader;
 stopWords.invalidate(tenantId);
 synonyms.invalidate(tenantId);
 ```
+
+If a load for that tenant is already in flight when you call `invalidate`, the searches waiting on it still get its result, but the result isn't cached; the next search reads the tables again.
 
 Each process has its own cache. In a deployment with several instances, the others pick up the change when their cache expires, within 30 seconds.
 

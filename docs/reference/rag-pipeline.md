@@ -48,6 +48,7 @@ A pipeline is bound to one tenant. Create one per tenant, or one per request.
 | `filterModel` | `FilterModelProvider` | none | Generates a metadata filter from the query when a search sets `autoFilter: true`. See [`OpenAiCompatibleFilterModel`](/reference/metadata-catalog#openaicompatiblefiltermodel). |
 | `metadataCatalog` | `MetadataCatalogProvider` | none | Tenant catalog passed to the filter model. Required with `filterModel` for `autoFilter`. See [`CachingMetadataCatalog`](/reference/metadata-catalog). |
 | `filterTimeoutMs` | `number` | `3000` | Total deadline in milliseconds for filter generation: catalog `describe()` plus the model call. On expiry the model's `ctx.signal` is aborted, the generated filter is dropped (`generatedFilterStatus: "error"`) and the search continues without it. `0` disables the deadline. |
+| `filterLimits` | `Partial<FilterLimits>` | `DEFAULT_FILTER_LIMITS` | Overrides for the filter validation limits, merged over the defaults (`maxDepth` 5, `maxConditions` 32, `maxListSize` 50, `maxStringLength` 256). Applied to both the explicit `filter` and a generated filter. Each value must be a positive integer; the constructor throws `filterLimits.<name> must be a positive integer (got X)` otherwise. See [Filter grammar](/reference/filter-grammar#validation). |
 
 The interfaces are described on [Interfaces](/reference/interfaces).
 
@@ -142,7 +143,7 @@ if (diagnostics.generatedFilterStatus === "invalid") {
 | `rrfK` | `number` | `60` | RRF constant. A row at 1-based rank `r` in a leg contributes `weight / (rrfK + r)`. |
 | `minRelevance` | `number` | none | Drop fused results scoring below `minRelevance` times the top fused score (0 to 1). `0` or unset disables it. Applied before reranking. |
 
-A weight multiplies each row's contribution from that leg: `weight / (rrfK + rank)` for RRF, `weight * normalizedScore` for linear fusion. A weight of `0` does not disable a leg. The leg's SQL still runs and its rows still enter the fused list, with a contribution of 0 from that leg. A row found only by that leg scores 0 and can still appear in the results when fewer than `topK` rows have a positive score.
+A weight multiplies each row's contribution from that leg: `weight / (rrfK + rank)` for RRF, `weight * normalizedScore` for linear fusion. A weight of exactly `0` disables the leg: the pipeline passes it in `HybridSearchParams.skipLegs`, `PostgresRagDatabase` returns no rows for it without taking a connection or running its SQL, and the pipeline discards any rows a database returns for it anyway. Its candidate count is then `0`. The query is still embedded when `vectorWeight` is `0`. Negative weights are not validated.
 
 The fusion functions are also exported as `applyRRF` and `applyLinearFusion`; see [Utilities](/reference/utilities). For the trade-offs, see [Fusion and reranking](/explanation/fusion-and-reranking).
 
@@ -155,7 +156,7 @@ The fusion functions are also exported as `applyRRF` and `applyLinearFusion`; se
 | `rerankerMinRelativeScore` | `number` | `0.01` | Drop reranked results scoring below this fraction of the top reranked score. Skipped when the top score is not positive. `0` disables it. |
 | `rerankerMinAbsoluteScore` | `number` | `0` | Drop reranked results scoring below this value, in the reranker's own units. `0` (or any value not above 0) disables it. |
 
-The reranker is called as `reranker.rerank(naturalQuery, candidates, topK)`. The pipeline relies on the reranker to return at most `topK` results; it does not truncate the reranker's output itself. A result must clear both active floors.
+The reranker is called as `reranker.rerank(naturalQuery, candidates, topK)`. The pipeline drops results that do not clear both active floors, sorts the rest by reranker score descending, and keeps the first `topK`, so it returns at most `topK` results even when the reranker returns more.
 
 ### Metadata auto-filter
 
@@ -169,7 +170,7 @@ The reranker is called as `reranker.rerank(naturalQuery, candidates, topK)`. The
 `searchWithDiagnostics()` (and so `search()`) runs these steps in order:
 
 1. **Resolve the query language.** `language`, else the single entry of `languages`. Throws if neither is set.
-2. **Check filters.** Validate `filter` (throws `FilterValidationError`), then throw `AttributeFiltersUnsupportedError` if `filter` is set and `db.supportsAttributeFilters` is not `true`. With `autoFilter`, throw if `filterModel` or `metadataCatalog` is missing, then throw `AttributeFiltersUnsupportedError` if `db.supportsAttributeFilters` is not `true`. All of this happens before any embedding or database work.
+2. **Check filters.** Validate `filter` against `filterLimits` (throws `FilterValidationError`), then throw `AttributeFiltersUnsupportedError` if `filter` is set and `db.supportsAttributeFilters` is not `true`. With `autoFilter`, throw if `filterModel` or `metadataCatalog` is missing, then throw `AttributeFiltersUnsupportedError` if `db.supportsAttributeFilters` is not `true`. All of this happens before any embedding or database work.
 3. **Load stop words** with `stopWords.loadMerged()` when the provider has it, else `stopWords.load()` merged across languages.
 4. **Clean the query.** Lowercase, split on whitespace, strip trailing punctuation from each word (see `stripTrailingPunctuation` on [Utilities](/reference/utilities)), drop empty words, join with single spaces.
 5. **Per-search normalizer.** Apply `options.normalizer`. If the output is blank, keep the input. The result is the *natural query*, used for the embedding and the reranker.
@@ -181,11 +182,11 @@ The reranker is called as `reranker.rerank(naturalQuery, candidates, topK)`. The
    Each step falls back to its input when its output is blank, so the lexical query is never empty because of these steps.
 7. **In parallel:** embed the natural query with `embedder.embedQuery()`, load synonyms with `synonyms.load()`, and, with `autoFilter`, generate a filter from the original `query` string (bounded by `filterTimeoutMs`).
 8. **Combine filters.** Explicit and generated filters are combined as `{ and: [explicit, generated] }`; either alone is used as is.
-9. **Search.** Call `db.hybridSearch()` with the lexical query, the embedding, the synonym lookup, the query language, `candidateLimit = topK * candidateMultiplier`, the thresholds and the filters.
-10. **Retry on empty.** If the generated filter was applied, `autoFilterRetryOnEmpty` is not `false`, and all three legs returned nothing, search again with only the explicit filter.
+9. **Search.** Call `db.hybridSearch()` with the lexical query, the embedding, the synonym lookup, the query language, `candidateLimit = topK * candidateMultiplier`, the thresholds, the filters, and `skipLegs` (the legs whose weight is `0`, when there are any). Rows returned for a skipped leg are discarded.
+10. **Retry on empty.** If the generated filter was applied, `autoFilterRetryOnEmpty` is not `false`, and all three legs returned nothing (after discarding skipped legs), search again with only the explicit filter.
 11. **Fuse** the vector, keyword and FTS rows (in that order, with weights `vectorWeight`, `keywordWeight`, `ftsWeight`) by RRF or linear fusion, keeping `topK` results, or `max(topK, rerankCandidates ?? topK)` when reranking runs. Rows are deduplicated by chunk id.
 12. **Relevance cutoff.** Apply `minRelevance`.
-13. **Rerank** when `rerank` is `true` and a reranker is configured, then apply the reranker floors. If the reranker throws, the pipeline logs a warning and returns the fused list from step 12 instead.
+13. **Rerank** when `rerank` is `true` and a reranker is configured, then apply the reranker floors, sort by reranker score descending and keep the first `topK`. If the reranker throws, the pipeline logs a warning and returns the first `topK` results of the fused list from step 12 instead.
 
 Stop words, synonyms, the config normalizer and the segmenter never touch the embedded query. Synonyms are expanded only by the FTS strategy; the keyword leg matches the lexical query without expansion.
 
@@ -207,7 +208,7 @@ These failures do not throw:
 |---|---|
 | Filter model or catalog throws, or `filterTimeoutMs` expires | `generatedFilterStatus: "error"`, one `logger.warn`, search continues without the generated filter. |
 | Generated filter fails validation | `generatedFilterStatus: "invalid"`, one `logger.warn`, search continues without it. |
-| Reranker throws | One `logger.warn` (`Reranker failed, falling back to RRF results`), fused results returned. |
+| Reranker throws | One `logger.warn` (`Reranker failed, falling back to RRF results`), the first `topK` fused results returned. |
 
 ## Tracing
 
@@ -220,7 +221,7 @@ With a `tracer`, each search opens these spans:
 | `rag.dbSearch` | none. Opened once per database call, so twice after a retry. |
 | `rag.rerank` | `inputCount`; then `outputCount` on success, or `error: true` when the reranker throws |
 
-`normalizerApplied`, `orthographicNormalizerApplied` and `segmenterApplied` are set only when the step runs. See [Observability](/how-to/observability).
+`normalizerApplied`, `orthographicNormalizerApplied` and `segmenterApplied` are set only when the step runs. `stopWordsApplied` is `true` only when stop-word removal dropped at least one word from the lexical query. See [Observability](/how-to/observability).
 
 ## Related
 

@@ -28,7 +28,7 @@ Every search runs three queries against the same `rag_documents` table:
 | **Keyword** | `content_normalized` with pg_trgm `word_similarity`, or raw `content` with pg_bigm query-bigram coverage for CJK | Word similarity or coverage, 0 to 1 | Score at or above `keywordMinScore` |
 | **FTS** | `content_tsvector` with `tsquery` (default), or `content_normalized` with BM25 when you use `Bm25Fts` | `ts_rank_cd`, or the BM25 score | Any row that matches the query; BM25 drops zero-score rows |
 
-Each leg returns at most `topK * candidateMultiplier` rows (10 with the defaults of 5 and 2). The legs are combined by fusion, which is covered in [Fusion and reranking](/explanation/fusion-and-reranking).
+Each leg returns at most `topK * candidateMultiplier` rows (10 with the defaults of 5 and 2). The legs are combined by fusion, which is covered in [Fusion and reranking](/explanation/fusion-and-reranking). Setting a leg's weight (`vectorWeight`, `keywordWeight` or `ftsWeight`) to 0 disables that leg: its query does not run, and the search uses the remaining legs.
 
 The FTS leg is pluggable through the `FtsStrategy` interface. The two bundled strategies behave differently in a way that matters for recall:
 
@@ -93,7 +93,7 @@ Keeping raw `content` separate from `content_normalized` lets the lexical legs m
  |                                          query +     |
  |                                          synonyms)   |
  +-----------------------------------------------------+
-        |   (if a generated filter emptied all three legs,
+        |   (if a generated filter emptied every enabled leg,
         |    run once more with only the explicit filter)
         v
  +-------------------------------+
@@ -107,8 +107,8 @@ Keeping raw `content` separate from `content_normalized` lets the lexical legs m
         |
         v
  +-------------------------------+
- | optional rerank + score floors|  cross-encoder sees the natural query
- +-------------------------------+
+ | optional rerank + score floors|  cross-encoder sees the natural query;
+ +-------------------------------+  output sorted by score, cut to topK
         |
         v
    RagResult[]
@@ -124,7 +124,7 @@ A few design choices in this flow are worth calling out.
 
 **Synonyms feed only the FTS leg.** The trigram leg compares the lexical query without expansion. Synonym expansion goes into the `tsquery` (as OR groups) or the BM25 term list.
 
-**The legs run concurrently.** `PostgresRagDatabase` opens three `withConnection` scopes at once, so one search uses up to three pooled connections. It waits for all three legs to settle, then fails the whole search with an `AggregateError` if any leg failed. It does not return partial results, because a search that silently lost a leg would look healthy while returning worse rankings.
+**The legs run concurrently.** `PostgresRagDatabase` opens one `withConnection` scope per enabled leg at once, so one search uses up to three pooled connections. A leg disabled by a weight of 0 takes no connection. It waits for all three legs to settle, then fails the whole search with an `AggregateError` if any leg failed. It does not return partial results, because a search that silently lost a leg would look healthy while returning worse rankings.
 
 **Filters apply inside every leg.** `sourceTypes`, `sourceIds`, `languages` and attribute filters are added to each leg's `WHERE` clause. Filtering after fusion would under-return: each leg has already cut its list to `candidateLimit` rows, so rows that pass the filter but ranked below the cut would be lost.
 
@@ -152,11 +152,11 @@ A few design choices in this flow are worth calling out.
  trigger builds content_tsvector with rag_fts_config(row language)
 ```
 
-Re-indexing a source replaces all of its chunks atomically. If the insert fails, the delete rolls back and the source keeps its previous chunks rather than ending up empty.
+Re-indexing a source replaces all of its chunks atomically. If the insert fails, the delete rolls back and the source keeps its previous chunks rather than ending up empty. Indexing a source with an empty chunk list is a replacement with nothing: the source's existing rows are deleted, nothing is embedded, and stale content stops matching searches.
 
 ## Trade-offs of this design
 
-- **Cost per search.** Three queries and one embedding call per search, plus a reranker call if enabled. Each leg is bounded by `candidateLimit`, so the extra work is predictable.
+- **Cost per search.** Three queries (fewer if you disable a leg with a weight of 0) and one embedding call per search, plus a reranker call if enabled. The query is embedded even when the vector leg is disabled. Each leg is bounded by `candidateLimit`, so the extra work is predictable.
 - **One database.** All three legs live in Postgres, so filters, tenancy and transactions are consistent across them, and there is no second store to keep in sync. The trade-off is that you are limited to the index types your Postgres extensions provide. See [Indexes and performance](/explanation/indexes-and-performance).
 - **Tunable but not self-tuning.** Thresholds such as `vectorMinScore` and `keywordMinScore` depend on your embedding model and corpus. The defaults are starting points. Validate them on your own queries, as described in [Tune relevance](/how-to/tune-relevance).
 

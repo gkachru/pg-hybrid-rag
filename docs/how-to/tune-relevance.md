@@ -14,7 +14,7 @@ All of these are `search()` options.
 | `candidateMultiplier` | `2` | Each leg returns up to `topK × candidateMultiplier` rows before fusion |
 | `vectorMinScore` | `0.8` | Minimum cosine similarity for the vector leg |
 | `keywordMinScore` | `0.35` | Minimum pg_trgm word similarity for the keyword leg (bigram coverage on the CJK pg_bigm path) |
-| `vectorWeight`, `keywordWeight`, `ftsWeight` | `1` each | Per-leg weight in fusion |
+| `vectorWeight`, `keywordWeight`, `ftsWeight` | `1` each | Per-leg weight in fusion; `0` disables the leg |
 | `fusion` | `"rrf"` | `"rrf"` (rank-based) or `"linear"` (normalized scores, weighted sum) |
 | `rrfK` | `60` | RRF smoothing constant; ignored by linear fusion |
 | `fusionNormalizer` | `"minmax"` | Per-leg normalization for linear fusion: `"minmax"` or `"l2"` |
@@ -127,7 +127,12 @@ await pipeline.search("SKU-4471-B", { language: "en", keywordWeight: 2, ftsWeigh
 await pipeline.search("why was I charged twice this month", { language: "en", vectorWeight: 2 });
 ```
 
-A weight of `0` does not disable a leg; it only stops the leg from affecting the ranking. In both RRF and linear fusion, the leg's SQL still runs and its candidates still enter the fused list, with a contribution of `0`. A document found only by that leg can therefore still appear, after every scored document, when the other legs return fewer than `topK` results. Add `minRelevance` (any value above `0`) to drop those zero-scored results.
+A weight of exactly `0` disables the leg. `PostgresRagDatabase` skips that leg's query without taking a connection, and the pipeline discards any rows a custom adapter still returns for it, so none of its candidates enter fusion. The query is still embedded when `vectorWeight` is `0`. To keep a leg's candidates but reduce its influence, use a small positive weight instead.
+
+```ts
+// Lexical-only search: the vector leg's SQL does not run
+await pipeline.search("SKU-4471-B", { language: "en", vectorWeight: 0 });
+```
 
 ## Choose a fusion method
 

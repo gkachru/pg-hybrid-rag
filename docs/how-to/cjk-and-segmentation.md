@@ -37,7 +37,7 @@ Install pg_bigm in your Postgres server. See [Prepare PostgreSQL](/how-to/prepar
    await ragMigrate(migrationProvider, { sqlDir, cjk: true });
    ```
 
-   In 0.6.0, `ragMigrate` cannot find its SQL directory on its own when installed as a package, so always pass `sqlDir`. See [Run migrations](/how-to/run-migrations).
+   Passing `sqlDir` works in every version; 0.6.0 and earlier require it when the library is installed as a package. See [Run migrations](/how-to/run-migrations).
 
 2. Enable the pg_bigm path on the adapter:
 
@@ -71,7 +71,7 @@ On this path, `keywordMinScore` (default `0.35`) is the share of the query's cha
 
 ### Gotchas
 
-- Routing uses the query `language` and matches the six codes above exactly. `zh-TW`, `zh-Hant` or `ja-jp` stay on pg_trgm. Map such codes to one of the six before you search, and index with the same codes.
+- Routing uses the query `language` and matches the six codes above exactly. `zh-TW`, `zh-Hant` or `ja-jp` stay on pg_trgm. Map such codes to one of the six before you search, and index with the same codes. `recommendForLanguage(code).isCjk` is `true` for exactly these six codes, so it matches the adapter's routing.
 - Only the keyword leg changes. The full-text leg still parses unsegmented text with the `simple` config, so it contributes little for CJK queries.
 - Bigram matching does not know word boundaries, so a query can match characters that span two words in the document.
 - If `cjk: true` is set on the adapter but migration 009 was not applied, the keyword leg fails and so does the whole search.

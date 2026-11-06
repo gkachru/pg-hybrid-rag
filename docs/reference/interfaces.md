@@ -110,9 +110,9 @@ The storage and search back end used by `RagPipeline` and `RagIndexer`.
 | Member | Contract |
 |--------|----------|
 | `supportsAttributeFilters` | `true` only if `hybridSearch` applies `params.attributeFilter` inside every leg. When absent or `false`, `RagPipeline` throws `AttributeFiltersUnsupportedError` for any filtered search instead of ignoring the filter. |
-| `hybridSearch` | Runs the vector, keyword and full-text legs for [`HybridSearchParams`](/reference/types#hybridsearchparams) and returns each leg's candidates ranked best first. The pipeline fuses them by rank (RRF) or by `score` (linear fusion). |
+| `hybridSearch` | Runs the vector, keyword and full-text legs for [`HybridSearchParams`](/reference/types#hybridsearchparams) and returns each leg's candidates ranked best first. The pipeline fuses them by rank (RRF) or by `score` (linear fusion). Should return `[]` without querying for each leg in `params.skipLegs`; the pipeline also discards rows for those legs, so an implementation that ignores `skipLegs` still produces correct results. |
 | `insertChunks` | Inserts rows without deleting existing ones. |
-| `deleteBySource` | Deletes all rows for `(tenantId, sourceType, sourceId)`. |
+| `deleteBySource` | Deletes all rows for `(tenantId, sourceType, sourceId)`. `RagIndexer.deleteSource` uses this method, and so does `RagIndexer.index` when `chunks` is empty. |
 | `replaceSource` | Deletes the source's rows and inserts `chunks` in one transaction, rolling back on error, so a failed insert never leaves the source empty. All `chunks` belong to `(sourceType, sourceId)`. `RagIndexer.index` uses this method. |
 
 ### FtsStrategy
@@ -269,7 +269,7 @@ Called by `RagPipeline` when `rerank: true` and a reranker is configured.
 | `results` | Fused candidates: up to `max(topK, rerankCandidates)` when `rerankCandidates` is set, else up to `topK`, after `minRelevance`. |
 | `topN` | `topK`. |
 
-Return results best first, at most `topN`, with `score` set to the reranker's score. The pipeline does not re-sort or truncate the returned list; it only applies `rerankerMinRelativeScore` and `rerankerMinAbsoluteScore`. If `rerank` throws, the pipeline logs a warning and returns the fused results. See [Rerank results](/how-to/rerank).
+Return results with `score` set to the reranker's relevance score. The pipeline drops results below `rerankerMinRelativeScore` or `rerankerMinAbsoluteScore`, sorts the rest by `score` descending and keeps the first `topN`, so a reranker that ignores `topN` or returns results unsorted still yields at most `topK` results, best first. If `rerank` throws, the pipeline logs a warning and returns the first `topK` fused results. See [Rerank results](/how-to/rerank).
 
 ## Observability
 

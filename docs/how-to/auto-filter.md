@@ -8,7 +8,7 @@ For why the generated filter is validated, ANDed with your explicit filter, and 
 
 - Index documents with attributes. See [Filter search results by metadata](/how-to/filter-by-metadata).
 - Have a chat completions endpoint that supports structured output with `response_format: { type: "json_schema", strict: true }`, or write your own filter model (see [Write a custom filter model](#write-a-custom-filter-model)).
-- Migration 018 (the key registry) applies by default. If you run `ragMigrate` with `rls: true` (alongside the `sqlDir` you always pass; see [Run migrations](/how-to/run-migrations)), migration 019 adds row-level security to the registry.
+- Migration 018 (the key registry) applies by default. If you run `ragMigrate` with `rls: true` (see [Run migrations](/how-to/run-migrations)), migration 019 adds row-level security to the registry and migration 021 applies it to the table owner too.
 
 ## Register the keys the model may use
 

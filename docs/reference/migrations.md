@@ -1,6 +1,6 @@
 # Migrations
 
-This page specifies `ragMigrate`, its options, how it tracks and applies the SQL files shipped in the package's `sql/` directory, and what each migration (001-019) does.
+This page specifies `ragMigrate`, its options, how it tracks and applies the SQL files shipped in the package's `sql/` directory, and what each migration (001-022) does.
 
 ```ts
 import { createRequire } from "node:module";
@@ -54,7 +54,7 @@ With a bare `SqlClient`, retrying a partly applied file can fail, because not ev
    )
    ```
 
-2. Resolve the SQL directory (see [SQL directory](#sql-directory)). Pass `sqlDir`; auto-detection fails in 0.6.0.
+2. Resolve the SQL directory (see [SQL directory](#sql-directory)): `options.sqlDir`, else the package's own `sql/` directory. Throw if the directory does not exist.
 3. List every `*.sql` file in it, sorted by file name.
 4. Drop optional files whose name contains `rls`, `cjk`, `vectorchord` or `textsearch` unless the matching option is `true`.
 5. Read the applied file names from `_rag_migrations` and skip those.
@@ -68,11 +68,18 @@ With a bare `SqlClient`, retrying a partly applied file can fail, because not ev
 
 ### SQL directory
 
-::: warning
-In version 0.6.0, pass `sqlDir`. When the library is installed as a package, the auto-detection described below fails on Node (ESM and CommonJS) and on Bun, and `ragMigrate` throws `Could not auto-detect SQL directory. Pass sqlDir option to ragMigrate().`
+The directory is chosen in this order:
+
+1. `options.sqlDir`, when given.
+2. The package's own `sql/` directory: `<module directory>/../sql`. The CommonJS build uses its `__dirname`; the ESM build derives the directory from `import.meta.url`. This works from the ESM build, the CommonJS build and the TypeScript source, including install paths that contain `#` or `%`.
+
+If the chosen directory does not exist, `ragMigrate` throws `ragMigrate: SQL directory not found at <path>. Pass the sqlDir option to ragMigrate().`
+
+::: info
+Version 0.6.0 and earlier can't locate the directory when installed as a package; pass `sqlDir` on those versions. Passing `sqlDir` works in every version.
 :::
 
-Resolve the package's `sql/` folder through the `pg-hybrid-rag/sql/*` package export:
+To pass `sqlDir` explicitly, resolve the package's `sql/` folder through the `pg-hybrid-rag/sql/*` package export:
 
 ```ts
 import { createRequire } from "node:module";
@@ -84,14 +91,6 @@ const sqlDir = dirname(require.resolve("pg-hybrid-rag/sql/001_extensions.sql"));
 await ragMigrate(txProvider, { sqlDir });
 ```
 
-The directory is chosen in this order:
-
-1. `options.sqlDir`, when given.
-2. An attempt to use `<module directory>/../sql` from `import.meta.dirname`.
-3. An attempt to use `<module directory>/../sql` from `__dirname`.
-
-Both attempts evaluate `import.meta.dirname` and `__dirname` inside `new Function()`, where neither is defined, so in practice only `options.sqlDir` works. If no directory is found, `ragMigrate` throws the error above.
-
 Every `.sql` file in the directory is a candidate, including files you add, subject to the same name-based option filter.
 
 ### Statement splitting
@@ -102,11 +101,11 @@ Files are split on top-level `;`. A `;` is not treated as a terminator inside a 
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `rls` | `boolean` | `false` | Apply row-level security (migrations 007 and 019). |
+| `rls` | `boolean` | `false` | Apply row-level security (migrations 007, 019, 021 and 022). |
 | `cjk` | `boolean` | `false` | Apply pg_bigm support for Chinese, Japanese and Korean (migration 009). |
 | `vectorchord` | `boolean` | `false` | Replace the IVFFlat index with a VectorChord `vchordrq` index (migration 010). Requires `vchord` in `shared_preload_libraries` and a server restart. |
 | `bm25` | `boolean` | `false` | Create pg_textsearch BM25 indexes (migrations 011 and 015). Requires `pg_textsearch` in `shared_preload_libraries` and a server restart. |
-| `sqlDir` | `string` | Auto-detection (fails in 0.6.0; see [SQL directory](#sql-directory)) | Directory holding the migration files. Required in practice. |
+| `sqlDir` | `string` | The package's `sql/` directory | Directory holding the migration files. See [SQL directory](#sql-directory). |
 | `embeddingDimensions` | `number` | `384` | Dimension of `rag_documents.embedding`, substituted for `__EMBEDDING_DIM__` in migration 002. |
 
 ::: warning
@@ -140,12 +139,17 @@ The extensions themselves (pgvector, pg_trgm and the optional ones) must be inst
 | `017_attributes.sql` | Always | Adds `attributes JSONB NOT NULL DEFAULT '[]'` and the GIN index `idx_rag_attributes` (`jsonb_path_ops`). Existing rows get `[]`; there is no backfill. |
 | `018_metadata_registry.sql` | Always | Creates `rag_metadata_registry`. |
 | `019_metadata_registry_rls.sql` | `rls` | Enables row-level security and a tenant-isolation policy on `rag_metadata_registry`. |
+| `020_stop_words_unique.sql` | Always | Deletes duplicate `rag_stop_words` rows with the same `(tenant_id, language, word)`, keeping one row of each, then creates the unique index `idx_rag_stop_words_tenant_lang_word (tenant_id, language, word)`. Matching is exact and case-sensitive (`The` and `the` are distinct). |
+| `021_force_rls.sql` | `rls` | Sets `FORCE ROW LEVEL SECURITY` on `rag_documents`, `rag_stop_words`, `rag_synonyms` and `rag_metadata_registry`, so the tenant policies also apply to the table owner. Superusers and roles with `BYPASSRLS` remain exempt. |
+| `022_rls_empty_tenant.sql` | `rls` | Drops and recreates the four tenant policies (`rag_documents_tenant_isolation`, `rag_stop_words_tenant_isolation`, `rag_synonyms_tenant_isolation`, `rag_metadata_registry_tenant_isolation`) with `USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)`. An empty setting, which a session reports after a transaction-local `set_config` has ended, then matches no rows instead of failing the `::uuid` cast. Also replaces the older single-argument policy form. |
 
 Notes:
 
 - Migrations 008, 013 and 014 each run an `UPDATE` over every row of `rag_documents` (013 only where `content_normalized` is null, which is every row on first run); on a large existing table this takes time and rewrites each row.
 - Migrations 013 and 016 create indexes inside the migration. On a large existing table, you can build the same index first with `CREATE INDEX CONCURRENTLY` and the same name; the migration's `IF NOT EXISTS` then skips it. For 013, the `content_normalized` column must exist first: add it with `ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS content_normalized TEXT` before building the index (the migration's `ADD COLUMN IF NOT EXISTS` then skips it too).
-- Migration 007 uses `CREATE POLICY` without `OR REPLACE`. A database that already recorded 007 keeps its existing policies.
+- Migration 007 uses `CREATE POLICY` without `OR REPLACE`. A database that already recorded 007 keeps its existing policies until migration 022 recreates them.
+- Migration 021 changes behavior for an application that connects as the (non-superuser) role that owns the tables: before 021 the owner bypassed the policies and saw every tenant's rows; after it, the owner must set `app.current_tenant_id`, and queries without it return no rows.
+- After 021, a data migration (`UPDATE` or `DELETE` backfill) on these tables run by a non-superuser owner sees only the rows of the tenant in `app.current_tenant_id` (none when unset). The header of `sql/021_force_rls.sql` shows the pattern: record `pg_class.relforcerowsecurity`, run `ALTER TABLE ... NO FORCE ROW LEVEL SECURITY`, run the backfill, and restore `FORCE` only if it was set, all in one `DO` block.
 - The resulting tables, columns, indexes and functions are listed in [Schema](/reference/schema).
 
 ## Related

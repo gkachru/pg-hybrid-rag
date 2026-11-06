@@ -15,17 +15,17 @@
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `embeddingDimensions` | `number` | `384` | Size of the `rag_documents.embedding` column (`vector(N)`). Applies only when migration 002 runs, which is on a fresh install. |
-| `rls` | `boolean` | `false` | Apply row-level security policies (migrations 007 and 019). |
+| `rls` | `boolean` | `false` | Apply row-level security policies (migrations 007 and 019) force them on the table owner (migration 021), and make an empty tenant setting match no rows instead of erroring (migration 022). |
 | `cjk` | `boolean` | `false` | Create the pg_bigm extension and its GIN index (migration 009). |
 | `vectorchord` | `boolean` | `false` | Replace the IVFFlat index with a VectorChord `vchordrq` index (migration 010). |
 | `bm25` | `boolean` | `false` | Create the pg_textsearch BM25 indexes (migrations 011 and 015). |
-| `sqlDir` | `string` | Auto-detection, which fails in 0.6.0 | Directory holding the `.sql` files. Always pass it (step 2). |
+| `sqlDir` | `string` | The package's `sql/` directory | Directory holding the `.sql` files. Required on 0.6.0 and earlier (step 2). |
 
 `ragMigrate` skips an optional file by its name: files containing `rls`, `cjk`, `vectorchord` or `textsearch` are applied only when the matching option is `true`.
 
 ### 2. Locate the SQL directory
 
-Resolve the package's `sql/` directory through its `./sql/*` export and pass it as `sqlDir`:
+0.6.0 and earlier can't locate the directory when installed as a package; pass `sqlDir` on those versions. Passing `sqlDir` works in every version. Resolve the package's `sql/` directory through its `./sql/*` export:
 
 ```ts
 import { createRequire } from "node:module";
@@ -37,8 +37,8 @@ const sqlDir = dirname(require.resolve("pg-hybrid-rag/sql/001_extensions.sql"));
 
 In a CommonJS module, call `require.resolve(...)` directly instead of creating `require`.
 
-::: warning Known issue in 0.6.0
-When pg-hybrid-rag is installed as a package, `ragMigrate` can't find its `sql/` directory on its own, in Node ESM, Node CommonJS or Bun. Without `sqlDir` it throws `Could not auto-detect SQL directory. Pass sqlDir option to ragMigrate().` Always pass `sqlDir`.
+::: warning 0.6.0 and earlier
+On these versions, `ragMigrate` without `sqlDir` throws `Could not auto-detect SQL directory. Pass sqlDir option to ragMigrate().` when installed as a package. Later versions resolve the package's own `sql/` directory; if that directory is missing, they throw `ragMigrate: SQL directory not found at <path>. Pass the sqlDir option to ragMigrate().`
 :::
 
 If you bundle your application and don't ship `node_modules`, copy the package's `sql/` directory into your build output and point `sqlDir` at the copy.
@@ -112,7 +112,7 @@ try {
 
 ### 5. Pass the same options every time
 
-Keep the options identical on every run, typically from configuration. Omitting a flag on a later run doesn't undo anything; it only skips files you haven't applied yet. To enable a feature later, run again with the flag set. For example, `rls: true` on an existing database applies 007 and 019 at that point.
+Keep the options identical on every run, typically from configuration. Omitting a flag on a later run doesn't undo anything; it only skips files you haven't applied yet. To enable a feature later, run again with the flag set. For example, `rls: true` on an existing database applies 007, 019 and 021 at that point.
 
 ### 6. Check the result
 
@@ -124,9 +124,9 @@ SELECT name, applied_at FROM _rag_migrations ORDER BY name;
 
 The SQL files ship in the package at `node_modules/pg-hybrid-rag/sql/`. To manage them with Flyway, Liquibase, node-pg-migrate or similar:
 
-1. Apply the files in filename order (`001_...` to `019_...`).
+1. Apply the files in filename order (`001_...` to `022_...`).
 2. In `002_rag_documents.sql`, replace the `__EMBEDDING_DIM__` token with your embedding dimension.
-3. Skip the optional files you don't want: `007_rls_policies.sql` and `019_metadata_registry_rls.sql` (RLS), `009_cjk_bigm.sql` (CJK), `010_vectorchord.sql` (VectorChord), `011_pg_textsearch.sql` and `015_bm25_normalized_textsearch.sql` (BM25).
+3. Skip the optional files you don't want: `007_rls_policies.sql`, `019_metadata_registry_rls.sql` , `021_force_rls.sql` and `022_rls_empty_tenant.sql` (RLS), `009_cjk_bigm.sql` (CJK), `010_vectorchord.sql` (VectorChord), `011_pg_textsearch.sql` and `015_bm25_normalized_textsearch.sql` (BM25).
 4. When you upgrade the package, compare the new `sql/` directory with the files you already applied and add the new ones.
 
 ::: warning
@@ -142,6 +142,9 @@ Pick one runner. `ragMigrate` decides what to apply from the `_rag_migrations` t
    - Migrations 004, 008, 013 and 014 rewrite every row of `rag_documents` (backfills of `content_tsvector` and `content_normalized`). Expect them to take time and lock rows on a large table.
    - Migration 017 adds the `attributes` column with a constant default (no table rewrite) and builds the `idx_rag_attributes` GIN index, which blocks writes while it builds.
    - Migration 010 (`vectorchord: true`) builds the `vchordrq` index and blocks writes while it builds.
+   - Migration 020 deletes duplicate `rag_stop_words` rows (same `tenant_id`, `language` and `word`, compared exactly, so `The` and `the` both stay), keeping one of each, then adds the unique index `idx_rag_stop_words_tenant_lang_word`. Seed scripts can then use `INSERT ... ON CONFLICT DO NOTHING`; a plain `INSERT` of an existing row now fails. See [Manage stop words and synonyms](/how-to/stop-words-and-synonyms).
+   - Migration 022 (`rls: true`) drops and recreates the four tenant policies by name with `NULLIF(current_setting('app.current_tenant_id', true), '')`, so a pooled session whose earlier transaction set the tenant returns zero rows instead of raising `invalid input syntax for type uuid`. A custom policy with one of those names is replaced.
+   - Migration 021 (`rls: true`) forces row-level security on `rag_documents`, `rag_stop_words`, `rag_synonyms` and `rag_metadata_registry`, so the table owner is bound by the tenant policies too (superusers and `BYPASSRLS` roles stay exempt). If your application connects as the owner role without setting `app.current_tenant_id`, it sees no rows after this migration. Set the tenant on every transaction first. See [Isolate tenants with RLS](/how-to/multi-tenancy-rls).
 
 ::: tip
 pgvector builds IVFFlat list centers from the rows present when the index is created. A fresh install creates `idx_rag_embedding_ivfflat` on an empty table, so rebuild it once after your first bulk load. See [Tune the vector index](/how-to/tune-vector-index).

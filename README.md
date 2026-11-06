@@ -70,28 +70,29 @@ const embedder = new OpenAiCompatibleEmbedder({
 const db = new PostgresRagDatabase(txProvider);
 // With CJK: new PostgresRagDatabase(txProvider, { cjk: true });
 
-// 3. Search
+// 3. Search (tenant_id and source_id are UUID columns)
+const tenantId = "00000000-0000-0000-0000-000000000001";
 const pipeline = new RagPipeline({
-  tenantId: "my-tenant",
+  tenantId,
   db,
   embedder,
 });
 const results = await pipeline.search("blue cotton shirt", { language: "en" });
 
 // 4. Index
-const indexer = new RagIndexer({ tenantId: "my-tenant", db, embedder });
+const indexer = new RagIndexer({ tenantId, db, embedder });
 const chunker = new Chunker({
   tokenLimit: 512,
   overlap: 75,
   prefixFn: (m) => m.brand ? `[${m.name} | ${m.brand}]` : m.name ? `[${m.name}]` : undefined,
 });
 const chunks = chunker.chunk(text, { name: "Product Name", language: "en" });
-await indexer.index("product", productId, chunks, "en");
+await indexer.index("product", productId, chunks, "en"); // productId: a UUID string
 ```
 
 ## Language Support
 
-Stemming is handled by Postgres via language-specific FTS configurations. The `rag_fts_config()` SQL function maps language codes to Postgres `regconfig` names. Both short codes (`en`) and BCP-47 locale codes (`en-US`, `fr-FR`) are supported.
+Stemming is handled by Postgres via language-specific FTS configurations. The `rag_fts_config()` SQL function maps language codes to Postgres `regconfig` names. Codes match **exactly**, as listed below: a regional code that isn't listed (`en-GB`, `pt-BR`, `ar-MA`) is stemmed with `simple`, and CJK routing likewise covers only the listed codes (`zh-TW` uses pg_trgm). Store and query with the listed codes, or extend `rag_fts_config()` (see the notes).
 
 | Language | Accepted Codes | Postgres FTS Config | Stemming | Keyword Search |
 |----------|---------------|---------------------|----------|---------------|
@@ -103,7 +104,7 @@ Stemming is handled by Postgres via language-specific FTS configurations. The `r
 | Portuguese | `pt`, `pt-PT` | `portuguese` | Yes | pg_trgm |
 | Romanian | `ro`, `ro-RO` | `romanian` | Yes | pg_trgm |
 | Hindi | `hi`, `hi-IN` | `simple` | No | pg_trgm |
-| Arabic | `ar`, `ar-SA` | `simple` | No | pg_trgm |
+| Arabic | `ar`, `ar-SA`, `ar-EG` | `arabic` | Yes | pg_trgm |
 | Malay | `ms` | `simple` | No | pg_trgm |
 | Sinhalese | `si`, `si-LK` | `simple` | No | pg_trgm |
 | Thai | `th`, `th-TH` | `simple` | No | pg_trgm (segmenter-aware; see below) |
@@ -116,7 +117,7 @@ Stemming is handled by Postgres via language-specific FTS configurations. The `r
 - Languages with native Postgres stemming get morphological normalization in the FTS leg (e.g. "running" → "run").
 - Languages using `simple` config get word-level tokenization and lowercase matching only. The vector and keyword legs compensate — vector search handles semantics, pg_trgm handles fuzzy character overlap.
 - CJK languages need `pg_bigm` for effective keyword search because they lack whitespace between words. Without `cjk: true`, CJK keyword search falls back to pg_trgm (degraded).
-- To add new language codes, update the `rag_fts_config()` function in `sql/008_postgres_stemming.sql`. Postgres supports additional configs including `dutch`, `danish`, `finnish`, `hungarian`, `norwegian`, `russian`, `swedish`, and `turkish`.
+- To add new language codes, redefine `rag_fts_config()` with `CREATE OR REPLACE FUNCTION` in your own migration (the current definition is in `sql/014_arabic_fts.sql`), then re-index or `UPDATE` the affected rows so their tsvectors are rebuilt. Don't edit the shipped files: `ragMigrate` won't re-run a file it has already applied. The BM25 leg doesn't follow this function; its language groups are fixed. Postgres supports additional configs including `dutch`, `danish`, `finnish`, `hungarian`, `norwegian`, `russian`, `swedish`, and `turkish`.
 - **The FTS leg is single-language by construction.** Each document's tsvector is built with *its own* language's stemmer at index time, while a query is stemmed with the *query's* language (`language` option). The stemmed lexemes only align when the two match, so the FTS leg contributes meaningfully only when the query language ≈ the document language. For cross-language search (no `languages` filter, or a query whose language differs from the documents'), the FTS leg degrades toward no contribution — the language-agnostic vector leg (embeddings) and keyword leg (character trigrams) carry recall in that case. For best FTS results, set `language` to match the documents you're searching, or scope to one language via `languages` (see below).
 
 ## API Reference
@@ -173,8 +174,8 @@ The search pipeline processes a query through these stages in order:
 |--------|---------|-------------|
 | `topK` | `5` | Number of final results to return. Also controls how many candidates each search leg fetches (`topK * candidateMultiplier`). |
 | `vectorMinScore` | `0.8` | Minimum cosine similarity for the vector search leg. Chunks below this threshold are excluded before RRF. Higher values mean stricter semantic matching — raise if you get too many loosely related results, lower if relevant results are being missed. |
-| `keywordMinScore` | `0.35` | Minimum `word_similarity` score for the pg_trgm keyword leg (or `bigm_similarity` for CJK). Controls fuzzy character-overlap matching. Lower than vectorMinScore because trigram similarity scores are naturally lower than cosine similarity. |
-| `vectorWeight` | `1` | Weight multiplier for the vector leg in RRF fusion. Setting to `2` makes semantic matches count twice as much as the other legs. Set to `0` to disable vector search entirely. |
+| `keywordMinScore` | `0.35` | Minimum `word_similarity` score for the pg_trgm keyword leg (for CJK with pg_bigm: the share of the query's bigrams found in the chunk). Controls fuzzy character-overlap matching. Lower than vectorMinScore because trigram similarity scores are naturally lower than cosine similarity. |
+| `vectorWeight` | `1` | Weight multiplier for the vector leg in RRF fusion. Setting to `2` makes semantic matches count twice as much as the other legs. Set to `0` to disable vector search: its query is skipped and none of its candidates are fused (the query is still embedded). |
 | `keywordWeight` | `1` | Weight multiplier for the keyword (pg_trgm) leg in RRF fusion. Useful for queries where exact character overlap matters (product names, SKUs, codes). |
 | `ftsWeight` | `1` | Weight multiplier for the full-text search leg in RRF fusion. FTS uses Postgres stemming, so "running shoes" matches "run shoe". Boost this for natural-language queries where morphological matching helps. |
 | `rrfK` | `60` | Smoothing constant in the RRF formula: `score = weight / (rrfK + rank)`. Higher values flatten score differences between ranks (all results score similarly). Lower values amplify the gap between top-ranked and lower-ranked results. `60` is the standard value from the original RRF paper. |
@@ -196,7 +197,7 @@ The search pipeline processes a query through these stages in order:
 - **Recall over precision**: lower `vectorMinScore` to `0.6`, `keywordMinScore` to `0.2`, increase `topK`
 - **Exact-match heavy** (product search, codes): set `keywordWeight: 2` or `ftsWeight: 2`
 - **Semantic-heavy** (natural language questions): set `vectorWeight: 2`
-- **Disable a leg**: set its weight to `0` (e.g. `ftsWeight: 0` to skip full-text search)
+- **Disable a leg**: set its weight to `0` (e.g. `ftsWeight: 0` to skip full-text search). The adapter skips that leg's query and none of its candidates enter fusion.
 
 #### Recommended configurations
 
@@ -233,7 +234,7 @@ const rec = recommendForLanguage("ar");
 //   vectorMinScore: 0.4,       // starting point for bge-m3's cosine calibration
 //   stemming: "arabic",        // Postgres FTS regconfig ("english" | … | "none")
 //   needsNormalization: true,  // construct a LanguageNormalizer for this language
-//   isCjk: false,              // true for zh/ja/ko → pg_bigm keyword path
+//   isCjk: false,              // true for zh/zh-CN/ja/ja-JP/ko/ko-KR → pg_bigm keyword path
 // }
 
 // install-time: size the embedding column + enable the CJK migration leg if needed
@@ -251,9 +252,9 @@ await pipeline.search(query, { language: "ar", vectorMinScore: rec.vectorMinScor
 |-------|---------|
 | `embedder` / `dimensions` / `vectorMinScore` | Constant `BAAI/bge-m3` / `1024` / `0.4` — **measured** best for Arabic and Thai, applied as a multilingual default for every language. Thresholds are starting points; validate on your corpus. |
 | `maxTokens` | The embedder's max input length (`8192` for bge-m3; multilingual-e5 caps at `512`). A truncation **ceiling**, not a target — see the chunk-size note below. |
-| `stemming` | Postgres FTS regconfig for the language (`"english"`, `"arabic"`, …) or `"none"` (the `simple` config). Mirrors `rag_fts_config`. |
-| `needsNormalization` | `true` where `normalizeForLanguage` does more than NFC (Arabic orthographic folds, Thai digit folding) — i.e. construct a `LanguageNormalizer`. |
-| `isCjk` | `true` for `zh`/`ja`/`ko` → enable the pg_bigm keyword path (`cjk: true` in the migration and adapter). |
+| `stemming` | Postgres FTS regconfig for the language (`"english"`, `"arabic"`, …) or `"none"` (the `simple` config). Mirrors `rag_fts_config`, including its exact-code matching: `"pt-BR"` reports `"none"`. |
+| `needsNormalization` | `true` where `normalizeForLanguage` does more than NFC (Arabic orthographic folds, Thai digit folding and mai yamok removal) — i.e. construct a `LanguageNormalizer`. Uses the base code, as `normalizeForLanguage` does (`"ar-MA"` → `true`). |
+| `isCjk` | `true` for the codes the adapter routes to pg_bigm (`zh`, `zh-CN`, `ja`, `ja-JP`, `ko`, `ko-KR`) → enable the pg_bigm keyword path (`cjk: true` in the migration and adapter). |
 
 > **The embedding dimension is per-database, not per-tenant.** `rec.dimensions` feeds the one-time
 > `ragMigrate({ embeddingDimensions })`; the `rag_documents.embedding` column is a single fixed
@@ -462,6 +463,8 @@ const { results, diagnostics } = await pipeline.searchWithDiagnostics("EU polici
 
 **Migrations.** `017` adds `rag_documents.attributes JSONB NOT NULL DEFAULT '[]'` plus a GIN index; `018` creates `rag_metadata_registry`; `019` adds RLS on the registry and applies only with `ragMigrate(db, { rls: true })`. 017 and 018 apply by default.
 
+**Filter limits.** Explicit and generated filters are validated against `DEFAULT_FILTER_LIMITS` (depth 5, 32 conditions, 50 list values, 256-character strings). Override them per pipeline with `new RagPipeline({ ..., filterLimits: { maxListSize: 200 } })`.
+
 **Selective filters and IVFFlat.** An approximate vector index applies a filter after it fetches candidates, so a selective filter can return fewer rows than requested. `PostgresRagDatabase` accepts `ivfflatIterativeScan: "relaxed_order"` (and `ivfflatMaxProbes`) to let pgvector keep scanning until it has enough rows. With iterative scan on and no `ivfflatMaxProbes`, the adapter caps `ivfflat.max_probes` at `4 * ivfflatProbes` (40 by default) so a filter matching nothing does not scan the whole index; a very selective filter can then return fewer rows, so raise `ivfflatMaxProbes` if so; the only other value is `"off"` (the default), because pgvector rejects `strict_order` for IVFFlat. In a test on 20,000 random-vector rows with a filter matching 2%, every leg returned a full candidate set (40). In the natural plan the vector, trigram and FTS legs used the attributes GIN index; with that index hidden, the IVFFlat leg also returned 40 with `"off"` and with `"relaxed_order"`, so under-return was not reproduced on this data. The test counts returned rows and does not measure recall. `relaxed_order` is a reasonable safeguard for single-tenant databases; it was not shown to be necessary.
 
 ### Pure Utilities
@@ -504,10 +507,13 @@ await ragMigrate(sqlClient, { rls: true, cjk: true }); // both
 await ragMigrate(migrationProvider); // each file applied atomically (BEGIN/COMMIT/ROLLBACK)
 ```
 
-The `sql/` directory is auto-detected on all Node versions (18+) and module formats (ESM and CJS). If auto-detection fails, pass `sqlDir` explicitly:
+The `sql/` directory is located relative to the installed package, in ESM and CJS, on Node and Bun. Versions up to and including 0.6.0 can't locate it when installed as a package, so pass `sqlDir` there (it works in every version):
 
 ```typescript
-await ragMigrate(sqlClient, { sqlDir: "/path/to/node_modules/pg-hybrid-rag/sql" });
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
+const sqlDir = dirname(createRequire(import.meta.url).resolve("pg-hybrid-rag/sql/001_extensions.sql"));
+await ragMigrate(sqlClient, { sqlDir });
 ```
 
 SQL files are also available at `pg-hybrid-rag/sql/*` for manual migration systems.
@@ -586,7 +592,7 @@ shared_preload_libraries = 'pg_textsearch'
 import { ragMigrate } from "pg-hybrid-rag";
 
 await ragMigrate(sqlClient, { bm25: true });
-// Creates per-language partial BM25 indexes on rag_documents.content
+// Creates per-language partial BM25 indexes on rag_documents.content_normalized (011, rebuilt by 015)
 ```
 
 The migration creates one partial BM25 index per language group (english, spanish, french, german, italian, portuguese, romanian) plus a `simple` catch-all for all other languages. The tsvector column and trigger from migration 004 are preserved — both strategies coexist in the schema.
@@ -661,7 +667,7 @@ This gives you VectorChord's faster ANN search on the vector leg combined with B
 
 #### pg_bigm — CJK keyword search
 
-pg_bigm replaces the keyword leg's `word_similarity` (pg_trgm) with `bigm_similarity` for Chinese, Japanese, and Korean (`zh`, `zh-CN`, `ja`, `ja-JP`, `ko`, `ko-KR`). All other languages continue using pg_trgm unchanged.
+pg_bigm replaces the keyword leg's `word_similarity` (pg_trgm) for Chinese, Japanese, and Korean: candidates come from the pg_bigm GIN index, and each is scored by query-bigram coverage (the share of the query's bigrams that appear in the chunk) against `keywordMinScore`. This applies to `zh`, `zh-CN`, `ja`, `ja-JP`, `ko` and `ko-KR`. All other languages continue using pg_trgm unchanged.
 
 **Why bigrams for CJK:** CJK scripts write words as runs of characters with no whitespace between them. pg_trgm's `word_similarity` produces near-zero scores on CJK text because short CJK queries generate too few trigrams to overlap with longer content strings. pg_bigm builds bigrams over character pairs, which works regardless of word boundaries — a query like `炊飯器` (rice cooker) correctly overlaps with text that contains `炊飯ジャー` or `ご飯炊き`.
 
@@ -687,7 +693,7 @@ shared_preload_libraries = 'pg_bigm'
 
 ```typescript
 await ragMigrate(sqlClient, { cjk: true });
-// Creates pg_bigm extension and replaces the keyword index on zh/ja/ko rows
+// Creates the pg_bigm extension and a pg_bigm GIN index on content (all rows; the pg_trgm index stays)
 ```
 
 **Step 4 — enable CJK mode in the database adapter.**
@@ -889,7 +895,7 @@ const db = new PostgresRagDatabase(txProvider, { manageTransaction: false });
 > - **Pin only, no ambient transaction** — node-postgres `pool.connect()`. Keep the default: the tuned search legs *and* `replaceSource` (re-indexing) wrap their work in their own `BEGIN`/`COMMIT` (`ROLLBACK` on error).
 > - **Pin via an interactive transaction** — Prisma `prisma.$transaction(...)` or postgres.js `withTenantSql` (the latter also does `SET LOCAL app.current_tenant_id` for RLS). Construct the adapter with `new PostgresRagDatabase(txProvider, { manageTransaction: false })`. The legs and `replaceSource` then run `set_config(..., is_local => true)` and their SQL in that ambient transaction (GUCs stay transaction-local to it) and never issue `BEGIN`/`COMMIT`/`ROLLBACK`; on error they rethrow and the consumer's transaction owns rollback. Passing an interactive-transaction provider but leaving `manageTransaction` at its default makes the legs nest a `BEGIN` (which warns "transaction already in progress") and `COMMIT` the consumer's transaction early — discarding any `SET LOCAL`.
 >
-> RLS itself fails closed: the policies use the 2-arg `current_setting('app.current_tenant_id', true)`, so a connection that never set the tenant GUC matches zero rows instead of erroring.
+> RLS itself fails closed: the policies use the 2-arg `current_setting('app.current_tenant_id', true)`, so a connection that never set the tenant GUC matches zero rows instead of erroring. Migration 022 wraps it in `NULLIF(..., '')`, so a pooled connection whose earlier transaction set the tenant (the setting then reads as `''`) also matches zero rows instead of failing the `::uuid` cast. Migration 021 (applied with `rls: true`) also FORCEs RLS, so the policies bind the table owner too; only superusers and `BYPASSRLS` roles are exempt.
 
 ## Default Adapters
 
@@ -927,7 +933,7 @@ const pipeline = new RagPipeline({ tenantId, db, embedder, reranker });
 const results = await pipeline.search("blue shirt", { rerank: true, language: "en" });
 ```
 
-Reranking is opt-in (`rerank: false` by default). If the reranker throws, the pipeline gracefully falls back to RRF results.
+Reranking is opt-in (`rerank: false` by default). The pipeline sorts the reranked results by score and returns at most `topK`. If the reranker throws, the pipeline falls back to the fused top-`topK`.
 
 **Dropping unrelated results.** After reranking, two independent cutoffs decide what survives — a result must clear both:
 
@@ -938,7 +944,7 @@ Reranking is opt-in (`rerank: false` by default). If the reranker throws, the pi
 
 ## Schema
 
-The package manages 4 tables: `rag_documents`, `rag_stop_words`, `rag_synonyms`, `rag_metadata_registry`. All include `tenant_id` for multi-tenant isolation. RLS policies are optional (migration 007). CJK support via pg_bigm is optional (migration 009).
+The package manages 4 tables: `rag_documents`, `rag_stop_words`, `rag_synonyms`, `rag_metadata_registry`. All include `tenant_id` for multi-tenant isolation. RLS policies are optional (migrations 007, 019, 021 and 022, applied with `rls: true`). `rag_stop_words` is unique on `(tenant_id, language, word)` from migration 020. CJK support via pg_bigm is optional (migration 009).
 
 `rag_documents` also has an `attributes` JSONB column (migration 017) holding typed metadata attributes; `rag_metadata_registry` (migration 018) stores per-tenant registered metadata keys.
 

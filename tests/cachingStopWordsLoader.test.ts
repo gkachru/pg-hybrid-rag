@@ -48,3 +48,62 @@ describe("CachingStopWordsLoader.loadMerged", () => {
     expect([...(await loader.loadMerged("t1"))]).toEqual(["and"]);
   });
 });
+
+describe("CachingStopWordsLoader.invalidate", () => {
+  it("does not cache a load that was in flight when invalidate() ran", async () => {
+    let dataset: StopWordRow[] = [{ language: "en", word: "old" }];
+    let release: () => void = () => {};
+    let calls = 0;
+    const txProvider: TransactionProvider = {
+      withConnection: async (fn) => fn({} as SqlClient),
+    };
+    const loader = new CachingStopWordsLoader({
+      txProvider,
+      loadFn: async () => {
+        calls++;
+        const rows = dataset;
+        if (calls === 1) await new Promise<void>((r) => (release = r));
+        return rows;
+      },
+    });
+
+    const first = loader.loadMerged("t1"); // reads "old", then waits
+    await Promise.resolve();
+    dataset = [{ language: "en", word: "new" }];
+    loader.invalidate("t1"); // the stop words changed while the first load was in flight
+    release();
+    expect([...(await first)]).toEqual(["old"]); // its own caller still gets its result
+
+    expect([...(await loader.loadMerged("t1"))]).toEqual(["new"]);
+    expect(calls).toBe(2);
+  });
+});
+
+describe("CachingStopWordsLoader.loadMerged after invalidate", () => {
+  it("does not memoize a stale merged set when a newer load finished first", async () => {
+    let dataset: StopWordRow[] = [{ language: "en", word: "old" }];
+    let releaseFirst: () => void = () => {};
+    let calls = 0;
+    const txProvider: TransactionProvider = {
+      withConnection: async (fn) => fn({} as SqlClient),
+    };
+    const loader = new CachingStopWordsLoader({
+      txProvider,
+      loadFn: async () => {
+        calls++;
+        const rows = dataset;
+        if (calls === 1) await new Promise<void>((r) => (releaseFirst = r));
+        return rows;
+      },
+    });
+
+    const stale = loader.loadMerged("t1"); // load A reads "old", then stalls
+    await Promise.resolve();
+    dataset = [{ language: "en", word: "new" }];
+    loader.invalidate("t1");
+    expect([...(await loader.loadMerged("t1"))]).toEqual(["new"]); // load B finishes first
+    releaseFirst();
+    expect([...(await stale)]).toEqual(["old"]); // A's own caller still gets A
+    expect([...(await loader.loadMerged("t1"))]).toEqual(["new"]); // and A wasn't memoized
+  });
+});

@@ -97,6 +97,46 @@ describe("Chunker (character-based)", () => {
       }
     });
 
+    it("carries overlap from a flushed paragraph into a long paragraph split by sentences", () => {
+      const c = new Chunker(80, 20);
+      const para1 = "Billing questions go here and the answer ends with refund window.";
+      const para2 =
+        "The quick brown fox jumps over the lazy dog. The rain in Spain stays mainly in the plain. Pack my box with five dozen liquor jugs.";
+      // para1 fits alone; para1 + para2 doesn't, and para2 (> 80 chars) is split by sentences.
+      const chunks = c.chunk(`${para1}
+
+${para2}`);
+      expect(chunks[0].content).toBe(para1);
+      expect(chunks[1].content.startsWith("with refund window. The quick brown fox")).toBe(true);
+      for (const ch of chunks) expect(ch.content.length).toBeLessThanOrEqual(80);
+    });
+
+    it("never emits a chunk that is only the carried overlap", () => {
+      const c = new Chunker(80, 20);
+      const longPara =
+        "The quick brown fox jumps over the lazy dog. The rain in Spain stays mainly in the plain. Pack my box with five dozen liquor jugs.";
+      const long2 =
+        "A second long paragraph that cannot share a chunk with the overlap tail, honestly.";
+      for (const text of [
+        longPara,
+        `Intro.
+
+${longPara}`,
+        `${longPara}
+
+${long2}`,
+      ]) {
+        const chunks = c.chunk(text);
+        for (let i = 1; i < chunks.length; i++) {
+          // A chunk must add text beyond the end of the chunk before it.
+          expect(chunks[i - 1].content.endsWith(chunks[i].content)).toBe(false);
+        }
+        expect(
+          chunks.at(-1)?.content.endsWith("honestly.") || chunks.at(-1)?.content.endsWith("jugs."),
+        ).toBe(true);
+      }
+    });
+
     it("single chunk text produces no overlap artifacts", () => {
       const c = new Chunker(500, 50);
       const chunks = c.chunk("Short text that fits in one chunk.");

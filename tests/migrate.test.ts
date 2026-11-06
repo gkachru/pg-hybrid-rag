@@ -77,6 +77,20 @@ describe("ragMigrate", () => {
     ).toBe(true);
   });
 
+  it("locates the package's sql/ directory when sqlDir is omitted", async () => {
+    const { client, appliedMigrations } = createMockClient();
+    await ragMigrate(client);
+    expect(appliedMigrations).toContain("001_extensions.sql");
+    expect(appliedMigrations).toContain("002_rag_documents.sql");
+  });
+
+  it("throws a clear error when sqlDir does not exist", async () => {
+    const { client } = createMockClient();
+    await expect(ragMigrate(client, { sqlDir: join(sqlDir, "does-not-exist") })).rejects.toThrow(
+      /SQL directory not found/,
+    );
+  });
+
   it("applies pending migrations", async () => {
     const { client, appliedMigrations } = createMockClient();
     await ragMigrate(client, { sqlDir });
@@ -166,6 +180,25 @@ describe("ragMigrate", () => {
     const rls = createMockClient();
     await ragMigrate(rls.client, { sqlDir, rls: true });
     expect(rls.appliedMigrations).toContain("019_metadata_registry_rls.sql");
+  });
+
+  it("applies the stop-words uniqueness migration (020) by default, FORCE RLS (021) only with rls: true", async () => {
+    const plain = createMockClient();
+    await ragMigrate(plain.client, { sqlDir });
+    expect(plain.appliedMigrations).toContain("020_stop_words_unique.sql");
+    expect(plain.appliedMigrations).not.toContain("021_force_rls.sql");
+    const rls = createMockClient();
+    await ragMigrate(rls.client, { sqlDir, rls: true });
+    expect(rls.appliedMigrations).toContain("021_force_rls.sql");
+  });
+
+  it("applies the empty-tenant policy migration (022) only with rls: true", async () => {
+    const plain = createMockClient();
+    await ragMigrate(plain.client, { sqlDir });
+    expect(plain.appliedMigrations).not.toContain("022_rls_empty_tenant.sql");
+    const rls = createMockClient();
+    await ragMigrate(rls.client, { sqlDir, rls: true });
+    expect(rls.appliedMigrations).toContain("022_rls_empty_tenant.sql");
   });
 
   it("applies the Arabic FTS migration (014) by default", async () => {

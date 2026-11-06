@@ -167,5 +167,33 @@ describe("CachingSynonymLoader", () => {
       await loader.load("t1");
       expect(calls).toBe(2);
     });
+
+    it("does not cache a load that was in flight when invalidate() ran", async () => {
+      let synonyms = ["old"];
+      let release: () => void = () => {};
+      let calls = 0;
+      const txProvider: TransactionProvider = {
+        withConnection: async (fn) => fn({} as SqlClient),
+      };
+      const loader = new CachingSynonymLoader({
+        txProvider,
+        loadFn: async () => {
+          calls++;
+          const row: SynonymRow = { language: "en", term: "phone", synonyms, direction: "one_way" };
+          if (calls === 1) await new Promise<void>((r) => (release = r));
+          return [row];
+        },
+      });
+
+      const first = loader.load("t1");
+      await Promise.resolve();
+      synonyms = ["new"];
+      loader.invalidate("t1");
+      release();
+      expect((await first).get("en")?.get("phone")).toEqual(["old"]);
+
+      expect((await loader.load("t1")).get("en")?.get("phone")).toEqual(["new"]);
+      expect(calls).toBe(2);
+    });
   });
 });

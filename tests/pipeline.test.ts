@@ -424,6 +424,26 @@ describe("RagPipeline", () => {
     expect(lastSearchParams.query).toBe("plain query");
   });
 
+  describe("leg weights", () => {
+    it("a weight of 0 disables the leg: skipped in the db and none of its rows are fused", async () => {
+      keywordRows = [
+        { content: "Keyword only", sourceType: "faq", sourceId: "kw-only", metadata: "{}" },
+      ];
+      const results = await pipeline.search("test", {
+        language: "en",
+        topK: 5,
+        keywordWeight: 0,
+      });
+      expect(lastSearchParams.skipLegs).toEqual(["keyword"]);
+      expect(results.map((r) => r.sourceId)).toEqual(["faq-1", "faq-2"]);
+    });
+
+    it("passes no skipLegs when every weight is non-zero", async () => {
+      await pipeline.search("test", { language: "en" });
+      expect(lastSearchParams).not.toHaveProperty("skipLegs");
+    });
+  });
+
   describe("reranking", () => {
     it("applies reranker when rerank=true and reranker is configured", async () => {
       const reranker = {
@@ -494,6 +514,67 @@ describe("RagPipeline", () => {
       });
       expect(rerankInputCount).toBe(5);
       expect(union).toHaveLength(2);
+    });
+
+    it("trims a reranker that returns more than topK results to topK, best first", async () => {
+      vectorRows = Array.from({ length: 6 }, (_, i) => ({
+        content: `doc-${i}`,
+        sourceType: "faq",
+        sourceId: `faq-${i}`,
+        metadata: "{}",
+      }));
+      keywordRows = [];
+      ftsRows = [];
+      // Ignores topN and returns every input, in reverse order, with descending scores.
+      const reranker: RerankerProvider = {
+        rerank: async (_q, results) =>
+          [...results].reverse().map((r, i) => ({ ...r, score: 1 - i * 0.1 })),
+      };
+      const p = new RagPipeline({
+        tenantId: "tenant-1",
+        db: mockDb,
+        embedder: mockEmbedder,
+        reranker,
+      });
+      const results = await p.search("test", {
+        rerank: true,
+        language: "en",
+        topK: 2,
+        rerankCandidates: 5,
+        candidateMultiplier: 5,
+      });
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.score)).toEqual([1, 0.9]);
+    });
+
+    it("returns at most topK fused results when the reranker throws", async () => {
+      vectorRows = Array.from({ length: 6 }, (_, i) => ({
+        content: `doc-${i}`,
+        sourceType: "faq",
+        sourceId: `faq-${i}`,
+        metadata: "{}",
+      }));
+      keywordRows = [];
+      ftsRows = [];
+      const reranker: RerankerProvider = {
+        rerank: async () => {
+          throw new Error("Reranker API down");
+        },
+      };
+      const p = new RagPipeline({
+        tenantId: "tenant-1",
+        db: mockDb,
+        embedder: mockEmbedder,
+        reranker,
+      });
+      const results = await p.search("test", {
+        rerank: true,
+        language: "en",
+        topK: 2,
+        rerankCandidates: 5,
+        candidateMultiplier: 5,
+      });
+      expect(results.map((r) => r.content)).toEqual(["doc-0", "doc-1"]);
     });
 
     it("does not rerank when rerank=false (default)", async () => {
@@ -659,6 +740,42 @@ describe("RagPipeline", () => {
     });
   });
 
+  it("sets stopWordsApplied only when a stop word was removed", async () => {
+    const attrs: Record<string, unknown> = {};
+    const tracer = {
+      startActiveSpan: async <T>(
+        name: string,
+        fn: (span: {
+          setAttribute: (k: string, v: unknown) => void;
+          end: () => void;
+        }) => Promise<T>,
+      ) =>
+        fn({
+          setAttribute: (k, v) => {
+            if (name === "rag-pipeline.search") attrs[k] = v;
+          },
+          end: () => {},
+        }),
+    };
+    const stopWords = {
+      load: async () => new Map(),
+      loadMerged: async () => new Set(["the"]),
+      invalidate: () => {},
+    };
+    const p = new RagPipeline({
+      tenantId: "tenant-1",
+      db: mockDb,
+      embedder: mockEmbedder,
+      stopWords,
+      tracer,
+    });
+    // Lowercasing and punctuation stripping change the query, but no stop word is removed.
+    await p.search("Best Phone!", { language: "en" });
+    expect(attrs.stopWordsApplied).toBe(false);
+    await p.search("the best phone", { language: "en" });
+    expect(attrs.stopWordsApplied).toBe(true);
+  });
+
   it("uses loadMerged when available on stop words provider", async () => {
     const loadMergedMock = mock(async () => new Set(["the", "in", "a"]));
     const stopWords = {
@@ -724,6 +841,40 @@ describe("RagPipeline explicit attribute filter", () => {
     expect(mockDb.hybridSearch).not.toHaveBeenCalled();
   });
 
+  it("rejects filterLimits values that are not positive integers", () => {
+    for (const bad of [Number.NaN, 0, -1, 1.5, undefined]) {
+      expect(
+        () =>
+          new RagPipeline({
+            tenantId: "tenant-1",
+            db: supportingDb(),
+            embedder: mockEmbedder,
+            filterLimits: { maxConditions: bad as number },
+          }),
+      ).toThrow(/filterLimits.maxConditions must be a positive integer/);
+    }
+  });
+
+  it("applies filterLimits from the pipeline config to the explicit filter", async () => {
+    const many = {
+      key: "region",
+      op: "equals",
+      value: Array.from({ length: 60 }, (_, i) => `r${i}`),
+    };
+    // Default maxListSize is 50.
+    await expect(
+      mk(supportingDb()).search("q", { language: "en", filter: many as never }),
+    ).rejects.toBeInstanceOf(FilterValidationError);
+    const raised = new RagPipeline({
+      tenantId: "tenant-1",
+      db: supportingDb(),
+      embedder: mockEmbedder,
+      filterLimits: { maxListSize: 100 },
+    });
+    await raised.search("q", { language: "en", filter: many as never });
+    expect(lastSearchParams.attributeFilter).toBeDefined();
+  });
+
   it("rejects with AttributeFiltersUnsupportedError when the db lacks the flag", async () => {
     const p = mk(mockDb);
     await expect(p.search("q", { language: "en", filter: goodFilter })).rejects.toBeInstanceOf(
@@ -778,7 +929,7 @@ describe("RagPipeline auto-filter", () => {
   const mk = (
     model?: ReturnType<typeof mkModel>,
     db: RagDatabase = supportingDb(),
-    extra: { filterTimeoutMs?: number } = {},
+    extra: { filterTimeoutMs?: number; filterLimits?: { maxStringLength: number } } = {},
   ) =>
     new RagPipeline({
       ...extra,
@@ -814,6 +965,23 @@ describe("RagPipeline auto-filter", () => {
     expect(lastSearchParams.attributeFilter).toEqual({
       and: [assertValidFilter(explicit), assertValidFilter(generatedGood)],
     });
+  });
+
+  it("applies filterLimits from the pipeline config to a generated filter", async () => {
+    // "region" (6 chars) exceeds maxStringLength 5, so the generated filter is invalid.
+    const p = mk(
+      mkModel(async () => generatedGood),
+      supportingDb(),
+      {
+        filterLimits: { maxStringLength: 5 },
+      },
+    );
+    const { diagnostics } = await p.searchWithDiagnostics("q", {
+      language: "en",
+      autoFilter: true,
+    });
+    expect(diagnostics.generatedFilterStatus).toBe("invalid");
+    expect(diagnostics.generatedFilterErrors?.join(" ")).toContain("longer than 5");
   });
 
   it("drops an invalid generated filter with one warning", async () => {

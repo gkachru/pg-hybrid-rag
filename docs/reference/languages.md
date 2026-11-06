@@ -10,8 +10,8 @@ Components differ in how they match a code:
 
 | Component | Matching |
 |-----------|----------|
-| `rag_fts_config` (stemming), BM25 index routing, pg_bigm routing, `languages` filter | Exact, case-sensitive string match. `pt-BR` does not match `pt`. |
-| `normalizeForLanguage`, `Chunker`, `recommendForLanguage`, `IntlSegmenterAdapter` | Base code: the part before the first `-`, lowercased. `pt-BR` is treated as `pt`. |
+| `rag_fts_config` (stemming), BM25 index routing, pg_bigm routing, `languages` filter, `recommendForLanguage` `stemming` and `isCjk` | Exact, case-sensitive string match. `pt-BR` does not match `pt`. |
+| `normalizeForLanguage`, `Chunker`, `recommendForLanguage` `needsNormalization`, `IntlSegmenterAdapter` | Base code: the part before the first `-`, lowercased. `pt-BR` is treated as `pt`. |
 
 Values in the `languages` filter must not contain a comma.
 
@@ -55,7 +55,7 @@ Because the leg is restricted to one group's partial index, a BM25 search only r
 | Base code | Normalization |
 |-----------|---------------|
 | `ar` | NFC; remove tashkeel, superscript alef, tatweel, ZWNJ and ZWJ; fold alef variants to bare alef; fold `ى` to `ي` and `ة` to `ه` (each can be disabled with `ArabicNormalizeOptions`); convert Arabic-Indic and extended Arabic-Indic digits to ASCII. |
-| `th` | NFC; convert Thai digits to ASCII. |
+| `th` | NFC; convert Thai digits to ASCII; drop mai yamok `ๆ` and any whitespace before it. |
 | Any other | NFC only. |
 
 Full character ranges are in [Utilities: normalizeForLanguage](/reference/utilities#normalizeforlanguage).
@@ -109,7 +109,7 @@ Other Chinese, Japanese or Korean codes (for example `zh-TW`) use pg_trgm. See [
 | Stop words | Stored per language in `rag_stop_words`, but `RagPipeline` merges all languages into one set and removes any query word found in it. |
 | Synonyms | Stored per language in `rag_synonyms`, but query expansion merges all languages into one lookup. |
 | Trailing punctuation | `TRAILING_PUNCTUATION` covers Latin, Devanagari, Arabic, CJK full-width and Thai marks. See [Utilities](/reference/utilities#trailing-punctuation). |
-| `recommendForLanguage` | Reports `stemming` and `isCjk` by base code, which can differ from the exact-match database behavior above (for example `pt-BR`). |
+| `recommendForLanguage` | Reports `stemming` and `isCjk` by exact code, matching the database and adapter routing above (`pt-BR` reports `stemming: "none"`; `zh-TW` reports `isCjk: false`). Reports `needsNormalization` by base code. |
 
 ## Adding a language
 

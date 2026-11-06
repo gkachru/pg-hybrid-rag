@@ -46,7 +46,15 @@ The cost is that RRF discards information. A vector hit with cosine 0.95 and one
 
 ### What the weights control
 
-`vectorWeight`, `keywordWeight` and `ftsWeight` scale each leg's contribution. With RRF, a vector weight of 2 makes a rank-1 vector hit worth as much as rank-1 hits in both lexical legs combined. A weight of 0 does not disable a leg. The leg's SQL still runs, and its candidates still enter the fused list. They add nothing to the score, so a chunk that only that leg found has a fused score of 0 and ranks after every chunk with a positive score. It can still appear in the results when the other legs return fewer than `topK` chunks. The same holds for linear fusion. To skip a leg's work entirely, you would need a `RagDatabase` or `FtsStrategy` that does not run it.
+`vectorWeight`, `keywordWeight` and `ftsWeight` scale each leg's contribution. With RRF, a vector weight of 2 makes a rank-1 vector hit worth as much as rank-1 hits in both lexical legs combined.
+
+A weight of exactly 0 disables the leg. The pipeline tells the database adapter to skip it, and `PostgresRagDatabase` then runs no SQL for that leg and takes no connection for it. The pipeline also discards any rows a custom adapter returns for a skipped leg, before fusion. Skipping is better than letting the leg run with a zero contribution, for three reasons:
+
+- **No zero-score filler.** A zero-weight leg would still add its candidates to the fused list with a score of 0. When the other legs returned fewer than `topK` chunks, those candidates would fill the remaining places even though nothing endorsed them.
+- **No wasted work.** The leg's query and connection cost nothing when the leg is skipped.
+- **No failure from a leg you turned off.** A leg that cannot run, for example because its extension is missing, does not fail the search when its weight is 0.
+
+The same applies with linear fusion. The query is still embedded when `vectorWeight` is 0. Only an exact 0 disables a leg. Other values, including negative ones, are not validated and are used as given.
 
 ## Linear fusion
 
@@ -77,7 +85,7 @@ A cross-encoder reranker reads the query and each candidate together and scores 
 
 By default, the reranker sees only the fused top `topK`. That limits it to reordering what fusion already chose. If one leg found the right chunk but fusion ranked it sixth, a top-5 rerank never sees it.
 
-`rerankCandidates` raises the number of fused candidates the reranker scores to `max(topK, rerankCandidates)`, and the reranker still returns `topK`. This turns fusion into a candidate generator and leaves the final ordering to the reranker. A chunk that only one leg surfaced can now reach the top if the cross-encoder agrees it is relevant.
+`rerankCandidates` raises the number of fused candidates the reranker scores to `max(topK, rerankCandidates)`, and the pipeline still returns at most `topK` results. This turns fusion into a candidate generator and leaves the final ordering to the reranker. A chunk that only one leg surfaced can now reach the top if the cross-encoder agrees it is relevant.
 
 The union is bounded by what the legs return. Each leg returns at most `topK * candidateMultiplier` rows, and the union of three legs is at most three times that, minus duplicates. With the defaults (topK 5, multiplier 2), each leg returns at most 10 rows, so a `rerankCandidates` above 30 has no effect. Raise `candidateMultiplier` along with `rerankCandidates`:
 
@@ -101,9 +109,11 @@ Two optional floors drop reranked results; a result must clear both active floor
 
 ### When the reranker fails
 
-If the reranker throws, the pipeline logs a warning and returns the candidates it sent to the reranker (the fused list after any `minRelevance` cutoff), in fused order, instead of failing the search. A reranker outage then degrades quality instead of availability. Because the fused list was cut at `max(topK, rerankCandidates)`, this fallback can hold more than `topK` results when `rerankCandidates` is larger than `topK`.
+If the reranker throws, the pipeline logs a warning and returns the first `topK` candidates it sent to the reranker (the fused list after any `minRelevance` cutoff), in fused order, instead of failing the search. A reranker outage then degrades quality instead of availability, and the result count stays within `topK` even when `rerankCandidates` is larger.
 
-The pipeline passes `topK` to the reranker as `topN` and uses what the reranker returns. A `RerankerProvider` is expected to return at most `topN` results.
+### What the pipeline does with reranker output
+
+The pipeline passes `topK` to the reranker as `topN`, but it does not rely on the reranker to honor it. It applies the score floors to what the reranker returns, sorts by reranker score from highest to lowest, and keeps the first `topK`. A `RerankerProvider` therefore only has to set `score` on each result. An implementation that returns every candidate, or returns them unsorted, still produces a correct, bounded result list.
 
 ## Related
 

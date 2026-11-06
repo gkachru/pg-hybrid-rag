@@ -1,5 +1,6 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { SqlClient, TransactionProvider } from "./interfaces.js";
 
 export interface MigrateOptions {
@@ -11,7 +12,10 @@ export interface MigrateOptions {
   vectorchord?: boolean;
   /** Apply pg_textsearch BM25 indexes (migration 011). Requires shared_preload_libraries includes 'pg_textsearch'. Default: false. */
   bm25?: boolean;
-  /** Custom path to SQL directory. Default: auto-detected from package. */
+  /**
+   * Directory holding the migration `.sql` files. Default: the package's own `sql/` directory,
+   * resolved relative to this module (works from the ESM and CJS builds and from source).
+   */
   sqlDir?: string;
   /**
    * Embedding vector dimension for the rag_documents.embedding column (migration 002).
@@ -138,6 +142,16 @@ function splitStatements(text: string): string[] {
   return statements;
 }
 
+/**
+ * The package's `sql/` directory: one level above this module, which lives in `src/` (source) or
+ * `dist/` (build). CJS has a real `__dirname`; ESM derives it from `import.meta.url`. (tsup's CJS
+ * `import.meta.url` shim doesn't escape `#` or `%` in the path, so CJS must not rely on it.)
+ */
+function defaultSqlDir(): string {
+  const here = typeof __dirname === "string" ? __dirname : dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "sql");
+}
+
 function isTransactionProvider(x: SqlClient | TransactionProvider): x is TransactionProvider {
   return typeof (x as TransactionProvider).withConnection === "function";
 }
@@ -166,31 +180,11 @@ export async function ragMigrate(
     ),
   );
 
-  // Determine SQL directory via fallback chain:
-  // 1. Explicit sqlDir option (always wins)
-  // 2. import.meta.dirname (ESM — Bun and Node 21.2+)
-  // 3. __dirname (CJS — Node 18+, NestJS default)
-  // Indirect access via new Function avoids esbuild static analysis warnings.
-  let defaultDir: string | undefined;
-  try {
-    const dir = new Function("return import.meta.dirname")() as string | undefined;
-    defaultDir = dir ? join(dir, "..", "sql") : undefined;
-  } catch {
-    // Not in ESM or import.meta unavailable
-  }
-  if (!defaultDir) {
-    try {
-      const dir = new Function(
-        "return typeof __dirname !== 'undefined' ? __dirname : undefined",
-      )() as string | undefined;
-      if (dir) defaultDir = join(dir, "..", "sql");
-    } catch {
-      // __dirname not available
-    }
-  }
-  const sqlDir = options.sqlDir ?? defaultDir;
-  if (!sqlDir) {
-    throw new Error("Could not auto-detect SQL directory. Pass sqlDir option to ragMigrate().");
+  const sqlDir = options.sqlDir ?? defaultSqlDir();
+  if (!existsSync(sqlDir)) {
+    throw new Error(
+      `ragMigrate: SQL directory not found at ${sqlDir}. Pass the sqlDir option to ragMigrate().`,
+    );
   }
 
   // Read all SQL files, sorted by name

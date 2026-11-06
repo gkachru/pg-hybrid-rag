@@ -150,15 +150,16 @@ These are thrown as plain `Error` (or `AggregateError`), so match them by messag
 | `RagPipeline.search` | Neither `language` nor a single-entry `languages` is set. | `RagPipeline.search requires an explicit query language` |
 | `RagPipeline.search` | `autoFilter: true` without both `filterModel` and `metadataCatalog`. | `autoFilter requires both` |
 | `new RagPipeline` | `filterTimeoutMs` is negative, non-finite, or above 2147483647. | `filterTimeoutMs must be` |
+| `new RagPipeline` | A `filterLimits` value is not a positive integer. | `filterLimits.<name> must be a positive integer` |
 | `RagIndexer.index` | The embedder returned a different number of vectors than chunks. | `Embedder returned` |
 | `PostgresRagDatabase.hybridSearch` | One or more search legs failed. Thrown as `AggregateError` after all three legs settle; `errors` holds each leg's original error. | `hybridSearch: <n> of 3 search legs failed` |
-| `new PostgresRagDatabase` | `ivfflatIterativeScan` is not `"off"` or `"relaxed_order"`, or `ivfflatMaxProbes` is not a positive integer. | `ivfflatIterativeScan must be` / `ivfflatMaxProbes must be` |
+| `new PostgresRagDatabase` | `ivfflatProbes` is not a positive integer (`0`, negative, a fraction or `NaN`), `ivfflatIterativeScan` is not `"off"` or `"relaxed_order"`, or `ivfflatMaxProbes` is not a positive integer. | `ivfflatProbes must be a positive integer` / `ivfflatIterativeScan must be` / `ivfflatMaxProbes must be` |
 | `buildFilters` | A `sourceTypes`, `sourceIds` or `languages` value contains a comma. Each search leg calls `buildFilters` inside its own connection callback, so through `RagPipeline.search` or `PostgresRagDatabase.hybridSearch` this error arrives wrapped in the `AggregateError` above (one entry per failing leg). | `sourceTypes filter values must not contain a comma` (or `sourceIds`, `languages`) |
 | `new Chunker` | `tokenLimit` or `chunkSize` is not a positive number. | `Chunker tokenLimit must be` / `Chunker chunkSize must be` |
 | `new OpenAiCompatibleEmbedder` | `batchSize` or `concurrency` is not a positive number. | `OpenAiCompatibleEmbedder batchSize must be` / `... concurrency must be` |
 | `new OpenAiCompatibleFilterModel` | `maxTokens` is set and not a positive integer. | `OpenAiCompatibleFilterModel: maxTokens must be` |
 | `CachingMetadataCatalog.register` | A registry key is invalid. | `Invalid registry keys:` |
-| `ragMigrate` | No `sqlDir` was given. In version 0.6.0, auto-detection fails when the library is installed as a package, so pass `sqlDir` (see [Migrations](/reference/migrations#sql-directory)). | `Could not auto-detect SQL directory` |
+| `ragMigrate` | The SQL directory (`sqlDir`, or the package's own `sql/` directory when `sqlDir` is omitted) does not exist. Version 0.6.0 and earlier can't locate the directory when installed as a package; pass `sqlDir` on those versions (see [Migrations](/reference/migrations#sql-directory)). | `ragMigrate: SQL directory not found at <path>` |
 | `serializeAttributes` | A decimal entry's `v` is not a decimal string. | `decimal entry` |
 
 Database driver errors (for example a dimension mismatch on insert, a missing extension, or an RLS violation) propagate unchanged from your `SqlClient`.

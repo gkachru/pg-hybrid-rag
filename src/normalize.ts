@@ -17,6 +17,8 @@ const HEH = "ه";
 const ARABIC_INDIC = /[٠-٩]/g; // ٠-٩
 const EXT_ARABIC_INDIC = /[۰-۹]/g; // ۰-۹ (Persian/Urdu forms)
 const THAI_DIGITS = /[๐-๙]/g; // ๐-๙ → 0-9
+// Mai yamok (ๆ, repetition mark) with any whitespace before it: "อื่นๆ" and "อื่น ๆ" both → "อื่น".
+const THAI_MAI_YAMOK = /\s*ๆ/g;
 
 export interface ArabicNormalizeOptions {
   /** Fold alef-maqsura ى → yeh ي. Default: true. */
@@ -39,7 +41,13 @@ function normalizeArabic(text: string, opts: ArabicNormalizeOptions): string {
 function normalizeThai(text: string): string {
   // Thai needs no diacritic stripping for IR; fold the Thai digits and NFC-normalize so
   // combining marks have a canonical order. Mark-reordering is deferred (YAGNI).
-  return text.normalize("NFC").replace(THAI_DIGITS, (d) => String(d.charCodeAt(0) - 0x0e50));
+  // Drop mai yamok on both sides of the match (indexed content_normalized and the lexical query):
+  // writers attach it ("อื่นๆ") or space it ("อื่น ๆ"), and pg_trgm treats it as a letter, so
+  // keeping it made lexical matching depend on the writing style. Paiyannoi (ฯ) is kept.
+  return text
+    .normalize("NFC")
+    .replace(THAI_DIGITS, (d) => String(d.charCodeAt(0) - 0x0e50))
+    .replace(THAI_MAI_YAMOK, "");
 }
 
 /**
