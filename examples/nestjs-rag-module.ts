@@ -1,7 +1,7 @@
 /**
  * Example: NestJS RAG module wiring with Prisma + Pino logger.
  *
- * One-database-per-tenant model: tenant_id is always "default".
+ * One-database-per-tenant model: every row uses one fixed tenant_id (a UUID).
  * Prisma handles connection routing; no RLS needed.
  */
 
@@ -21,21 +21,35 @@ import {
 
 // --- Prisma adapter ---
 
-function createPrismaTxProvider(prisma: {
+/** The subset of PrismaClient used here (avoids a hard dependency on @prisma/client). */
+interface PrismaLike {
   $queryRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown>;
-}): TransactionProvider {
+  $transaction: <T>(
+    fn: (tx: { $queryRawUnsafe: PrismaLike["$queryRawUnsafe"] }) => Promise<T>,
+    options?: { timeout?: number },
+  ) => Promise<T>;
+}
+
+/**
+ * Pins every withConnection callback to ONE connection: a top-level prisma.$queryRawUnsafe can run
+ * on any pooled connection, which breaks the adapter's transaction-local settings. An interactive
+ * $transaction pins the session, so construct PostgresRagDatabase with manageTransaction: false
+ * (the transaction is Prisma's, not the adapter's). Raise `timeout` (Prisma default 5 s) above your
+ * slowest search or re-index.
+ */
+function createPrismaTxProvider(prisma: PrismaLike): TransactionProvider {
   return {
-    withConnection: async <T>(fn: (client: SqlClient) => Promise<T>): Promise<T> => {
-      return fn({
-        query: async <R = Record<string, unknown>>(
-          sql: string,
-          params: unknown[],
-        ): Promise<R[]> => {
-          const result = await prisma.$queryRawUnsafe(sql, ...params);
-          return result as R[];
-        },
-      });
-    },
+    withConnection: <T>(fn: (client: SqlClient) => Promise<T>): Promise<T> =>
+      prisma.$transaction(
+        (tx) =>
+          fn({
+            query: async <R = Record<string, unknown>>(
+              sql: string,
+              params: unknown[],
+            ): Promise<R[]> => (await tx.$queryRawUnsafe(sql, ...params)) as R[],
+          }),
+        { timeout: 15_000 },
+      ),
   };
 }
 
@@ -73,7 +87,7 @@ async function runMigrations(prisma: {
 // --- Module factory ---
 
 export function createRagModule(deps: {
-  prisma: { $queryRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown> };
+  prisma: PrismaLike;
   embeddingBaseUrl: string;
   embeddingApiKey: string;
   embeddingModel: string;
@@ -96,14 +110,15 @@ export function createRagModule(deps: {
   // through any language not listed, so it is safe alongside an English/multilingual corpus.
   const segmenter = new IntlSegmenterAdapter({ languages: ["th"] });
 
-  const db = new PostgresRagDatabase(txProvider, { segmenter });
-  // For CJK keyword search: new PostgresRagDatabase(txProvider, { cjk: true });
+  // manageTransaction: false — the Prisma provider already runs each callback in a transaction.
+  const db = new PostgresRagDatabase(txProvider, { segmenter, manageTransaction: false });
+  // For CJK keyword search: add `cjk: true` to the options above.
   const stopWords = new CachingStopWordsLoader({ txProvider });
   const synonyms = new CachingSynonymLoader({ txProvider });
   const logger = createPinoLogger(deps.logger);
 
-  // tenant_id is always "default" in one-DB-per-tenant model
-  const TENANT_ID = "default";
+  // One fixed tenant per database. tenant_id is a UUID column, so the constant must be a UUID.
+  const TENANT_ID = "00000000-0000-0000-0000-000000000001";
 
   const pipeline = new RagPipeline({
     tenantId: TENANT_ID,

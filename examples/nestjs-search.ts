@@ -175,7 +175,7 @@ export { SearchService, createReranker };
 //
 // // Wire pipeline with reranker
 // const pipeline = new RagPipeline({
-//   tenantId: "default",
+//   tenantId: "00000000-0000-0000-0000-000000000001", // the same fixed tenant UUID as createRagModule
 //   db: rag.pipeline["db"],        // or wire directly in createRagModule
 //   embedder: rag.pipeline["embedder"],
 //   stopWords: rag.stopWords,
