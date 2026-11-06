@@ -52,4 +52,13 @@ describe("stripTrailingPunctuation", () => {
     expect(stripTrailingPunctuation("เด็กๆ")).toBe("เด็ก");
     expect(stripTrailingPunctuation("กรุงเทพฯ")).toBe("กรุงเทพ");
   });
+
+  it("keeps ฯลฯ (Thai 'etc.') whole", () => {
+    expect(stripTrailingPunctuation("ฯลฯ")).toBe("ฯลฯ");
+    expect(stripTrailingPunctuation("อาหารฯลฯ")).toBe("อาหารฯลฯ");
+    expect(stripTrailingPunctuation("ฯลฯ.")).toBe("ฯลฯ");
+    expect(stripTrailingPunctuation("ฯลฯ)")).toBe("ฯลฯ");
+    // Only a complete ฯลฯ is restored.
+    expect(stripTrailingPunctuation("ผลฯ")).toBe("ผล");
+  });
 });

@@ -5,7 +5,15 @@
  */
 export const TRAILING_PUNCTUATION = /[?.!,;:।॥؟،؛。！？、；：ๆฯ)\]}"'…’”]+$/;
 
-/** Strip trailing punctuation from a string. */
+/** Thai "etc." It ends in ฯ, but it is a word: stripping that ฯ would leave the non-word "ฯล". */
+const THAI_ETC = "ฯลฯ";
+
+/** Strip trailing punctuation from a string. A trailing ฯลฯ ("etc.") is kept whole. */
 export function stripTrailingPunctuation(text: string): string {
-  return text.replace(TRAILING_PUNCTUATION, "");
+  const stripped = text.replace(TRAILING_PUNCTUATION, "");
+  // `stripped` is a prefix of `text`; restore the ฯ only when it completes ฯลฯ.
+  if (stripped.endsWith("ฯล") && text.startsWith(THAI_ETC, stripped.length - 2)) {
+    return `${stripped}ฯ`;
+  }
+  return stripped;
 }
