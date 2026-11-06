@@ -181,37 +181,50 @@ export class Chunker implements ChunkingProvider {
 
     const chunks: Chunk[] = [];
     let buffer = "";
+    // True while `buffer` holds only overlap carried from the previous chunk: it is context for
+    // the next chunk and must never be emitted as a chunk of its own (that would duplicate text).
+    let overlapOnly = false;
     let chunkIndex = 0;
 
     for (const para of paragraphs) {
       if (buffer.length + para.length + 1 <= effectiveSize) {
         buffer = buffer ? `${buffer}\n\n${para}` : para;
+        overlapOnly = false;
       } else {
-        // Flush buffer if it has content
-        if (buffer) {
+        // Flush buffer if it has new content
+        if (buffer && !overlapOnly) {
           chunks.push({ content: buffer.trim(), index: chunkIndex++, metadata });
-          const suffix = this.getOverlapSuffix(buffer.trim());
-          buffer = suffix;
+          buffer = this.getOverlapSuffix(buffer.trim());
+          overlapOnly = buffer !== "";
         }
 
         // If paragraph itself is too long, split by sentences
         if (para.length > effectiveSize) {
-          const sentenceChunks = this.splitBySentences(para, metadata, chunkIndex, effectiveSize);
+          // `buffer` now holds the overlap from the previous chunk (or ""); carry it into the
+          // first sentence chunk so the boundary keeps its context.
+          const sentenceChunks = this.splitBySentences(
+            para,
+            metadata,
+            chunkIndex,
+            effectiveSize,
+            buffer,
+          );
           chunks.push(...sentenceChunks);
           chunkIndex += sentenceChunks.length;
           // Carry overlap from last sentence chunk
-          if (sentenceChunks.length > 0) {
-            buffer = this.getOverlapSuffix(sentenceChunks[sentenceChunks.length - 1].content);
-          } else {
-            buffer = "";
-          }
+          buffer =
+            sentenceChunks.length > 0
+              ? this.getOverlapSuffix(sentenceChunks[sentenceChunks.length - 1].content)
+              : "";
+          overlapOnly = buffer !== "";
         } else {
           buffer = buffer ? `${buffer} ${para}` : para;
+          overlapOnly = false;
         }
       }
     }
 
-    if (buffer.trim()) {
+    if (buffer.trim() && !overlapOnly) {
       chunks.push({ content: buffer.trim(), index: chunkIndex, metadata });
     }
 
@@ -303,13 +316,22 @@ export class Chunker implements ChunkingProvider {
     metadata: Record<string, string>,
     startIndex: number,
     effectiveSize: number,
+    leadingOverlap = "",
   ): Chunk[] {
     const sentences = text.split(/(?<=[.!?।。！？])\s+/);
     const chunks: Chunk[] = [];
     let buffer = "";
     let idx = startIndex;
+    // Overlap from the previous chunk is prepended to the first sentence when both fit in one
+    // chunk; otherwise it is dropped rather than forcing a mid-word slice of that sentence.
+    let carry = leadingOverlap.trim();
 
-    for (const sentence of sentences) {
+    for (const rawSentence of sentences) {
+      const sentence =
+        carry && carry.length + 1 + rawSentence.length <= effectiveSize
+          ? `${carry} ${rawSentence}`
+          : rawSentence;
+      carry = "";
       if (buffer.length + sentence.length + 1 <= effectiveSize) {
         buffer = buffer ? `${buffer} ${sentence}` : sentence;
         continue;
