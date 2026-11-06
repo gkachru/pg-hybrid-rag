@@ -26,7 +26,14 @@ function installFetch(opts: { withIndex: boolean; respond: <T>(items: T[]) => T[
   }) as unknown as typeof fetch;
 }
 
-function makeEmbedder(overrides: Partial<{ batchSize: number; concurrency: number }> = {}) {
+function makeEmbedder(
+  overrides: Partial<{
+    batchSize: number;
+    concurrency: number;
+    queryPrefix: string;
+    documentPrefix: string;
+  }> = {},
+) {
   return new OpenAiCompatibleEmbedder({
     baseUrl: "http://embeddings.test/v1",
     apiKey: "test-key",
@@ -79,6 +86,17 @@ describe("OpenAiCompatibleEmbedder", () => {
 
     expect(lastBody.input).toEqual(["query: hello"]);
     expect(vec).toEqual(["hello".charCodeAt(4)]); // last char 'o'
+  });
+
+  it("sends text unprefixed when a prefix is the empty string", async () => {
+    installFetch({ withIndex: true, respond: (items) => items });
+    const embedder = makeEmbedder({ queryPrefix: "", documentPrefix: "" });
+
+    await embedder.embedQuery("hello");
+    expect(lastBody.input).toEqual(["hello"]);
+
+    await embedder.embedDocuments(["a", "b"]);
+    expect(lastBody.input).toEqual(["a", "b"]);
   });
 });
 

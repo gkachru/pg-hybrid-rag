@@ -195,6 +195,9 @@ export class PostgresRagDatabase implements RagDatabase {
     this.cjk = options?.cjk ?? false;
     this.fts = options?.fts ?? new TsvectorFts();
     this.ivfflatProbes = options?.ivfflatProbes ?? DEFAULT_IVFFLAT_PROBES;
+    if (!(Number.isInteger(this.ivfflatProbes) && this.ivfflatProbes > 0)) {
+      throw new Error(`ivfflatProbes must be a positive integer (got ${this.ivfflatProbes})`);
+    }
     this.ivfflatIterativeScan = options?.ivfflatIterativeScan ?? "off";
     if (!IVFFLAT_ITERATIVE_SCAN_MODES.includes(this.ivfflatIterativeScan)) {
       throw new Error(

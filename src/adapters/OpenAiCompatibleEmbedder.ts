@@ -4,9 +4,9 @@ export interface OpenAiCompatibleEmbedderConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
-  /** Prefix for queries (default: "query") */
+  /** Prefix for queries, sent as `${prefix}: ${text}` (default: "query"). "" sends the text as is. */
   queryPrefix?: string;
-  /** Prefix for documents (default: "passage") */
+  /** Prefix for documents, sent as `${prefix}: ${text}` (default: "passage"). "" sends the text as is. */
   documentPrefix?: string;
   /** Max texts per embedding API call (default: 32) */
   batchSize?: number;
@@ -60,10 +60,16 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** `${prefix}: ${text}`, or the text unchanged when the prefix is empty. */
+function withPrefix(prefix: string, text: string): string {
+  return prefix ? `${prefix}: ${text}` : text;
+}
+
 /**
  * Fetch-based embedding provider compatible with OpenAI-style embedding APIs.
  * Works in both Node and Bun runtimes.
- * Applies e5-style prefixes: "query: " for queries, "passage: " for documents.
+ * Applies e5-style prefixes: "query: " for queries, "passage: " for documents. Set a prefix to ""
+ * for models trained without one.
  */
 export class OpenAiCompatibleEmbedder implements EmbeddingProvider {
   private baseUrl: string;
@@ -102,13 +108,13 @@ export class OpenAiCompatibleEmbedder implements EmbeddingProvider {
   }
 
   async embedQuery(text: string): Promise<number[]> {
-    const prefixed = `${this.queryPrefix}: ${text}`;
+    const prefixed = withPrefix(this.queryPrefix, text);
     const [embedding] = await this.callApi([prefixed]);
     return embedding;
   }
 
   async embedDocuments(texts: string[]): Promise<number[][]> {
-    const prefixed = texts.map((t) => `${this.documentPrefix}: ${t}`);
+    const prefixed = texts.map((t) => withPrefix(this.documentPrefix, t));
 
     const batches: string[][] = [];
     for (let i = 0; i < prefixed.length; i += this.batchSize) {

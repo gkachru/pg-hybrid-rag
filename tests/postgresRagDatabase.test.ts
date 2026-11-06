@@ -866,6 +866,16 @@ describe("PostgresRagDatabase IVFFlat iterative scans", () => {
     expect(gucNames(calls)).toEqual(["ivfflat.probes=10"]);
   });
 
+  it("ivfflatProbes must be a positive integer", () => {
+    const { txProvider } = recordingTx();
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      expect(() => new PostgresRagDatabase(txProvider, { ivfflatProbes: bad })).toThrow(
+        /ivfflatProbes must be a positive integer/,
+      );
+    }
+    expect(() => new PostgresRagDatabase(txProvider, { ivfflatProbes: 1 })).not.toThrow();
+  });
+
   it("ivfflatMaxProbes must be a positive integer", () => {
     const { txProvider } = recordingTx();
     for (const bad of [0, -1, 1.5, Number.NaN]) {
