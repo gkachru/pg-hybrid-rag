@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 72" role="img" aria-label="An optional module dropping onto a base stack">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f5d87"/>
+      <stop offset="1" stop-color="#2a8c96"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="72" rx="12" fill="url(#tile)"/>
+  <!-- optional module -->
+  <rect x="24" y="10" width="52" height="16" rx="4" fill="#f5c451" fill-opacity="0.18" stroke="#f5c451" stroke-width="2" stroke-dasharray="4 3"/>
+  <rect x="31" y="16.5" width="22" height="3" rx="1.5" fill="#f5c451"/>
+  <rect x="57" y="16.5" width="12" height="3" rx="1.5" fill="#f5c451" fill-opacity="0.6"/>
+  <path d="M50 29 V35" stroke="#f5c451" stroke-width="2" stroke-linecap="round"/>
+  <path d="M46 33 L50 37 L54 33" fill="none" stroke="#f5c451" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- base stack -->
+  <rect x="24" y="41" width="52" height="10" rx="3" fill="#ffffff"/>
+  <rect x="24" y="54" width="52" height="10" rx="3" fill="#ffffff" fill-opacity="0.7"/>
+  <!-- plus badge -->
+  <circle cx="96" cy="36" r="11" fill="#f5c451"/>
+  <path d="M96 30 V42 M90 36 H102" stroke="#2f5d87" stroke-width="2.5" stroke-linecap="round"/>
+</svg>
