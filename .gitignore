@@ -6,3 +6,8 @@ datasets/
 examples/benchmark/results/
 examples/benchmark-thai/results/
 .playwright-mcp/
+
+# Docs site
+docs/.vitepress/cache
+docs/.vitepress/dist
+docs/.vitepress/.sample-check*
