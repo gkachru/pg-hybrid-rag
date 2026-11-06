@@ -150,6 +150,7 @@ These are thrown as plain `Error` (or `AggregateError`), so match them by messag
 | `RagPipeline.search` | Neither `language` nor a single-entry `languages` is set. | `RagPipeline.search requires an explicit query language` |
 | `RagPipeline.search` | `autoFilter: true` without both `filterModel` and `metadataCatalog`. | `autoFilter requires both` |
 | `new RagPipeline` | `filterTimeoutMs` is negative, non-finite, or above 2147483647. | `filterTimeoutMs must be` |
+| `new RagPipeline` | A `filterLimits` value is not a positive integer. | `filterLimits.<name> must be a positive integer` |
 | `RagIndexer.index` | The embedder returned a different number of vectors than chunks. | `Embedder returned` |
 | `PostgresRagDatabase.hybridSearch` | One or more search legs failed. Thrown as `AggregateError` after all three legs settle; `errors` holds each leg's original error. | `hybridSearch: <n> of 3 search legs failed` |
 | `new PostgresRagDatabase` | `ivfflatProbes` is not a positive integer (`0`, negative, a fraction or `NaN`), `ivfflatIterativeScan` is not `"off"` or `"relaxed_order"`, or `ivfflatMaxProbes` is not a positive integer. | `ivfflatProbes must be a positive integer` / `ivfflatIterativeScan must be` / `ivfflatMaxProbes must be` |

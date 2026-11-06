@@ -48,7 +48,7 @@ A pipeline is bound to one tenant. Create one per tenant, or one per request.
 | `filterModel` | `FilterModelProvider` | none | Generates a metadata filter from the query when a search sets `autoFilter: true`. See [`OpenAiCompatibleFilterModel`](/reference/metadata-catalog#openaicompatiblefiltermodel). |
 | `metadataCatalog` | `MetadataCatalogProvider` | none | Tenant catalog passed to the filter model. Required with `filterModel` for `autoFilter`. See [`CachingMetadataCatalog`](/reference/metadata-catalog). |
 | `filterTimeoutMs` | `number` | `3000` | Total deadline in milliseconds for filter generation: catalog `describe()` plus the model call. On expiry the model's `ctx.signal` is aborted, the generated filter is dropped (`generatedFilterStatus: "error"`) and the search continues without it. `0` disables the deadline. |
-| `filterLimits` | `Partial<FilterLimits>` | `DEFAULT_FILTER_LIMITS` | Overrides for the filter validation limits, merged over the defaults (`maxDepth` 5, `maxConditions` 32, `maxListSize` 50, `maxStringLength` 256). Applied to both the explicit `filter` and a generated filter. See [Filter grammar](/reference/filter-grammar#validation). |
+| `filterLimits` | `Partial<FilterLimits>` | `DEFAULT_FILTER_LIMITS` | Overrides for the filter validation limits, merged over the defaults (`maxDepth` 5, `maxConditions` 32, `maxListSize` 50, `maxStringLength` 256). Applied to both the explicit `filter` and a generated filter. Each value must be a positive integer; the constructor throws `filterLimits.<name> must be a positive integer (got X)` otherwise. See [Filter grammar](/reference/filter-grammar#validation). |
 
 The interfaces are described on [Interfaces](/reference/interfaces).
 

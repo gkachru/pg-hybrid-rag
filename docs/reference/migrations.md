@@ -71,7 +71,7 @@ With a bare `SqlClient`, retrying a partly applied file can fail, because not ev
 The directory is chosen in this order:
 
 1. `options.sqlDir`, when given.
-2. The package's own `sql/` directory: `<module directory>/../sql`, where the module directory is derived from `import.meta.url` (the CommonJS build gets `import.meta.url` from a build-time shim). This works from the ESM build, the CommonJS build and the TypeScript source.
+2. The package's own `sql/` directory: `<module directory>/../sql`. The CommonJS build uses its `__dirname`; the ESM build derives the directory from `import.meta.url`. This works from the ESM build, the CommonJS build and the TypeScript source, including install paths that contain `#` or `%`.
 
 If the chosen directory does not exist, `ragMigrate` throws `ragMigrate: SQL directory not found at <path>. Pass the sqlDir option to ragMigrate().`
 
