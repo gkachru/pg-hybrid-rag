@@ -213,6 +213,19 @@ describe("PostgresRagDatabase.hybridSearch", () => {
     expect(setCall?.params).toContain("10");
   });
 
+  it("skips the legs named in skipLegs without querying them", async () => {
+    const { txProvider, calls } = recordingTx();
+    const rows = await new PostgresRagDatabase(txProvider).hybridSearch({
+      ...params,
+      skipLegs: ["vector", "fts"],
+    });
+    expect(rows).toEqual({ vectorRows: [], keywordRows: [], ftsRows: [] });
+    const sqls = calls.map((c) => c.sql);
+    expect(sqls.some((q) => q.includes("<=>"))).toBe(false); // no vector query
+    expect(sqls.some((q) => q.includes("content_tsvector"))).toBe(false); // no FTS query
+    expect(sqls.some((q) => q.includes("word_similarity"))).toBe(true); // keyword leg ran
+  });
+
   it("vector leg honors a custom ivfflatProbes option", async () => {
     const { txProvider, calls } = recordingTx();
     await new PostgresRagDatabase(txProvider, { ivfflatProbes: 25 }).hybridSearch(params);

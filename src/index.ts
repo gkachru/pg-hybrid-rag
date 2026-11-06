@@ -111,6 +111,7 @@ export type {
   RankedCandidate,
   RegisteredKeyInput,
   SearchDiagnostics,
+  SearchLeg,
   StopWordRow,
   StoredAttributeEntry,
   SynonymLookup,

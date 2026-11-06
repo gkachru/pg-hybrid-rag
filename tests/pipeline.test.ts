@@ -424,6 +424,26 @@ describe("RagPipeline", () => {
     expect(lastSearchParams.query).toBe("plain query");
   });
 
+  describe("leg weights", () => {
+    it("a weight of 0 disables the leg: skipped in the db and none of its rows are fused", async () => {
+      keywordRows = [
+        { content: "Keyword only", sourceType: "faq", sourceId: "kw-only", metadata: "{}" },
+      ];
+      const results = await pipeline.search("test", {
+        language: "en",
+        topK: 5,
+        keywordWeight: 0,
+      });
+      expect(lastSearchParams.skipLegs).toEqual(["keyword"]);
+      expect(results.map((r) => r.sourceId)).toEqual(["faq-1", "faq-2"]);
+    });
+
+    it("passes no skipLegs when every weight is non-zero", async () => {
+      await pipeline.search("test", { language: "en" });
+      expect(lastSearchParams).not.toHaveProperty("skipLegs");
+    });
+  });
+
   describe("reranking", () => {
     it("applies reranker when rerank=true and reranker is configured", async () => {
       const reranker = {

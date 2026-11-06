@@ -29,6 +29,10 @@ export interface RagSearchOptions {
    */
   vectorMinScore?: number;
   keywordMinScore?: number;
+  /**
+   * Fusion weight of each leg (default 1). A weight of 0 disables the leg: the adapter skips its
+   * query and none of its candidates enter fusion.
+   */
   vectorWeight?: number;
   keywordWeight?: number;
   ftsWeight?: number;
@@ -153,7 +157,15 @@ export interface HybridSearchParams {
   languages?: string[];
   /** Already-validated attribute filter; applied inside every search leg. */
   attributeFilter?: ValidatedFilter;
+  /**
+   * Legs the pipeline disabled (weight 0). An adapter should return `[]` for these without
+   * querying; the pipeline also discards their rows, so an adapter that ignores this stays correct.
+   */
+  skipLegs?: readonly SearchLeg[];
 }
+
+/** One of the three hybrid search legs. */
+export type SearchLeg = "vector" | "keyword" | "fts";
 
 /** Row from stop_words table. */
 export interface StopWordRow {

@@ -243,23 +243,28 @@ export class PostgresRagDatabase implements RagDatabase {
     // partial/degraded results. We use allSettled (not Promise.all) so every leg settles
     // before we raise — Promise.all rejects on the first failure and abandons the sibling
     // legs mid-query on their reserved connections, which hangs a consumer's connection cleanup.
+    // A leg the pipeline disabled (weight 0) returns no rows and takes no connection.
+    const skip = new Set(params.skipLegs ?? []);
+    const none = Promise.resolve([] as RankedCandidate[]);
     const settled = await Promise.allSettled([
       // --- Vector leg (IVFFlat or vchordrq — identical SQL) ---
-      this.txProvider.withConnection(async (client) => {
-        const baseParams: unknown[] = [
-          params.tenantId,
-          params.embeddingStr,
-          params.vectorMinScore,
-          params.candidateLimit,
-        ];
-        const f = buildFilters(params, 5);
-        const iterative = this.ivfflatIterativeScan !== "off";
-        // The "off" SQL is the original, unwrapped query. With an iterative scan the floor must sit
-        // OUTSIDE the CTE (a WHERE inside would stop the scan early), and relaxed_order may emit
-        // slightly unordered rows, so re-sort outside; `+ 0` is needed on Postgres 17+ so the
-        // planner can't push the sort back into the index scan.
-        const sql = iterative
-          ? `
+      skip.has("vector")
+        ? none
+        : this.txProvider.withConnection(async (client) => {
+            const baseParams: unknown[] = [
+              params.tenantId,
+              params.embeddingStr,
+              params.vectorMinScore,
+              params.candidateLimit,
+            ];
+            const f = buildFilters(params, 5);
+            const iterative = this.ivfflatIterativeScan !== "off";
+            // The "off" SQL is the original, unwrapped query. With an iterative scan the floor must sit
+            // OUTSIDE the CTE (a WHERE inside would stop the scan early), and relaxed_order may emit
+            // slightly unordered rows, so re-sort outside; `+ 0` is needed on Postgres 17+ so the
+            // planner can't push the sort back into the index scan.
+            const sql = iterative
+              ? `
           WITH candidates AS MATERIALIZED (
             SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,
                    embedding <=> $2::vector AS distance
@@ -275,7 +280,7 @@ export class PostgresRagDatabase implements RagDatabase {
           ORDER BY distance + 0
           LIMIT $4
         `
-          : `
+              : `
           SELECT id, content, source_type, source_id, metadata, attributes::text AS attributes,
                  1 - (embedding <=> $2::vector) as score
           FROM rag_documents
@@ -285,42 +290,48 @@ export class PostgresRagDatabase implements RagDatabase {
           ORDER BY embedding <=> $2::vector
           LIMIT $4
         `;
-        const gucs = [{ name: "ivfflat.probes", value: String(this.ivfflatProbes) }];
-        if (iterative) {
-          gucs.push({ name: "ivfflat.iterative_scan", value: this.ivfflatIterativeScan });
-          // Without a cap, a filter matching (almost) nothing makes the iterative scan walk the
-          // whole index. Default to 4x the base probes; an explicit ivfflatMaxProbes wins.
-          const maxProbes = this.ivfflatMaxProbes ?? 4 * this.ivfflatProbes;
-          gucs.push({ name: "ivfflat.max_probes", value: String(maxProbes) });
-        }
-        // Probe more than the IVFFlat default of 1 cell for usable recall. SET LOCAL can't take
-        // a bind param, so use set_config(..., is_local => true) — same transaction-local scope.
-        // No-op for the migration-010 vchordrq index, which ignores ivfflat.* GUCs.
-        const rows = await this.runTuned(client, gucs, sql, [...baseParams, ...f.params]);
-        return rows.map(toRankedCandidate);
-      }),
+            const gucs = [{ name: "ivfflat.probes", value: String(this.ivfflatProbes) }];
+            if (iterative) {
+              gucs.push({ name: "ivfflat.iterative_scan", value: this.ivfflatIterativeScan });
+              // Without a cap, a filter matching (almost) nothing makes the iterative scan walk the
+              // whole index. Default to 4x the base probes; an explicit ivfflatMaxProbes wins.
+              const maxProbes = this.ivfflatMaxProbes ?? 4 * this.ivfflatProbes;
+              gucs.push({ name: "ivfflat.max_probes", value: String(maxProbes) });
+            }
+            // Probe more than the IVFFlat default of 1 cell for usable recall. SET LOCAL can't take
+            // a bind param, so use set_config(..., is_local => true) — same transaction-local scope.
+            // No-op for the migration-010 vchordrq index, which ignores ivfflat.* GUCs.
+            const rows = await this.runTuned(client, gucs, sql, [...baseParams, ...f.params]);
+            return rows.map(toRankedCandidate);
+          }),
 
       // --- Keyword leg (pg_trgm word-similarity, or pg_bigm query-bigram coverage for CJK) ---
-      this.txProvider.withConnection(async (client) => {
-        const leg = useBigm ? buildBigmCoverageKeywordSql(params) : buildTrigramKeywordSql(params);
-        const rows = await this.runTuned(client, leg.gucs, leg.sql, leg.params);
-        return rows.map(toRankedCandidate);
-      }),
+      skip.has("keyword")
+        ? none
+        : this.txProvider.withConnection(async (client) => {
+            const leg = useBigm
+              ? buildBigmCoverageKeywordSql(params)
+              : buildTrigramKeywordSql(params);
+            const rows = await this.runTuned(client, leg.gucs, leg.sql, leg.params);
+            return rows.map(toRankedCandidate);
+          }),
 
       // --- FTS leg (pluggable strategy) ---
-      this.txProvider.withConnection((client) =>
-        this.fts.search(client, {
-          tenantId: params.tenantId,
-          query: params.query,
-          synonyms: params.synonymLookup,
-          language: params.language,
-          candidateLimit: params.candidateLimit,
-          sourceTypes: params.sourceTypes,
-          sourceIds: params.sourceIds,
-          languages: params.languages,
-          attributeFilter: params.attributeFilter,
-        }),
-      ),
+      skip.has("fts")
+        ? none
+        : this.txProvider.withConnection((client) =>
+            this.fts.search(client, {
+              tenantId: params.tenantId,
+              query: params.query,
+              synonyms: params.synonymLookup,
+              language: params.language,
+              candidateLimit: params.candidateLimit,
+              sourceTypes: params.sourceTypes,
+              sourceIds: params.sourceIds,
+              languages: params.languages,
+              attributeFilter: params.attributeFilter,
+            }),
+          ),
     ]);
 
     // Raise after every leg has settled (so none is left in flight). Report each failed leg

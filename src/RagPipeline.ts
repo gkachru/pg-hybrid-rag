@@ -28,6 +28,7 @@ import type {
   RagResult,
   RagSearchOptions,
   SearchDiagnostics,
+  SearchLeg,
 } from "./types.js";
 
 const DEFAULTS = {
@@ -362,11 +363,18 @@ export class RagPipeline {
         span.setAttribute("synonymsApplied", synonymLookup.size > 0);
         const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
+        // A leg with weight 0 is disabled: the adapter skips its query, and its rows (if an
+        // adapter returns any anyway) are discarded before fusion and the empty-result check.
+        const skipLegs: SearchLeg[] = [];
+        if (opts.vectorWeight === 0) skipLegs.push("vector");
+        if (opts.keywordWeight === 0) skipLegs.push("keyword");
+        if (opts.ftsWeight === 0) skipLegs.push("fts");
+
         // Run 3-way hybrid search
         const runSearch = (filter: ValidatedFilter | undefined) =>
           this.tracer.startActiveSpan("rag.dbSearch", async (dbSpan) => {
             try {
-              return await this.db.hybridSearch({
+              const rows = await this.db.hybridSearch({
                 tenantId: this.tenantId,
                 embeddingStr,
                 query: lexicalQuery,
@@ -379,7 +387,13 @@ export class RagPipeline {
                 sourceIds: opts.sourceIds,
                 languages: opts.languages,
                 attributeFilter: filter,
+                ...(skipLegs.length > 0 ? { skipLegs } : {}),
               });
+              return {
+                vectorRows: skipLegs.includes("vector") ? [] : rows.vectorRows,
+                keywordRows: skipLegs.includes("keyword") ? [] : rows.keywordRows,
+                ftsRows: skipLegs.includes("fts") ? [] : rows.ftsRows,
+              };
             } finally {
               dbSpan.end();
             }
