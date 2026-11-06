@@ -49,6 +49,8 @@ export class RagIndexer {
    * Index chunks into rag_documents.
    * Atomically replaces existing chunks for the same source (DELETE + INSERT in one transaction)
    * so a failed insert can't leave the source with its old chunks deleted and nothing in place.
+   * An empty `chunks` array means the source now has no content: its existing chunks are deleted
+   * and 0 is returned.
    */
   async index(
     sourceType: string,
@@ -57,7 +59,15 @@ export class RagIndexer {
     language = "en",
     options: { attributes?: AttributeInput[] } = {},
   ): Promise<number> {
-    if (chunks.length === 0) return 0;
+    if (chunks.length === 0) {
+      // Replacing with nothing: drop the old chunks so stale content stops matching searches.
+      await this.db.deleteBySource(this.tenantId, sourceType, sourceId);
+      this.logger.info(
+        { tenantId: this.tenantId, sourceType, sourceId, chunks: 0 },
+        "Documents indexed",
+      );
+      return 0;
+    }
 
     // Validate/normalize once, before embedding, so bad attributes fail before any embedding cost.
     // The same serialized string is stamped on every chunk row of the article.
