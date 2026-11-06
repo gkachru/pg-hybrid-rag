@@ -37,7 +37,7 @@ Install pg_bigm in your Postgres server. See [Prepare PostgreSQL](/how-to/prepar
    await ragMigrate(migrationProvider, { sqlDir, cjk: true });
    ```
 
-   Passing `sqlDir` works in every version; 0.6.0 and earlier require it when the library is installed as a package. See [Run migrations](/how-to/run-migrations).
+   Passing `sqlDir` works in every version; 0.2.5 and earlier require it when the library is installed as a package. See [Run migrations](/how-to/run-migrations).
 
 2. Enable the pg_bigm path on the adapter:
 

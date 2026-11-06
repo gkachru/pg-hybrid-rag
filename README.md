@@ -507,7 +507,7 @@ await ragMigrate(sqlClient, { rls: true, cjk: true }); // both
 await ragMigrate(migrationProvider); // each file applied atomically (BEGIN/COMMIT/ROLLBACK)
 ```
 
-The `sql/` directory is located relative to the installed package, in ESM and CJS, on Node and Bun. Versions up to and including 0.6.0 can't locate it when installed as a package, so pass `sqlDir` there (it works in every version):
+The `sql/` directory is located relative to the installed package, in ESM and CJS, on Node and Bun. Versions up to and including 0.2.5 can't locate it when installed as a package, so pass `sqlDir` there (it works in every version):
 
 ```typescript
 import { createRequire } from "node:module";

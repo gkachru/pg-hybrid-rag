@@ -76,7 +76,7 @@ The directory is chosen in this order:
 If the chosen directory does not exist, `ragMigrate` throws `ragMigrate: SQL directory not found at <path>. Pass the sqlDir option to ragMigrate().`
 
 ::: info
-Version 0.6.0 and earlier can't locate the directory when installed as a package; pass `sqlDir` on those versions. Passing `sqlDir` works in every version.
+Version 0.2.5 and earlier can't locate the directory when installed as a package; pass `sqlDir` on those versions. Passing `sqlDir` works in every version.
 :::
 
 To pass `sqlDir` explicitly, resolve the package's `sql/` folder through the `pg-hybrid-rag/sql/*` package export:

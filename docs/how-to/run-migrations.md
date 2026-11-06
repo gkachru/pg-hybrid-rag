@@ -19,13 +19,13 @@
 | `cjk` | `boolean` | `false` | Create the pg_bigm extension and its GIN index (migration 009). |
 | `vectorchord` | `boolean` | `false` | Replace the IVFFlat index with a VectorChord `vchordrq` index (migration 010). |
 | `bm25` | `boolean` | `false` | Create the pg_textsearch BM25 indexes (migrations 011 and 015). |
-| `sqlDir` | `string` | The package's `sql/` directory | Directory holding the `.sql` files. Required on 0.6.0 and earlier (step 2). |
+| `sqlDir` | `string` | The package's `sql/` directory | Directory holding the `.sql` files. Required on 0.2.5 and earlier (step 2). |
 
 `ragMigrate` skips an optional file by its name: files containing `rls`, `cjk`, `vectorchord` or `textsearch` are applied only when the matching option is `true`.
 
 ### 2. Locate the SQL directory
 
-0.6.0 and earlier can't locate the directory when installed as a package; pass `sqlDir` on those versions. Passing `sqlDir` works in every version. Resolve the package's `sql/` directory through its `./sql/*` export:
+0.2.5 and earlier can't locate the directory when installed as a package; pass `sqlDir` on those versions. Passing `sqlDir` works in every version. Resolve the package's `sql/` directory through its `./sql/*` export:
 
 ```ts
 import { createRequire } from "node:module";
@@ -37,7 +37,7 @@ const sqlDir = dirname(require.resolve("pg-hybrid-rag/sql/001_extensions.sql"));
 
 In a CommonJS module, call `require.resolve(...)` directly instead of creating `require`.
 
-::: warning 0.6.0 and earlier
+::: warning 0.2.5 and earlier
 On these versions, `ragMigrate` without `sqlDir` throws `Could not auto-detect SQL directory. Pass sqlDir option to ragMigrate().` when installed as a package. Later versions resolve the package's own `sql/` directory; if that directory is missing, they throw `ragMigrate: SQL directory not found at <path>. Pass the sqlDir option to ragMigrate().`
 :::
 

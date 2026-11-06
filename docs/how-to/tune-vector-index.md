@@ -84,7 +84,7 @@ VectorChord's `vchordrq` index replaces IVFFlat. Queries do not change: the vect
    await ragMigrate(migrationProvider, { sqlDir, vectorchord: true });
    ```
 
-   Passing `sqlDir` works in every version; 0.6.0 and earlier require it when the library is installed as a package. See [Run migrations](/how-to/run-migrations).
+   Passing `sqlDir` works in every version; 0.2.5 and earlier require it when the library is installed as a package. See [Run migrations](/how-to/run-migrations).
 
 3. Keep your adapter code. The `ivfflatProbes`, `ivfflatIterativeScan` and `ivfflatMaxProbes` options have no effect on a `vchordrq` index.
 

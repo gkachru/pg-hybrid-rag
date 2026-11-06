@@ -159,7 +159,7 @@ These are thrown as plain `Error` (or `AggregateError`), so match them by messag
 | `new OpenAiCompatibleEmbedder` | `batchSize` or `concurrency` is not a positive number. | `OpenAiCompatibleEmbedder batchSize must be` / `... concurrency must be` |
 | `new OpenAiCompatibleFilterModel` | `maxTokens` is set and not a positive integer. | `OpenAiCompatibleFilterModel: maxTokens must be` |
 | `CachingMetadataCatalog.register` | A registry key is invalid. | `Invalid registry keys:` |
-| `ragMigrate` | The SQL directory (`sqlDir`, or the package's own `sql/` directory when `sqlDir` is omitted) does not exist. Version 0.6.0 and earlier can't locate the directory when installed as a package; pass `sqlDir` on those versions (see [Migrations](/reference/migrations#sql-directory)). | `ragMigrate: SQL directory not found at <path>` |
+| `ragMigrate` | The SQL directory (`sqlDir`, or the package's own `sql/` directory when `sqlDir` is omitted) does not exist. Version 0.2.5 and earlier can't locate the directory when installed as a package; pass `sqlDir` on those versions (see [Migrations](/reference/migrations#sql-directory)). | `ragMigrate: SQL directory not found at <path>` |
 | `serializeAttributes` | A decimal entry's `v` is not a decimal string. | `decimal entry` |
 
 Database driver errors (for example a dimension mismatch on insert, a missing extension, or an RLS violation) propagate unchanged from your `SqlClient`.

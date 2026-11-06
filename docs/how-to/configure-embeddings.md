@@ -81,7 +81,7 @@ The embedder sends `${queryPrefix}: ${text}` for queries and `${documentPrefix}:
 | nomic-embed-text | `"search_query"` | `"search_document"` |
 | Models that expect raw text | `""` | `""` |
 
-In 0.6.0 and earlier, an empty prefix is still sent with its separator (`": text"`); on those versions, implement `EmbeddingProvider` yourself to send unprefixed text.
+In 0.2.5 and earlier, an empty prefix is still sent with its separator (`": text"`); on those versions, implement `EmbeddingProvider` yourself to send unprefixed text.
 
 ### 5. (Optional) Write your own `EmbeddingProvider`
 

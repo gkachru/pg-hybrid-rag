@@ -30,21 +30,36 @@
 # pre-built .debs below.
 ARG PGVECTOR_TAG=0.8.7-pg17-bookworm
 ARG VCHORD_VERSION=1.1.1
+# sha256 of the VectorChord .deb for VCHORD_VERSION, per architecture. The release publishes no
+# checksum file, so these are the digests GitHub records for the release assets:
+#   gh api repos/tensorchord/VectorChord/releases/tags/<version> \
+#     --jq '.assets[] | select(.name | startswith("postgresql-17-vchord_")) | .name + " " + .digest'
+# Update both when you change VCHORD_VERSION; a mismatch or a missing value fails the build.
+ARG VCHORD_SHA256_AMD64=a48132c8d616c0d52a9811b32f12f88a8f6cc8542d7cc0180c8d0986bfbd03c5
+ARG VCHORD_SHA256_ARM64=50ae776bb2376f2b21aea646984cef51e96cc8ae49626cceccb043432c3ba1aa
 ARG PG_TEXTSEARCH_VERSION=1.5.1
 ARG PG_BIGM_VERSION=1.2-20240606
 
 # ── Stage 1: download the pre-built .debs for vchord and pg_textsearch ──────
 FROM debian:bookworm-slim AS downloader
 ARG VCHORD_VERSION
+ARG VCHORD_SHA256_AMD64
+ARG VCHORD_SHA256_ARM64
 ARG PG_TEXTSEARCH_VERSION
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl unzip \
     && rm -rf /var/lib/apt/lists/*
 # dpkg --print-architecture returns amd64 or arm64, matching the release asset names.
 RUN ARCH=$(dpkg --print-architecture) \
+    && case "$ARCH" in \
+         amd64) VCHORD_SHA256="$VCHORD_SHA256_AMD64" ;; \
+         arm64) VCHORD_SHA256="$VCHORD_SHA256_ARM64" ;; \
+         *) echo "No VectorChord checksum for architecture $ARCH" >&2; exit 1 ;; \
+       esac \
     && curl -fsSL \
         "https://github.com/tensorchord/VectorChord/releases/download/${VCHORD_VERSION}/postgresql-17-vchord_${VCHORD_VERSION}-1_${ARCH}.deb" \
-        -o /tmp/vchord.deb
+        -o /tmp/vchord.deb \
+    && echo "${VCHORD_SHA256}  /tmp/vchord.deb" | sha256sum -c -
 RUN ARCH=$(dpkg --print-architecture) \
     && curl -fsSL \
         "https://github.com/timescale/pg_textsearch/releases/download/v${PG_TEXTSEARCH_VERSION}/pg-textsearch-v${PG_TEXTSEARCH_VERSION}-pg17-${ARCH}.zip" \
