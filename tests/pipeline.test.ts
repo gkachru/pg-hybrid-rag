@@ -510,7 +510,12 @@ describe("RagPipeline", () => {
         rerank: async (_q, results) =>
           [...results].reverse().map((r, i) => ({ ...r, score: 1 - i * 0.1 })),
       };
-      const p = new RagPipeline({ tenantId: "tenant-1", db: mockDb, embedder: mockEmbedder, reranker });
+      const p = new RagPipeline({
+        tenantId: "tenant-1",
+        db: mockDb,
+        embedder: mockEmbedder,
+        reranker,
+      });
       const results = await p.search("test", {
         rerank: true,
         language: "en",
@@ -536,7 +541,12 @@ describe("RagPipeline", () => {
           throw new Error("Reranker API down");
         },
       };
-      const p = new RagPipeline({ tenantId: "tenant-1", db: mockDb, embedder: mockEmbedder, reranker });
+      const p = new RagPipeline({
+        tenantId: "tenant-1",
+        db: mockDb,
+        embedder: mockEmbedder,
+        reranker,
+      });
       const results = await p.search("test", {
         rerank: true,
         language: "en",
