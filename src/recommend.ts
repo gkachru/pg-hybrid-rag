@@ -60,7 +60,7 @@ export interface LanguageRecommendation {
   vectorMinScore: number;
   /** Postgres FTS regconfig for this language ('english', 'arabic', …), or 'none' (simple). */
   stemming: string;
-  /** normalizeForLanguage applies more than NFC for this language (Arabic folding, Thai digits). */
+  /** normalizeForLanguage applies more than NFC for this language (Arabic folding; Thai digits and mai yamok). */
   needsNormalization: boolean;
   /** CJK language → enable the pg_bigm keyword path (cjk: true on adapter + migration). */
   isCjk: boolean;

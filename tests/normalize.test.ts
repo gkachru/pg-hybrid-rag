@@ -57,8 +57,22 @@ describe("normalizeForLanguage (Thai)", () => {
   });
 
   it("is idempotent", () => {
-    const once = normalizeForLanguage("ราคา ๑๒๓ บาท", "th");
+    const once = normalizeForLanguage("ราคา ๑๒๓ บาท อื่น ๆ", "th");
     expect(normalizeForLanguage(once, "th")).toBe(once);
+  });
+
+  it("drops mai yamok (ๆ) whether it is attached or spaced", () => {
+    expect(normalizeForLanguage("ค่าธรรมเนียมอื่นๆ ภายใน", "th")).toBe("ค่าธรรมเนียมอื่น ภายใน");
+    expect(normalizeForLanguage("ค่าธรรมเนียม อื่น ๆ ภายใน", "th")).toBe("ค่าธรรมเนียม อื่น ภายใน");
+    expect(normalizeForLanguage("คืนทุก ๆ ๓ ปี", "th")).toBe("คืนทุก 3 ปี");
+  });
+
+  it("keeps paiyannoi (ฯ)", () => {
+    expect(normalizeForLanguage("กรุงเทพฯ ฯลฯ", "th")).toBe("กรุงเทพฯ ฯลฯ");
+  });
+
+  it("leaves ๆ alone for other languages", () => {
+    expect(normalizeForLanguage("อื่นๆ", "en")).toBe("อื่นๆ");
   });
 });
 

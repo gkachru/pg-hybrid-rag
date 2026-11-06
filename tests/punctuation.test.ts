@@ -48,17 +48,15 @@ describe("stripTrailingPunctuation", () => {
     expect(stripTrailingPunctuation("co-op")).toBe("co-op");
   });
 
-  it("strips Thai trailing marks (mai yamok, paiyannoi)", () => {
+  it("strips a trailing Thai mai yamok (ๆ)", () => {
     expect(stripTrailingPunctuation("เด็กๆ")).toBe("เด็ก");
-    expect(stripTrailingPunctuation("กรุงเทพฯ")).toBe("กรุงเทพ");
   });
 
-  it("keeps ฯลฯ (Thai 'etc.') whole", () => {
+  it("keeps Thai paiyannoi (ฯ), including ฯลฯ ('etc.')", () => {
+    expect(stripTrailingPunctuation("กรุงเทพฯ")).toBe("กรุงเทพฯ");
     expect(stripTrailingPunctuation("ฯลฯ")).toBe("ฯลฯ");
     expect(stripTrailingPunctuation("อาหารฯลฯ")).toBe("อาหารฯลฯ");
     expect(stripTrailingPunctuation("ฯลฯ.")).toBe("ฯลฯ");
-    expect(stripTrailingPunctuation("ฯลฯ)")).toBe("ฯลฯ");
-    // Only a complete ฯลฯ is restored.
-    expect(stripTrailingPunctuation("ผลฯ")).toBe("ผล");
+    expect(stripTrailingPunctuation("กรุงเทพฯ?")).toBe("กรุงเทพฯ");
   });
 });

@@ -23,6 +23,11 @@
 - `CachingStopWordsLoader` / `CachingSynonymLoader`: a load in flight during `invalidate()` no
   longer writes its stale result into the cache.
 - The `stopWordsApplied` span attribute and log field are true only when a stop word was removed.
+- Thai: `normalizeForLanguage` / `LanguageNormalizer` drop mai yamok (ๆ), with any whitespace
+  before it, from the indexed `content_normalized` and the lexical query, so attached, spaced
+  and omitted forms match in the keyword leg. Paiyannoi (ฯ) is no longer stripped from query
+  words, so `กรุงเทพฯ` and `ฯลฯ` match documents as written. Re-index Thai sources to normalize
+  their stored text.
 - `Chunker.chunk()`: overlap is carried into a following paragraph that is split by sentences, and
   a buffer holding only carried overlap is no longer emitted as a duplicate chunk.
 

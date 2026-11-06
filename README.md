@@ -253,7 +253,7 @@ await pipeline.search(query, { language: "ar", vectorMinScore: rec.vectorMinScor
 | `embedder` / `dimensions` / `vectorMinScore` | Constant `BAAI/bge-m3` / `1024` / `0.4` — **measured** best for Arabic and Thai, applied as a multilingual default for every language. Thresholds are starting points; validate on your corpus. |
 | `maxTokens` | The embedder's max input length (`8192` for bge-m3; multilingual-e5 caps at `512`). A truncation **ceiling**, not a target — see the chunk-size note below. |
 | `stemming` | Postgres FTS regconfig for the language (`"english"`, `"arabic"`, …) or `"none"` (the `simple` config). Mirrors `rag_fts_config`, including its exact-code matching: `"pt-BR"` reports `"none"`. |
-| `needsNormalization` | `true` where `normalizeForLanguage` does more than NFC (Arabic orthographic folds, Thai digit folding) — i.e. construct a `LanguageNormalizer`. Uses the base code, as `normalizeForLanguage` does (`"ar-MA"` → `true`). |
+| `needsNormalization` | `true` where `normalizeForLanguage` does more than NFC (Arabic orthographic folds, Thai digit folding and mai yamok removal) — i.e. construct a `LanguageNormalizer`. Uses the base code, as `normalizeForLanguage` does (`"ar-MA"` → `true`). |
 | `isCjk` | `true` for the codes the adapter routes to pg_bigm (`zh`, `zh-CN`, `ja`, `ja-JP`, `ko`, `ko-KR`) → enable the pg_bigm keyword path (`cjk: true` in the migration and adapter). |
 
 > **The embedding dimension is per-database, not per-tenant.** `rec.dimensions` feeds the one-time

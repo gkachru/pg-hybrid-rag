@@ -98,7 +98,7 @@ Prefer a language you already know, such as the user's locale or the language of
 
 ## Normalize text for lexical matching
 
-`LanguageNormalizer` folds spelling variants so the keyword and full-text legs match them. It applies Arabic folds (diacritics, tatweel, alef variants, alef maqsura to yeh, taa marbuta to heh, Arabic-Indic digits to ASCII), folds Thai digits, and applies Unicode NFC to every other language.
+`LanguageNormalizer` folds spelling variants so the keyword and full-text legs match them. It applies Arabic folds (diacritics, tatweel, alef variants, alef maqsura to yeh, taa marbuta to heh, Arabic-Indic digits to ASCII), folds Thai digits and drops the Thai repetition mark ๆ (mai yamok), and applies Unicode NFC to every other language. Because ๆ is dropped from both the indexed text and the query, `อื่นๆ`, `อื่น ๆ` and `อื่น` match each other in the keyword leg. Re-index Thai sources after upgrading so their stored text is normalized the same way.
 
 Pass the same normalizer to the indexer and the pipeline. The indexer applies it to `content_normalized`; the pipeline applies it to the lexical query. Neither the stored `content`, the embedding, nor the reranker input is changed.
 

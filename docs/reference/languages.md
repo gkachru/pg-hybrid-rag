@@ -55,7 +55,7 @@ Because the leg is restricted to one group's partial index, a BM25 search only r
 | Base code | Normalization |
 |-----------|---------------|
 | `ar` | NFC; remove tashkeel, superscript alef, tatweel, ZWNJ and ZWJ; fold alef variants to bare alef; fold `ى` to `ي` and `ة` to `ه` (each can be disabled with `ArabicNormalizeOptions`); convert Arabic-Indic and extended Arabic-Indic digits to ASCII. |
-| `th` | NFC; convert Thai digits to ASCII. |
+| `th` | NFC; convert Thai digits to ASCII; drop mai yamok `ๆ` and any whitespace before it. |
 | Any other | NFC only. |
 
 Full character ranges are in [Utilities: normalizeForLanguage](/reference/utilities#normalizeforlanguage).

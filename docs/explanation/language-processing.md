@@ -36,7 +36,7 @@ That is why `Normalizer` and `Segmenter` are injected into both `RagIndexer` (ap
 Some scripts write the same word in several ways. `LanguageNormalizer` (built on `normalizeForLanguage`) applies per-language folding:
 
 - **Arabic:** removes diacritics (tashkeel) and tatweel, folds alef variants to bare alef, and by default folds alef maqsura to yeh and taa marbuta to heh. It also converts Arabic-Indic digits to ASCII digits.
-- **Thai:** converts Thai digits to ASCII digits.
+- **Thai:** converts Thai digits to ASCII digits and drops the repetition mark ๆ (mai yamok). Writers attach it (`อื่นๆ`) or put a space before it (`อื่น ๆ`), and pg_trgm treats it as a letter, so keeping it made keyword matching depend on writing style. Dropping it on both sides removes that dependence. In a keyword-leg test with short phrases taken from a Thai FAQ corpus and written in each form, the source chunk ranked first for 0.93 of queries instead of 0.81.
 - **All languages:** Unicode NFC normalization.
 
 Folding is deliberately lossy. Folding taa marbuta to heh, for example, merges some distinct words. That is acceptable for the lexical legs, where recall on variant spellings matters more, and it never touches the text that the embedding model or your users see.

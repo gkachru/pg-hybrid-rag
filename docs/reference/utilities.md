@@ -75,7 +75,7 @@ Orthographic normalization, selected by the base language code (the part before 
 | Base code | Steps |
 |-----------|-------|
 | `ar` | NFC; remove tashkeel (U+064B-U+065F) and superscript alef (U+0670); remove tatweel (U+0640), ZWNJ (U+200C) and ZWJ (U+200D); fold alef variants `آ أ إ ٱ` to `ا`; fold `ى` to `ي` (unless `foldAlefMaqsura: false`); fold `ة` to `ه` (unless `foldTaaMarbuta: false`); convert Arabic-Indic digits `٠-٩` and extended Arabic-Indic digits `۰-۹` to `0-9`; NFC. |
-| `th` | NFC; convert Thai digits `๐-๙` to `0-9`. |
+| `th` | NFC; convert Thai digits `๐-๙` to `0-9`; drop mai yamok `ๆ` together with any whitespace before it (`อื่น ๆ` and `อื่นๆ` both become `อื่น`). Paiyannoi `ฯ` is kept. |
 | Any other | NFC only. |
 
 ```ts
@@ -157,10 +157,10 @@ Removes a trailing run of characters matched by `TRAILING_PUNCTUATION`. `RagPipe
 ### TRAILING_PUNCTUATION
 
 ```text
-/[?.!,;:।॥؟،؛。！？、；：ๆฯ)\]}"'…’”]+$/
+/[?.!,;:।॥؟،؛。！？、；：ๆ)\]}"'…’”]+$/
 ```
 
-Covers Latin `? . ! , ; :`, Devanagari `। ॥`, Arabic `؟ ، ؛`, CJK full-width `。 ！ ？ 、 ； ：`, Thai `ๆ ฯ`, closing brackets `) ] }`, straight and curly closing quotes, and the ellipsis `…`.
+Covers Latin `? . ! , ; :`, Devanagari `। ॥`, Arabic `؟ ، ؛`, CJK full-width `。 ！ ？ 、 ； ：`, Thai mai yamok `ๆ`, closing brackets `) ] }`, straight and curly closing quotes, and the ellipsis `…`.
 
 ```ts
 import { stripTrailingPunctuation } from "pg-hybrid-rag";
@@ -168,6 +168,8 @@ import { stripTrailingPunctuation } from "pg-hybrid-rag";
 stripTrailingPunctuation("refund?"); // "refund"
 stripTrailingPunctuation("返品。"); // "返品"
 ```
+
+Thai paiyannoi `ฯ` is not stripped: it is part of words such as `กรุงเทพฯ` and `ฯลฯ`, which documents keep, so the query keeps it too.
 
 ### removeStopWords
 
