@@ -104,12 +104,13 @@ Three-way hybrid search fused via RRF:
 | `sql/017-019_*.sql` | `attributes` JSONB column + GIN index, `rag_metadata_registry`, registry RLS (019, only with `rls`) |
 | `sql/020_stop_words_unique.sql` | Dedupes `rag_stop_words`, unique index on `(tenant_id, language, word)` |
 | `sql/021_force_rls.sql` | `FORCE ROW LEVEL SECURITY` on the tenant tables (only with `rls`); header documents how a future backfill lifts it |
-| `sql/001-021_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK, normalization) |
+| `sql/022_rls_empty_tenant.sql` | Recreates the tenant policies with `NULLIF(current_setting(...), '')` so an emptied GUC matches no rows instead of failing `::uuid` (only with `rls`) |
+| `sql/001-022_*.sql` | Database migrations (extensions, tables, indexes, triggers, RLS, stemming, CJK, normalization) |
 
 ## Design patterns
 
 - **Dependency injection** — all providers passed at construction. Library owns no I/O; consumers provide SqlClient, TransactionProvider, EmbeddingProvider, optional RerankerProvider.
-- **Multi-tenant** — every table has `tenant_id`. Optional RLS via migrations 007 + 019, FORCEd by 021 so the table owner is bound too (superuser/BYPASSRLS exempt).
+- **Multi-tenant** — every table has `tenant_id`. Optional RLS via migrations 007 + 019, FORCEd by 021 so the table owner is bound too (superuser/BYPASSRLS exempt); 022 maps an empty `app.current_tenant_id` to NULL (no rows, no cast error).
 - **Interface-first** — core logic depends on interfaces in `interfaces.ts`, not concrete adapters.
 - **No env vars** — all config is explicit constructor params.
 - **No runtime dependencies** — zero npm dependencies. Stemming handled by Postgres via `rag_fts_config()` SQL function.

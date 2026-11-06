@@ -17,10 +17,10 @@ The `WHERE tenant_id = $1` clauses are the first layer. They depend on the appli
 `ragMigrate({ rls: true })` applies policies to the four tenant tables. Each policy allows a row only when its `tenant_id` equals the `app.current_tenant_id` setting:
 
 ```sql
-USING (tenant_id = current_setting('app.current_tenant_id', true)::uuid)
+USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
 ```
 
-The second argument, `true`, makes `current_setting` return NULL instead of raising an error when the setting was never set. A NULL never equals a tenant id, so a connection that never set the tenant sees zero rows. On a pooled connection where an earlier transaction set the tenant and it has since been reset, the setting reads as an empty string instead, and the `::uuid` cast raises an error. Either way this is the fail-closed choice: a missing setting produces empty results or an error, not another tenant's data. The cost is that the mistake is quiet. A search that returns nothing, or a stop-word loader that loads nothing, can mean the tenant setting is missing.
+The second argument, `true`, makes `current_setting` return NULL instead of raising an error when the setting was never set. A NULL never equals a tenant id, so a connection that never set the tenant sees zero rows. On a pooled connection where an earlier transaction set the tenant and it has since been reset, the setting reads as an empty string instead. `NULLIF` (migration 022) turns that into NULL too; before it, the `::uuid` cast raised an error, so the same query could fail or return nothing depending on which pooled connection ran it. Either way this is the fail-closed choice: a missing setting produces empty results or an error, not another tenant's data. The cost is that the mistake is quiet. A search that returns nothing, or a stop-word loader that loads nothing, can mean the tenant setting is missing.
 
 Two Postgres rules decide whether the policies apply at all:
 

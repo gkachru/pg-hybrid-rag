@@ -192,6 +192,15 @@ describe("ragMigrate", () => {
     expect(rls.appliedMigrations).toContain("021_force_rls.sql");
   });
 
+  it("applies the empty-tenant policy migration (022) only with rls: true", async () => {
+    const plain = createMockClient();
+    await ragMigrate(plain.client, { sqlDir });
+    expect(plain.appliedMigrations).not.toContain("022_rls_empty_tenant.sql");
+    const rls = createMockClient();
+    await ragMigrate(rls.client, { sqlDir, rls: true });
+    expect(rls.appliedMigrations).toContain("022_rls_empty_tenant.sql");
+  });
+
   it("applies the Arabic FTS migration (014) by default", async () => {
     const { client, appliedMigrations } = createMockClient();
     await ragMigrate(client, { sqlDir });

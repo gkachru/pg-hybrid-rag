@@ -38,6 +38,10 @@
 - `HybridSearchParams.skipLegs` and the `SearchLeg` type (set by the pipeline for zero-weight legs).
 - Migration `020_stop_words_unique.sql` (default): removes duplicate stop words and adds a unique
   index on `(tenant_id, language, word)`.
+- Migration `022_rls_empty_tenant.sql` (with `rls: true`): recreates the four tenant policies with
+  `NULLIF(current_setting('app.current_tenant_id', true), '')`. After a transaction-local
+  `set_config` ends, the setting reads as `''`, which made the `::uuid` cast fail on a pooled
+  connection; it now matches no rows, the same as a never-set session.
 - Migration `021_force_rls.sql` (with `rls: true`): `FORCE ROW LEVEL SECURITY` on the four tenant
   tables.
 

@@ -1,6 +1,6 @@
 # Migrations
 
-This page specifies `ragMigrate`, its options, how it tracks and applies the SQL files shipped in the package's `sql/` directory, and what each migration (001-021) does.
+This page specifies `ragMigrate`, its options, how it tracks and applies the SQL files shipped in the package's `sql/` directory, and what each migration (001-022) does.
 
 ```ts
 import { createRequire } from "node:module";
@@ -101,7 +101,7 @@ Files are split on top-level `;`. A `;` is not treated as a terminator inside a 
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `rls` | `boolean` | `false` | Apply row-level security (migrations 007, 019 and 021). |
+| `rls` | `boolean` | `false` | Apply row-level security (migrations 007, 019, 021 and 022). |
 | `cjk` | `boolean` | `false` | Apply pg_bigm support for Chinese, Japanese and Korean (migration 009). |
 | `vectorchord` | `boolean` | `false` | Replace the IVFFlat index with a VectorChord `vchordrq` index (migration 010). Requires `vchord` in `shared_preload_libraries` and a server restart. |
 | `bm25` | `boolean` | `false` | Create pg_textsearch BM25 indexes (migrations 011 and 015). Requires `pg_textsearch` in `shared_preload_libraries` and a server restart. |
@@ -141,12 +141,13 @@ The extensions themselves (pgvector, pg_trgm and the optional ones) must be inst
 | `019_metadata_registry_rls.sql` | `rls` | Enables row-level security and a tenant-isolation policy on `rag_metadata_registry`. |
 | `020_stop_words_unique.sql` | Always | Deletes duplicate `rag_stop_words` rows with the same `(tenant_id, language, word)`, keeping one row of each, then creates the unique index `idx_rag_stop_words_tenant_lang_word (tenant_id, language, word)`. Matching is exact and case-sensitive (`The` and `the` are distinct). |
 | `021_force_rls.sql` | `rls` | Sets `FORCE ROW LEVEL SECURITY` on `rag_documents`, `rag_stop_words`, `rag_synonyms` and `rag_metadata_registry`, so the tenant policies also apply to the table owner. Superusers and roles with `BYPASSRLS` remain exempt. |
+| `022_rls_empty_tenant.sql` | `rls` | Drops and recreates the four tenant policies (`rag_documents_tenant_isolation`, `rag_stop_words_tenant_isolation`, `rag_synonyms_tenant_isolation`, `rag_metadata_registry_tenant_isolation`) with `USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)`. An empty setting, which a session reports after a transaction-local `set_config` has ended, then matches no rows instead of failing the `::uuid` cast. Also replaces the older single-argument policy form. |
 
 Notes:
 
 - Migrations 008, 013 and 014 each run an `UPDATE` over every row of `rag_documents` (013 only where `content_normalized` is null, which is every row on first run); on a large existing table this takes time and rewrites each row.
 - Migrations 013 and 016 create indexes inside the migration. On a large existing table, you can build the same index first with `CREATE INDEX CONCURRENTLY` and the same name; the migration's `IF NOT EXISTS` then skips it. For 013, the `content_normalized` column must exist first: add it with `ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS content_normalized TEXT` before building the index (the migration's `ADD COLUMN IF NOT EXISTS` then skips it too).
-- Migration 007 uses `CREATE POLICY` without `OR REPLACE`. A database that already recorded 007 keeps its existing policies.
+- Migration 007 uses `CREATE POLICY` without `OR REPLACE`. A database that already recorded 007 keeps its existing policies until migration 022 recreates them.
 - Migration 021 changes behavior for an application that connects as the (non-superuser) role that owns the tables: before 021 the owner bypassed the policies and saw every tenant's rows; after it, the owner must set `app.current_tenant_id`, and queries without it return no rows.
 - After 021, a data migration (`UPDATE` or `DELETE` backfill) on these tables run by a non-superuser owner sees only the rows of the tenant in `app.current_tenant_id` (none when unset). The header of `sql/021_force_rls.sql` shows the pattern: record `pg_class.relforcerowsecurity`, run `ALTER TABLE ... NO FORCE ROW LEVEL SECURITY`, run the backfill, and restore `FORCE` only if it was set, all in one `DO` block.
 - The resulting tables, columns, indexes and functions are listed in [Schema](/reference/schema).

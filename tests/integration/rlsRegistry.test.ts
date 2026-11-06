@@ -209,15 +209,20 @@ describe.skipIf(!RUN_INTEGRATION)("RLS: metadata registry + attributes (live Pos
       expect(b.map((r) => r.description)).toEqual(["B only"]);
     });
 
-    test("GUC set then RESET on a pooled session errors instead of returning rows", async () => {
-      // A reset custom GUC reads as '' (not NULL), and ''::uuid fails: closed by error.
+    test("GUC set then RESET on a pooled session returns zero rows (migration 022)", async () => {
+      // A reset custom GUC reads as '' (not NULL). Before 022, ''::uuid raised an error; 022's
+      // NULLIF maps '' to NULL, so the policy matches no rows, like a never-set session.
       const reserved = await testDb.sql.reserve();
       try {
         await reserved.unsafe(`SET ROLE ${ROLE}`);
         await reserved.unsafe("SELECT set_config('app.current_tenant_id', $1, false)", [A]);
         await reserved.unsafe("RESET app.current_tenant_id");
-        const err = await errorOf(() => reserved.unsafe("SELECT * FROM rag_metadata_registry"));
-        expect(err).toContain("uuid");
+        let rows: unknown[] = [];
+        const err = await errorOf(async () => {
+          rows = [...(await reserved.unsafe("SELECT * FROM rag_metadata_registry"))];
+        });
+        expect(err).toBeNull();
+        expect(rows).toHaveLength(0);
       } finally {
         await reserved.unsafe("RESET ROLE");
         reserved.release();

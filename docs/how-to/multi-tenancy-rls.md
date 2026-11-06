@@ -28,8 +28,9 @@ await ragMigrate(ownerProvider, { sqlDir, rls: true, embeddingDimensions: 1024 }
 | `rag_documents`, `rag_stop_words`, `rag_synonyms` | 007 |
 | `rag_metadata_registry` | 019 |
 | All four tables: `FORCE ROW LEVEL SECURITY` | 021 |
+| All four policies recreated to treat an empty setting as unset | 022 |
 
-Each policy is `USING (tenant_id = current_setting('app.current_tenant_id', true)::uuid)`. It has no separate `WITH CHECK`, so the same condition also applies to inserted and updated rows.
+Each policy is `USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)` (the `NULLIF` form is from migration 022). It has no separate `WITH CHECK`, so the same condition also applies to inserted and updated rows.
 
 ### 2. Create the application role
 
@@ -157,7 +158,7 @@ SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'rag_app';  -- both 
 | Situation | Result |
 | --- | --- |
 | `app.current_tenant_id` was never set in the session | Reads return zero rows. Inserts fail with a row-level security error. |
-| The setting was set earlier on this pooled session and isn't set now (a finished transaction used `set_config(..., true)`, or the value was `RESET`), and this transaction skips setting it | It reads as an empty string, and the `::uuid` cast raises `invalid input syntax for type uuid`. The query fails instead of returning rows. |
+| The setting was set earlier on this pooled session and isn't set now (a finished transaction used `set_config(..., true)`, or the value was `RESET`), and this transaction skips setting it | The setting reads as an empty string. With migration 022 the policies treat it like an unset setting: reads return zero rows. On a database without 022, the `::uuid` cast raises `invalid input syntax for type uuid` and the query fails. |
 | The session tenant differs from the `tenantId` argument | Reads return zero rows. Inserts and tenant changes fail with a row-level security error. |
 | The application connects as the table owner | Same as any other role once migration 021 is applied: without the setting, reads return zero rows. On a database without 021, the owner skips the policies. |
 | The application connects as a superuser or a `BYPASSRLS` role | **Not fail-closed.** Policies are skipped; only the library's own `tenant_id` filters apply. |
@@ -177,16 +178,9 @@ On a database already migrated with `rls: true`, the next `ragMigrate` run with 
 
 The header of `sql/021_force_rls.sql` shows the pattern a data migration uses to lift `FORCE` for its own transaction.
 
-### Migration 007 policy form
+### Migration 022 recreates the policies
 
-Migration 007 originally used the one-argument `current_setting('app.current_tenant_id')`, which raises `unrecognized configuration parameter` when the setting was never set, instead of returning zero rows. `ragMigrate` doesn't re-run an applied file, so a database that applied the older 007 keeps the older policies. To adopt the current form, recreate each policy as the owner:
-
-```sql
-DROP POLICY rag_documents_tenant_isolation ON rag_documents;
-CREATE POLICY rag_documents_tenant_isolation ON rag_documents
-  USING (tenant_id = current_setting('app.current_tenant_id', true)::uuid);
--- Repeat for rag_stop_words_tenant_isolation and rag_synonyms_tenant_isolation.
-```
+Migration 022 drops and recreates the four tenant policies by name in the `NULLIF` form. Running `ragMigrate` with `rls: true` applies it, which also upgrades a database that still has the one-argument policies from an early version of migration 007 (those raise `unrecognized configuration parameter` when the setting was never set). If you replaced a policy with your own under one of these names, re-apply your version after migration 022.
 
 ## Without RLS
 

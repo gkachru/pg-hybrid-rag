@@ -15,7 +15,7 @@
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `embeddingDimensions` | `number` | `384` | Size of the `rag_documents.embedding` column (`vector(N)`). Applies only when migration 002 runs, which is on a fresh install. |
-| `rls` | `boolean` | `false` | Apply row-level security policies (migrations 007 and 019) and force them on the table owner (migration 021). |
+| `rls` | `boolean` | `false` | Apply row-level security policies (migrations 007 and 019) force them on the table owner (migration 021), and make an empty tenant setting match no rows instead of erroring (migration 022). |
 | `cjk` | `boolean` | `false` | Create the pg_bigm extension and its GIN index (migration 009). |
 | `vectorchord` | `boolean` | `false` | Replace the IVFFlat index with a VectorChord `vchordrq` index (migration 010). |
 | `bm25` | `boolean` | `false` | Create the pg_textsearch BM25 indexes (migrations 011 and 015). |
@@ -124,9 +124,9 @@ SELECT name, applied_at FROM _rag_migrations ORDER BY name;
 
 The SQL files ship in the package at `node_modules/pg-hybrid-rag/sql/`. To manage them with Flyway, Liquibase, node-pg-migrate or similar:
 
-1. Apply the files in filename order (`001_...` to `021_...`).
+1. Apply the files in filename order (`001_...` to `022_...`).
 2. In `002_rag_documents.sql`, replace the `__EMBEDDING_DIM__` token with your embedding dimension.
-3. Skip the optional files you don't want: `007_rls_policies.sql`, `019_metadata_registry_rls.sql` and `021_force_rls.sql` (RLS), `009_cjk_bigm.sql` (CJK), `010_vectorchord.sql` (VectorChord), `011_pg_textsearch.sql` and `015_bm25_normalized_textsearch.sql` (BM25).
+3. Skip the optional files you don't want: `007_rls_policies.sql`, `019_metadata_registry_rls.sql` , `021_force_rls.sql` and `022_rls_empty_tenant.sql` (RLS), `009_cjk_bigm.sql` (CJK), `010_vectorchord.sql` (VectorChord), `011_pg_textsearch.sql` and `015_bm25_normalized_textsearch.sql` (BM25).
 4. When you upgrade the package, compare the new `sql/` directory with the files you already applied and add the new ones.
 
 ::: warning
@@ -143,6 +143,7 @@ Pick one runner. `ragMigrate` decides what to apply from the `_rag_migrations` t
    - Migration 017 adds the `attributes` column with a constant default (no table rewrite) and builds the `idx_rag_attributes` GIN index, which blocks writes while it builds.
    - Migration 010 (`vectorchord: true`) builds the `vchordrq` index and blocks writes while it builds.
    - Migration 020 deletes duplicate `rag_stop_words` rows (same `tenant_id`, `language` and `word`, compared exactly, so `The` and `the` both stay), keeping one of each, then adds the unique index `idx_rag_stop_words_tenant_lang_word`. Seed scripts can then use `INSERT ... ON CONFLICT DO NOTHING`; a plain `INSERT` of an existing row now fails. See [Manage stop words and synonyms](/how-to/stop-words-and-synonyms).
+   - Migration 022 (`rls: true`) drops and recreates the four tenant policies by name with `NULLIF(current_setting('app.current_tenant_id', true), '')`, so a pooled session whose earlier transaction set the tenant returns zero rows instead of raising `invalid input syntax for type uuid`. A custom policy with one of those names is replaced.
    - Migration 021 (`rls: true`) forces row-level security on `rag_documents`, `rag_stop_words`, `rag_synonyms` and `rag_metadata_registry`, so the table owner is bound by the tenant policies too (superusers and `BYPASSRLS` roles stay exempt). If your application connects as the owner role without setting `app.current_tenant_id`, it sees no rows after this migration. Set the tenant on every transaction first. See [Isolate tenants with RLS](/how-to/multi-tenancy-rls).
 
 ::: tip

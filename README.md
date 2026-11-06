@@ -895,7 +895,7 @@ const db = new PostgresRagDatabase(txProvider, { manageTransaction: false });
 > - **Pin only, no ambient transaction** — node-postgres `pool.connect()`. Keep the default: the tuned search legs *and* `replaceSource` (re-indexing) wrap their work in their own `BEGIN`/`COMMIT` (`ROLLBACK` on error).
 > - **Pin via an interactive transaction** — Prisma `prisma.$transaction(...)` or postgres.js `withTenantSql` (the latter also does `SET LOCAL app.current_tenant_id` for RLS). Construct the adapter with `new PostgresRagDatabase(txProvider, { manageTransaction: false })`. The legs and `replaceSource` then run `set_config(..., is_local => true)` and their SQL in that ambient transaction (GUCs stay transaction-local to it) and never issue `BEGIN`/`COMMIT`/`ROLLBACK`; on error they rethrow and the consumer's transaction owns rollback. Passing an interactive-transaction provider but leaving `manageTransaction` at its default makes the legs nest a `BEGIN` (which warns "transaction already in progress") and `COMMIT` the consumer's transaction early — discarding any `SET LOCAL`.
 >
-> RLS itself fails closed: the policies use the 2-arg `current_setting('app.current_tenant_id', true)`, so a connection that never set the tenant GUC matches zero rows instead of erroring. Migration 021 (applied with `rls: true`) also FORCEs RLS, so the policies bind the table owner too; only superusers and `BYPASSRLS` roles are exempt.
+> RLS itself fails closed: the policies use the 2-arg `current_setting('app.current_tenant_id', true)`, so a connection that never set the tenant GUC matches zero rows instead of erroring. Migration 022 wraps it in `NULLIF(..., '')`, so a pooled connection whose earlier transaction set the tenant (the setting then reads as `''`) also matches zero rows instead of failing the `::uuid` cast. Migration 021 (applied with `rls: true`) also FORCEs RLS, so the policies bind the table owner too; only superusers and `BYPASSRLS` roles are exempt.
 
 ## Default Adapters
 
@@ -944,7 +944,7 @@ Reranking is opt-in (`rerank: false` by default). The pipeline sorts the reranke
 
 ## Schema
 
-The package manages 4 tables: `rag_documents`, `rag_stop_words`, `rag_synonyms`, `rag_metadata_registry`. All include `tenant_id` for multi-tenant isolation. RLS policies are optional (migrations 007, 019 and 021, applied with `rls: true`). `rag_stop_words` is unique on `(tenant_id, language, word)` from migration 020. CJK support via pg_bigm is optional (migration 009).
+The package manages 4 tables: `rag_documents`, `rag_stop_words`, `rag_synonyms`, `rag_metadata_registry`. All include `tenant_id` for multi-tenant isolation. RLS policies are optional (migrations 007, 019, 021 and 022, applied with `rls: true`). `rag_stop_words` is unique on `(tenant_id, language, word)` from migration 020. CJK support via pg_bigm is optional (migration 009).
 
 `rag_documents` also has an `attributes` JSONB column (migration 017) holding typed metadata attributes; `rag_metadata_registry` (migration 018) stores per-tenant registered metadata keys.
 

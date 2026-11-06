@@ -171,7 +171,7 @@ The trigger function described under [Trigger](#trigger).
 
 ## Row-level security
 
-Created only with `rls: true` (migrations 007, 019 and 021).
+Created only with `rls: true` (migrations 007, 019, 021 and 022).
 
 | Table | Policy |
 |-------|--------|
@@ -183,11 +183,11 @@ Created only with `rls: true` (migrations 007, 019 and 021).
 Each table has `ENABLE ROW LEVEL SECURITY`, `FORCE ROW LEVEL SECURITY` (migration 021), and one policy for all commands:
 
 ```sql
-USING (tenant_id = current_setting('app.current_tenant_id', true)::uuid)
+USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
 ```
 
 - With no `WITH CHECK` clause, the same expression also checks inserted and updated rows, so a row can only be written for the current tenant.
-- `current_setting(..., true)` returns `NULL` when `app.current_tenant_id` was never set in the session, so the policy matches no rows instead of raising an error. After a transaction-local `set_config(..., true)` has ended, the same session returns an empty string instead, and `''::uuid` raises `invalid input syntax for type uuid`. On a pooled connection that was set earlier, a query that skips the setting therefore fails rather than returning zero rows.
+- `current_setting(..., true)` returns `NULL` when `app.current_tenant_id` was never set in the session, and an empty string after a transaction-local `set_config(..., true)` has ended. `NULLIF(..., '')` (migration 022) turns the empty string into `NULL`, so in both cases the policy matches no rows instead of raising an error. Before 022, the empty string reached the `::uuid` cast and failed with `invalid input syntax for type uuid`.
 - Because of `FORCE`, the policies also apply to the table owner, so a role that owns the tables must set `app.current_tenant_id` like any other role; without it, queries return no rows. Superusers and roles with `BYPASSRLS` are still exempt. Connect as a role that is subject to the policies.
 
 See [Multi-tenancy and row-level security](/how-to/multi-tenancy-rls).
